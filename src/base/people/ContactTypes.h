@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,7 @@ struct DirectoryHit {
   std::string display_name;
   std::string nickname;
   std::vector<ContactId> ids;
+  std::optional<std::string> signing_public_key_b64;
 };
 
 } // namespace pbr
