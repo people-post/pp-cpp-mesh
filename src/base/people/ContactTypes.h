@@ -30,6 +30,7 @@ struct DirectoryHit {
   std::string nickname;
   std::vector<ContactId> ids;
   std::optional<std::string> signing_public_key_b64;
+  std::optional<std::string> kem_public_key_b64;
 };
 
 } // namespace pbr
