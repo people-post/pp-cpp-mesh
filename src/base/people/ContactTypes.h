@@ -24,6 +24,8 @@ struct Contact {
   std::string server_nickname;
   std::vector<ContactId> ids;
   TrustLevel trust = TrustLevel::Unknown;
+  /** Dialable libp2p multiaddrs (must include /p2p/<PeerId>). */
+  std::vector<std::string> multiaddrs;
 };
 
 struct DirectoryHit {
@@ -33,6 +35,7 @@ struct DirectoryHit {
   std::vector<ContactId> ids;
   std::optional<std::string> signing_public_key_b64;
   std::optional<std::string> kem_public_key_b64;
+  std::vector<std::string> multiaddrs;
 };
 
 } // namespace pbr
