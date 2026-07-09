@@ -6,6 +6,8 @@
 
 namespace pbr {
 
+/** Identity handle kinds on a Contact (D079 / D096).
+ *  PeerId = network who; Blockchain (CAIP-10) = find/lookup; RelayUser = v1 route. */
 enum class ContactIdKind { RelayUser, PeerId, Blockchain, Custom };
 
 enum class TrustLevel { Unknown, Friendly, Blocked };
