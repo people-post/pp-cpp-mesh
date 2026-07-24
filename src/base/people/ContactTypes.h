@@ -36,6 +36,10 @@ struct DirectoryHit {
   std::optional<std::string> signing_public_key_b64;
   std::optional<std::string> kem_public_key_b64;
   std::vector<std::string> multiaddrs;
+  /** Optional peer capability fields (additive; absent ⇒ treat as protocol_gen 1). */
+  std::optional<std::string> app_version;
+  std::optional<int> protocol_gen;
+  std::optional<int> min_peer_protocol_gen;
 };
 
 } // namespace pbr
