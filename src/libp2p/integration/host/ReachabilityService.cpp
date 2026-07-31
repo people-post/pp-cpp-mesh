@@ -6,6 +6,7 @@
 #include "libp2p/integration/host/NodeRuntime.h"
 
 #include <future>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -104,9 +105,14 @@ void ReachabilityService::RunProbe(NodeRuntime& runtime, DialBackService& dial_b
 
   const std::string seed = PeerIdFromMultiaddr(kDefaultLibp2pBootstrapPeer);
 
-  std::promise<Roe<void>> seed_promise;
-  auto seed_future = seed_promise.get_future();
-  runtime.Sessions()->EnsureConnection(seed, [&](Roe<void> dial_result) { seed_promise.set_value(std::move(dial_result)); });
+  auto seed_promise = std::make_shared<std::promise<Roe<void>>>();
+  auto seed_future = seed_promise->get_future();
+  runtime.Sessions()->EnsureConnection(seed, [seed_promise](Roe<void> dial_result) {
+    try {
+      seed_promise->set_value(std::move(dial_result));
+    } catch (const std::future_error&) {
+    }
+  });
   if (seed_future.wait_for(std::chrono::milliseconds(10000)) == std::future_status::ready) {
     auto seed_result = seed_future.get();
     result.signals.seed_dial_ok = static_cast<bool>(seed_result);
