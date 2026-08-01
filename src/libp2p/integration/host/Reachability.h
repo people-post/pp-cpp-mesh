@@ -24,6 +24,8 @@ struct ReachabilitySignals {
   bool seed_dial_ok = false;
   bool dial_back_ok = false;
   bool upnp_mapped = false;
+  std::string upnp_external_ip;
+  int upnp_external_port = 0;
   std::string dial_back_dialed;
   std::string seed_dial_error;
   std::string dial_back_error;
@@ -58,6 +60,15 @@ std::vector<std::string> BuildReachabilityProbeTargets(const std::string& bound_
                                                        const std::string& local_peer_id,
                                                        const std::vector<std::string>& global_ipv6_addrs,
                                                        const std::string& upnp_external_ip);
+
+/**
+ * Build dialable multiaddrs to advertise via Identify for this Node (media-hop L2).
+ * Merges bound listen, UPnP external, global IPv6, public interfaces, and dial-back-confirmed addr.
+ */
+std::vector<std::string> BuildAdvertisedListenSet(const ReachabilitySignals& signals,
+                                                  const std::string& bound_listen_multiaddr,
+                                                  const std::string& local_peer_id,
+                                                  const std::vector<std::string>& global_ipv6_addrs);
 
 /** Enumerate usable global IPv6 addresses on local interfaces. */
 std::vector<std::string> EnumerateGlobalIpv6Addresses();

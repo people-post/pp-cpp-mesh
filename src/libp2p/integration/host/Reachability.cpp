@@ -294,6 +294,36 @@ std::vector<std::string> BuildReachabilityProbeTargets(const std::string& bound_
   return targets;
 }
 
+std::vector<std::string> BuildAdvertisedListenSet(const ReachabilitySignals& signals,
+                                                  const std::string& bound_listen_multiaddr,
+                                                  const std::string& local_peer_id,
+                                                  const std::vector<std::string>& global_ipv6_addrs) {
+  std::vector<std::string> out = BuildReachabilityProbeTargets(
+      bound_listen_multiaddr, local_peer_id, global_ipv6_addrs, signals.upnp_external_ip);
+
+  out.erase(std::remove_if(out.begin(), out.end(),
+                           [](const std::string& ma) {
+                             return ma.find("/ip4/0.0.0.0/") != std::string::npos ||
+                                    ma.find("/ip6/::/") != std::string::npos;
+                           }),
+            out.end());
+
+  if (signals.dial_back_ok && !signals.dial_back_dialed.empty()) {
+    const auto it = std::find(out.begin(), out.end(), signals.dial_back_dialed);
+    if (it != out.end() && it != out.begin()) {
+      out.erase(it);
+      out.insert(out.begin(), signals.dial_back_dialed);
+    } else if (it == out.end()) {
+      out.insert(out.begin(), signals.dial_back_dialed);
+    }
+  }
+
+  if (out.empty() && !signals.listen_is_wildcard && !bound_listen_multiaddr.empty()) {
+    AppendUnique(out, EnsurePeerIdSuffix(bound_listen_multiaddr, local_peer_id));
+  }
+  return out;
+}
+
 void AppendIpv6ListenCandidatesForPreferred(const std::string& preferred_multiaddr,
                                             std::vector<std::string>& candidates) {
   const auto port = TcpPortFromMultiaddrLocal(preferred_multiaddr);
