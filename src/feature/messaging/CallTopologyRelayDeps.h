@@ -6,6 +6,7 @@
 #include "common/Error.h"
 
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace pbr {
@@ -36,6 +37,7 @@ public:
 
   virtual Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) = 0;
   virtual bool IsDialable(const std::string& peer_key) const = 0;
+  virtual std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const = 0;
   virtual void ClearDialBackoff(const std::string& peer_key) = 0;
 };
 
@@ -115,6 +117,13 @@ public:
 
   bool IsDialable(const std::string& peer_key) const override {
     return sessions_ && sessions_->IsDialable(peer_key);
+  }
+
+  std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const override {
+    if (!sessions_) {
+      return std::nullopt;
+    }
+    return sessions_->PreferredPeerMultiaddr(peer_key);
   }
 
   void ClearDialBackoff(const std::string& peer_key) override {
