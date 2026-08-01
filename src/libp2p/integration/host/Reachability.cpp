@@ -10,6 +10,7 @@
 #if !defined(_WIN32)
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -331,6 +332,45 @@ void AppendIpv6ListenCandidatesForPreferred(const std::string& preferred_multiad
     return;
   }
   AppendIpv6ListenCandidates(candidates, *port);
+}
+
+std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string& bound_listen_multiaddr,
+                                                              const std::string& local_peer_id) {
+  std::vector<std::string> out;
+  if (local_peer_id.empty()) {
+    return out;
+  }
+  const auto port = TcpPortFromMultiaddrLocal(bound_listen_multiaddr);
+  if (!port || *port <= 0) {
+    return out;
+  }
+
+#if !defined(_WIN32)
+  ifaddrs* ifap = nullptr;
+  if (getifaddrs(&ifap) == 0) {
+    for (const ifaddrs* ifa = ifap; ifa != nullptr; ifa = ifa->ifa_next) {
+      if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) {
+        continue;
+      }
+      if ((ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_LOOPBACK) != 0) {
+        continue;
+      }
+      const auto* addr = reinterpret_cast<const sockaddr_in*>(ifa->ifa_addr);
+      char buf[INET_ADDRSTRLEN] = {};
+      if (!inet_ntop(AF_INET, &addr->sin_addr, buf, sizeof(buf))) {
+        continue;
+      }
+      const std::string ip(buf);
+      if (ip == "127.0.0.1" || !IsPrivateIpv4(ip)) {
+        continue;
+      }
+      AppendUnique(out, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
+    }
+    freeifaddrs(ifap);
+  }
+#endif
+
+  return out;
 }
 
 } // namespace pbr

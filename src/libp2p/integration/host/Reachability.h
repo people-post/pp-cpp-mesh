@@ -83,4 +83,11 @@ bool ShouldSkipUpnpForListen(const std::string& bound_listen_multiaddr);
 void AppendIpv6ListenCandidatesForPreferred(const std::string& preferred_multiaddr,
                                             std::vector<std::string>& candidates);
 
+/**
+ * LAN private IPv4 listen addrs for mobile call-scoped publish (N025).
+ * Skips reachability probe; enumerates up non-loopback private interface IPs.
+ */
+std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string& bound_listen_multiaddr,
+                                                              const std::string& local_peer_id);
+
 } // namespace pbr
