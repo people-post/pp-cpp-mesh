@@ -98,6 +98,8 @@ void ReachabilityService::RunProbe(NodeRuntime& runtime, DialBackService& dial_b
     auto mapped = TryUpnpTcpPortMapping(*port);
     if (mapped.ok) {
       result.signals.upnp_mapped = true;
+      result.signals.upnp_external_ip = mapped.external_ip;
+      result.signals.upnp_external_port = mapped.external_port;
       upnp_external_ip_ = mapped.external_ip;
       upnp_external_port_ = mapped.external_port;
     }
@@ -159,6 +161,9 @@ std::string ReachabilityService::FormatOpsStatusJson() const {
   j["has_global_ipv6"] = snap.signals.has_global_ipv6;
   if (!snap.signals.dial_back_dialed.empty()) {
     j["dial_back_dialed"] = snap.signals.dial_back_dialed;
+  }
+  if (!snap.signals.upnp_external_ip.empty()) {
+    j["upnp_external_ip"] = snap.signals.upnp_external_ip;
   }
   if (!snap.signals.seed_dial_error.empty()) {
     j["seed_dial_error"] = snap.signals.seed_dial_error;
