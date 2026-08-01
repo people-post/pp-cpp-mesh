@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace pbr {
 
@@ -39,6 +40,13 @@ public:
   virtual bool IsDialable(const std::string& peer_key) const = 0;
   virtual std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const = 0;
   virtual void ClearDialBackoff(const std::string& peer_key) = 0;
+};
+
+/** L3: circuit bridge fallback when hop PeerId is not directly dialable. */
+class ICircuitHopReach {
+public:
+  virtual ~ICircuitHopReach() = default;
+  virtual Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) = 0;
 };
 
 /** Forwards to MediaRelayService. */
@@ -134,6 +142,23 @@ public:
 
 private:
   PeerSessionManager* sessions_ = nullptr;
+};
+
+/** Forwards to PeerSessionManager + CircuitRelayService via MessagingHub wiring. */
+class CircuitHopReachClient final : public ICircuitHopReach {
+public:
+  CircuitHopReachClient(std::function<Roe<void>(const std::string&)> try_reach)
+      : try_reach_(std::move(try_reach)) {}
+
+  Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override {
+    if (!try_reach_) {
+      return Error("circuit reach not available");
+    }
+    return try_reach_(hop_peer_id);
+  }
+
+private:
+  std::function<Roe<void>(const std::string&)> try_reach_;
 };
 
 } // namespace pbr
