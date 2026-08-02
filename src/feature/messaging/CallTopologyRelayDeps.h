@@ -1,6 +1,7 @@
 #pragma once
 
 #include "libp2p/integration/host/MediaRelayService.h"
+#include "libp2p/integration/host/CallMediaDirectService.h"
 #include "libp2p/integration/host/PeerSessionManager.h"
 
 #include "common/Error.h"
@@ -40,13 +41,17 @@ public:
   virtual bool IsDialable(const std::string& peer_key) const = 0;
   virtual std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const = 0;
   virtual void ClearDialBackoff(const std::string& peer_key) = 0;
+  virtual void ClearCallMediaCircuitHop(const std::string& peer_key) = 0;
 };
 
 /** L3: circuit bridge fallback when hop PeerId is not directly dialable. */
 class ICircuitHopReach {
 public:
   virtual ~ICircuitHopReach() = default;
+  /** Reach a media_relay hop (topology / prefetch). */
   virtual Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) = 0;
+  /** Reach a call peer for 1:1 libp2p call-media when not directly dialable. */
+  virtual Roe<void> TryEnsureCallMediaReachable(const std::string& peer_key) = 0;
 };
 
 /** Forwards to MediaRelayService. */
@@ -140,6 +145,12 @@ public:
     }
   }
 
+  void ClearCallMediaCircuitHop(const std::string& peer_key) override {
+    if (sessions_) {
+      sessions_->ClearCircuitHop(peer_key, kCallMediaDirectProtocolId);
+    }
+  }
+
 private:
   PeerSessionManager* sessions_ = nullptr;
 };
@@ -147,18 +158,28 @@ private:
 /** Forwards to PeerSessionManager + CircuitRelayService via MessagingHub wiring. */
 class CircuitHopReachClient final : public ICircuitHopReach {
 public:
-  CircuitHopReachClient(std::function<Roe<void>(const std::string&)> try_reach)
-      : try_reach_(std::move(try_reach)) {}
+  CircuitHopReachClient(std::function<Roe<void>(const std::string&)> try_media_hop_reach,
+                        std::function<Roe<void>(const std::string&)> try_call_media_reach)
+      : try_media_hop_reach_(std::move(try_media_hop_reach)),
+        try_call_media_reach_(std::move(try_call_media_reach)) {}
 
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override {
-    if (!try_reach_) {
+    if (!try_media_hop_reach_) {
       return Error("circuit reach not available");
     }
-    return try_reach_(hop_peer_id);
+    return try_media_hop_reach_(hop_peer_id);
+  }
+
+  Roe<void> TryEnsureCallMediaReachable(const std::string& peer_key) override {
+    if (!try_call_media_reach_) {
+      return Error("call-media circuit reach not available");
+    }
+    return try_call_media_reach_(peer_key);
   }
 
 private:
-  std::function<Roe<void>(const std::string&)> try_reach_;
+  std::function<Roe<void>(const std::string&)> try_media_hop_reach_;
+  std::function<Roe<void>(const std::string&)> try_call_media_reach_;
 };
 
 } // namespace pbr
