@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <string_view>
 #include <unordered_map>
 
 #if !defined(_WIN32)
@@ -50,6 +51,36 @@ bool ReadU16(const std::vector<uint8_t>& packet, size_t offset, uint16_t* out) {
   }
   *out = static_cast<uint16_t>((static_cast<uint16_t>(packet[offset]) << 8) | packet[offset + 1]);
   return true;
+}
+
+/** Portable dotted-quad parser (avoids Winsock on Windows for packet helpers). */
+bool ParseIpv4Dotted(const std::string& ip, uint8_t out[4]) {
+  size_t start = 0;
+  for (int i = 0; i < 4; ++i) {
+    if (start >= ip.size()) {
+      return false;
+    }
+    const size_t end = (i < 3) ? ip.find('.', start) : ip.size();
+    if (i < 3 && end == std::string::npos) {
+      return false;
+    }
+    if (end == start || end - start > 3) {
+      return false;
+    }
+    int value = 0;
+    for (size_t p = start; p < end; ++p) {
+      if (ip[p] < '0' || ip[p] > '9') {
+        return false;
+      }
+      value = value * 10 + (ip[p] - '0');
+      if (value > 255) {
+        return false;
+      }
+    }
+    out[i] = static_cast<uint8_t>(value);
+    start = end + 1;
+  }
+  return start == ip.size() + 1;
 }
 
 Roe<std::string> ReadDnsName(const std::vector<uint8_t>& packet, size_t offset, size_t* out_next) {
@@ -203,12 +234,10 @@ std::vector<uint8_t> BuildAnnouncement(const std::string& peer_id, int tcp_port,
   }
 
   for (const std::string& ip : lan_ips) {
-    in_addr addr {};
-    if (inet_pton(AF_INET, ip.c_str(), &addr) != 1) {
+    std::vector<uint8_t> rdata(4);
+    if (!ParseIpv4Dotted(ip, rdata.data())) {
       continue;
     }
-    std::vector<uint8_t> rdata(4);
-    std::memcpy(rdata.data(), &addr, 4);
     AppendRecord(packet, target, kDnsTypeA, 120, rdata, true);
     answer_count++;
   }
@@ -246,11 +275,8 @@ std::optional<std::string> ParseARecordIp(const std::vector<uint8_t>& rdata) {
   if (rdata.size() != 4) {
     return std::nullopt;
   }
-  char buf[INET_ADDRSTRLEN] = {};
-  if (!inet_ntop(AF_INET, rdata.data(), buf, sizeof(buf))) {
-    return std::nullopt;
-  }
-  return std::string(buf);
+  return std::to_string(rdata[0]) + "." + std::to_string(rdata[1]) + "." + std::to_string(rdata[2]) +
+         "." + std::to_string(rdata[3]);
 }
 
 } // namespace
