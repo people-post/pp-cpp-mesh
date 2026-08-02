@@ -1,5 +1,6 @@
 #include "libp2p/integration/host/Reachability.h"
 
+#include <algorithm>
 #include <gtest/gtest.h>
 
 TEST(ReachabilityTest, PrivateIpv4Classification) {
@@ -35,4 +36,23 @@ TEST(ReachabilityTest, BuildProbeTargetsIncludesPeerId) {
 TEST(ReachabilityTest, SkipUpnpForPublicListen) {
   EXPECT_TRUE(pbr::ShouldSkipUpnpForListen("/ip4/203.0.113.10/tcp/443"));
   EXPECT_FALSE(pbr::ShouldSkipUpnpForListen("/ip4/0.0.0.0/tcp/18517"));
+}
+
+TEST(ReachabilityTest, BuildAdvertisedListenSetFiltersWildcardAndPrioritizesDialBack) {
+  pbr::ReachabilitySignals signals;
+  signals.dial_back_ok = true;
+  signals.dial_back_dialed = "/ip4/203.0.113.44/tcp/18517/p2p/12D3KooWTest";
+  signals.upnp_mapped = true;
+  signals.upnp_external_ip = "203.0.113.44";
+  signals.listen_is_wildcard = true;
+
+  const auto advertised = pbr::BuildAdvertisedListenSet(signals, "/ip4/0.0.0.0/tcp/18517", "12D3KooWTest", {});
+  ASSERT_FALSE(advertised.empty());
+  EXPECT_EQ(advertised.front(), signals.dial_back_dialed);
+  for (const std::string& ma : advertised) {
+    EXPECT_EQ(ma.find("/ip4/0.0.0.0/"), std::string::npos);
+  }
+  EXPECT_NE(std::find(advertised.begin(), advertised.end(),
+                      "/ip4/203.0.113.44/tcp/18517/p2p/12D3KooWTest"),
+            advertised.end());
 }

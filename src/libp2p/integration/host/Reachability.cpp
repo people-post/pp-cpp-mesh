@@ -10,6 +10,7 @@
 #if !defined(_WIN32)
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -294,6 +295,36 @@ std::vector<std::string> BuildReachabilityProbeTargets(const std::string& bound_
   return targets;
 }
 
+std::vector<std::string> BuildAdvertisedListenSet(const ReachabilitySignals& signals,
+                                                  const std::string& bound_listen_multiaddr,
+                                                  const std::string& local_peer_id,
+                                                  const std::vector<std::string>& global_ipv6_addrs) {
+  std::vector<std::string> out = BuildReachabilityProbeTargets(
+      bound_listen_multiaddr, local_peer_id, global_ipv6_addrs, signals.upnp_external_ip);
+
+  out.erase(std::remove_if(out.begin(), out.end(),
+                           [](const std::string& ma) {
+                             return ma.find("/ip4/0.0.0.0/") != std::string::npos ||
+                                    ma.find("/ip6/::/") != std::string::npos;
+                           }),
+            out.end());
+
+  if (signals.dial_back_ok && !signals.dial_back_dialed.empty()) {
+    const auto it = std::find(out.begin(), out.end(), signals.dial_back_dialed);
+    if (it != out.end() && it != out.begin()) {
+      out.erase(it);
+      out.insert(out.begin(), signals.dial_back_dialed);
+    } else if (it == out.end()) {
+      out.insert(out.begin(), signals.dial_back_dialed);
+    }
+  }
+
+  if (out.empty() && !signals.listen_is_wildcard && !bound_listen_multiaddr.empty()) {
+    AppendUnique(out, EnsurePeerIdSuffix(bound_listen_multiaddr, local_peer_id));
+  }
+  return out;
+}
+
 void AppendIpv6ListenCandidatesForPreferred(const std::string& preferred_multiaddr,
                                             std::vector<std::string>& candidates) {
   const auto port = TcpPortFromMultiaddrLocal(preferred_multiaddr);
@@ -301,6 +332,45 @@ void AppendIpv6ListenCandidatesForPreferred(const std::string& preferred_multiad
     return;
   }
   AppendIpv6ListenCandidates(candidates, *port);
+}
+
+std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string& bound_listen_multiaddr,
+                                                              const std::string& local_peer_id) {
+  std::vector<std::string> out;
+  if (local_peer_id.empty()) {
+    return out;
+  }
+  const auto port = TcpPortFromMultiaddrLocal(bound_listen_multiaddr);
+  if (!port || *port <= 0) {
+    return out;
+  }
+
+#if !defined(_WIN32)
+  ifaddrs* ifap = nullptr;
+  if (getifaddrs(&ifap) == 0) {
+    for (const ifaddrs* ifa = ifap; ifa != nullptr; ifa = ifa->ifa_next) {
+      if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) {
+        continue;
+      }
+      if ((ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_LOOPBACK) != 0) {
+        continue;
+      }
+      const auto* addr = reinterpret_cast<const sockaddr_in*>(ifa->ifa_addr);
+      char buf[INET_ADDRSTRLEN] = {};
+      if (!inet_ntop(AF_INET, &addr->sin_addr, buf, sizeof(buf))) {
+        continue;
+      }
+      const std::string ip(buf);
+      if (ip == "127.0.0.1" || !IsPrivateIpv4(ip)) {
+        continue;
+      }
+      AppendUnique(out, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
+    }
+    freeifaddrs(ifap);
+  }
+#endif
+
+  return out;
 }
 
 } // namespace pbr

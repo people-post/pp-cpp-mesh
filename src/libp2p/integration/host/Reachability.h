@@ -24,6 +24,8 @@ struct ReachabilitySignals {
   bool seed_dial_ok = false;
   bool dial_back_ok = false;
   bool upnp_mapped = false;
+  std::string upnp_external_ip;
+  int upnp_external_port = 0;
   std::string dial_back_dialed;
   std::string seed_dial_error;
   std::string dial_back_error;
@@ -59,6 +61,15 @@ std::vector<std::string> BuildReachabilityProbeTargets(const std::string& bound_
                                                        const std::vector<std::string>& global_ipv6_addrs,
                                                        const std::string& upnp_external_ip);
 
+/**
+ * Build dialable multiaddrs to advertise via Identify for this Node (media-hop L2).
+ * Merges bound listen, UPnP external, global IPv6, public interfaces, and dial-back-confirmed addr.
+ */
+std::vector<std::string> BuildAdvertisedListenSet(const ReachabilitySignals& signals,
+                                                  const std::string& bound_listen_multiaddr,
+                                                  const std::string& local_peer_id,
+                                                  const std::vector<std::string>& global_ipv6_addrs);
+
 /** Enumerate usable global IPv6 addresses on local interfaces. */
 std::vector<std::string> EnumerateGlobalIpv6Addresses();
 
@@ -71,5 +82,12 @@ bool ShouldSkipUpnpForListen(const std::string& bound_listen_multiaddr);
 /** Append global IPv6 listen candidates for the same TCP port (nu). */
 void AppendIpv6ListenCandidatesForPreferred(const std::string& preferred_multiaddr,
                                             std::vector<std::string>& candidates);
+
+/**
+ * LAN private IPv4 listen addrs for mobile call-scoped publish (N025).
+ * Skips reachability probe; enumerates up non-loopback private interface IPs.
+ */
+std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string& bound_listen_multiaddr,
+                                                              const std::string& local_peer_id);
 
 } // namespace pbr
