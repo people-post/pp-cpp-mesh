@@ -41,6 +41,7 @@ public:
   virtual bool IsDialable(const std::string& peer_key) const = 0;
   virtual std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const = 0;
   virtual void ClearDialBackoff(const std::string& peer_key) = 0;
+  virtual void AbortInflightDial(const std::string& peer_key) = 0;
   virtual void ClearCallMediaCircuitHop(const std::string& peer_key) = 0;
 };
 
@@ -121,6 +122,8 @@ class PeerSessionDialRegistry final : public IDialRegistry {
 public:
   explicit PeerSessionDialRegistry(PeerSessionManager* sessions) : sessions_(sessions) {}
 
+  void SetSessions(PeerSessionManager* sessions) { sessions_ = sessions; }
+
   Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) override {
     if (!sessions_) {
       return Error("dial registry not available");
@@ -142,6 +145,12 @@ public:
   void ClearDialBackoff(const std::string& peer_key) override {
     if (sessions_) {
       sessions_->ClearDialBackoff(peer_key);
+    }
+  }
+
+  void AbortInflightDial(const std::string& peer_key) override {
+    if (sessions_) {
+      sessions_->AbortInflightDial(peer_key);
     }
   }
 

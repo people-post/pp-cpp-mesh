@@ -412,13 +412,18 @@ void LanMdnsDiscovery::ThreadMain() {
       last_browse_ms = now_ms;
     }
 
+    // Snapshot under lock only — SendAnnouncement locks advertise_mutex_ itself.
+    // Holding the lock across that call deadlocks (non-recursive) and freezes the UI
+    // on SyncLanMdnsAdvertisement / SetAdvertisement (desktop + mobile tick).
+    bool should_announce = false;
     {
       std::lock_guard lock(advertise_mutex_);
-      if (!advertise_peer_id_.empty() && advertise_port_ > 0 && !advertise_ips_.empty() &&
-          now_ms - last_announce_ms >= 3000) {
-        SendAnnouncement(fd);
-        last_announce_ms = now_ms;
-      }
+      should_announce = !advertise_peer_id_.empty() && advertise_port_ > 0 && !advertise_ips_.empty() &&
+                        now_ms - last_announce_ms >= 3000;
+    }
+    if (should_announce) {
+      SendAnnouncement(fd);
+      last_announce_ms = now_ms;
     }
 
     if (FD_ISSET(fd, &readfds)) {
