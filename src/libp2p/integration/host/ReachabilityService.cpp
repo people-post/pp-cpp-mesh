@@ -2,13 +2,13 @@
 
 #include "base/data/Libp2pRole.h"
 #include "libp2p/integration/host/DialBackService.h"
+#include "libp2p/integration/host/Libp2pWorker.h"
 #include "libp2p/integration/host/NatTraversal.h"
 #include "libp2p/integration/host/NodeRuntime.h"
 
 #include <future>
 #include <memory>
 #include <nlohmann/json.hpp>
-#include <thread>
 
 namespace pbr {
 
@@ -65,10 +65,15 @@ void ReachabilityService::StartProbe(NodeRuntime& runtime, DialBackService& dial
   checking.status = ReachabilityStatus::Checking;
   Publish(checking);
 
-  std::thread([this, &runtime, &dial_back, try_upnp_first]() {
+  Libp2pHost* host = runtime.Host();
+  if (!host) {
+    probing_.store(false);
+    return;
+  }
+  PostLibp2pWorker(*host, WorkerLane::Background, [this, &runtime, &dial_back, try_upnp_first]() {
     RunProbe(runtime, dial_back, try_upnp_first);
     probing_.store(false);
-  }).detach();
+  });
 }
 
 void ReachabilityService::RunProbeBlocking(NodeRuntime& runtime, DialBackService& dial_back,

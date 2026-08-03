@@ -21,7 +21,7 @@ public:
 
   bool IsProbing() const { return probing_.load(); }
 
-  /** Fire-and-forget probe on a worker thread. */
+  /** Fire-and-forget probe on the libp2p worker pool (Background lane). */
   void StartProbe(NodeRuntime& runtime, DialBackService& dial_back, bool try_upnp_first);
 
   /** Block until an in-flight probe completes (pp-node --status). */
