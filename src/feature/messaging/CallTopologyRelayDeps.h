@@ -19,6 +19,7 @@ public:
   virtual ~IMediaRelayClient() = default;
 
   virtual Roe<std::string> LocalPeerIdBase58() const = 0;
+  virtual bool IsStarted() const = 0;
   virtual Roe<MediaRelayQuote> RequestQuote(const std::string& hop_peer_key,
                                             const MediaRelayQuoteRequest& request,
                                             int timeout_ms = 8000) = 0;
@@ -26,6 +27,9 @@ public:
       const std::string& hop_peer_key, const std::string& quote_id, const std::string& call_id,
       const std::string& auth_stub, std::function<void(MediaDataFrame)> on_frame,
       int timeout_ms = 8000) = 0;
+  /** In-call hop: join local HostSession without dialing self. */
+  virtual Roe<MediaRelayAttachResult> AttachAsLocalHop(
+      const std::string& call_id, std::function<void(MediaDataFrame)> on_frame) = 0;
   virtual Roe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) = 0;
   virtual Roe<void> SendFrame(const MediaDataFrame& frame) = 0;
   virtual void Detach() = 0;
@@ -67,6 +71,8 @@ public:
     return service_->LocalPeerIdBase58();
   }
 
+  bool IsStarted() const override { return service_ && service_->IsStarted(); }
+
   Roe<MediaRelayQuote> RequestQuote(const std::string& hop_peer_key,
                                     const MediaRelayQuoteRequest& request,
                                     int timeout_ms) override {
@@ -87,6 +93,14 @@ public:
     }
     return service_->AcceptAndAttach(hop_peer_key, quote_id, call_id, auth_stub, std::move(on_frame),
                                      timeout_ms);
+  }
+
+  Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& call_id,
+                                               std::function<void(MediaDataFrame)> on_frame) override {
+    if (!service_) {
+      return Error("media_relay not available");
+    }
+    return service_->AttachAsLocalHop(call_id, std::move(on_frame));
   }
 
   Roe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) override {
