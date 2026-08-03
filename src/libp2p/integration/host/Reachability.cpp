@@ -14,6 +14,13 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#else
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
 #endif
 
 namespace pbr {
@@ -345,7 +352,45 @@ std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string&
     return out;
   }
 
-#if !defined(_WIN32)
+#if defined(_WIN32)
+  ULONG size = 0;
+  if (GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                                        GAA_FLAG_SKIP_DNS_SERVER,
+                           nullptr, nullptr, &size) != ERROR_BUFFER_OVERFLOW ||
+      size == 0) {
+    return out;
+  }
+  std::vector<uint8_t> buffer(size);
+  auto* adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+  if (GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                                        GAA_FLAG_SKIP_DNS_SERVER,
+                           nullptr, adapters, &size) != NO_ERROR) {
+    return out;
+  }
+  for (IP_ADAPTER_ADDRESSES* adapter = adapters; adapter != nullptr; adapter = adapter->Next) {
+    if (adapter->OperStatus != IfOperStatusUp) {
+      continue;
+    }
+    if (adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK) {
+      continue;
+    }
+    for (IP_ADAPTER_UNICAST_ADDRESS* uni = adapter->FirstUnicastAddress; uni != nullptr; uni = uni->Next) {
+      if (!uni->Address.lpSockaddr || uni->Address.lpSockaddr->sa_family != AF_INET) {
+        continue;
+      }
+      const auto* addr = reinterpret_cast<const sockaddr_in*>(uni->Address.lpSockaddr);
+      char buf[INET_ADDRSTRLEN] = {};
+      if (!InetNtopA(AF_INET, &addr->sin_addr, buf, sizeof(buf))) {
+        continue;
+      }
+      const std::string ip(buf);
+      if (ip == "127.0.0.1" || !IsPrivateIpv4(ip)) {
+        continue;
+      }
+      AppendUnique(out, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
+    }
+  }
+#else
   ifaddrs* ifap = nullptr;
   if (getifaddrs(&ifap) == 0) {
     for (const ifaddrs* ifa = ifap; ifa != nullptr; ifa = ifa->ifa_next) {

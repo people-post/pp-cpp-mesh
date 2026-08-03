@@ -58,8 +58,13 @@ public:
 
 private:
   void ThreadMain();
-  void SendBrowseQuery(int socket_fd);
-  void SendAnnouncement(int socket_fd);
+#if defined(_WIN32)
+  using NativeSocket = uintptr_t;
+#else
+  using NativeSocket = int;
+#endif
+  void SendBrowseQuery(NativeSocket socket_fd);
+  void SendAnnouncement(NativeSocket socket_fd);
   void HandlePacket(const uint8_t* data, size_t len);
 
   DiscoveredFn on_discovered_;
