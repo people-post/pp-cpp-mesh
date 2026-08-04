@@ -27,6 +27,8 @@ public:
       const std::string& hop_peer_key, const std::string& quote_id, const std::string& call_id,
       const std::string& auth_stub, std::function<void(MediaDataFrame)> on_frame,
       int timeout_ms = 8000) = 0;
+  /** After AcceptAndAttach + StartSfu — begin inbound frame delivery. */
+  virtual void StartClientFrameReader() = 0;
   /** In-call hop: join local HostSession without dialing self. */
   virtual Roe<MediaRelayAttachResult> AttachAsLocalHop(
       const std::string& call_id, std::function<void(MediaDataFrame)> on_frame) = 0;
@@ -34,6 +36,7 @@ public:
   virtual Roe<void> SendFrame(const MediaDataFrame& frame) = 0;
   virtual void Detach() = 0;
   virtual bool IsAttached() const = 0;
+  virtual bool IsLocalHopAttached() const = 0;
 };
 
 /** Dial registry surface for hop RegisterEndpoint / IsDialable. */
@@ -95,6 +98,12 @@ public:
                                      timeout_ms);
   }
 
+  void StartClientFrameReader() override {
+    if (service_) {
+      service_->StartClientFrameReader();
+    }
+  }
+
   Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& call_id,
                                                std::function<void(MediaDataFrame)> on_frame) override {
     if (!service_) {
@@ -125,6 +134,10 @@ public:
 
   bool IsAttached() const override {
     return service_ && service_->IsAttached();
+  }
+
+  bool IsLocalHopAttached() const override {
+    return service_ && service_->IsLocalHopAttached();
   }
 
 private:
