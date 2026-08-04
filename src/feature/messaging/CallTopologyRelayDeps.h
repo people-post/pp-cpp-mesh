@@ -155,7 +155,25 @@ public:
     if (!sessions_) {
       return Error("dial registry not available");
     }
-    return sessions_->RegisterEndpoint(peer_key, multiaddr);
+    auto registered = sessions_->RegisterEndpoint(peer_key, multiaddr);
+    if (!registered) {
+      return registered;
+    }
+    // Pin hop in the address book above mDNS — OpenStream hydrates Preferred from the book
+    // and would otherwise dial a poisoned virbr multiaddr over CallSfuAttach's LAN hop.
+    std::string peer_id = peer_key;
+    const auto p2p_pos = multiaddr.rfind("/p2p/");
+    if (p2p_pos != std::string::npos) {
+      peer_id = multiaddr.substr(p2p_pos + 5);
+      const auto slash = peer_id.find('/');
+      if (slash != std::string::npos) {
+        peer_id.resize(slash);
+      }
+    }
+    if (!peer_id.empty()) {
+      (void)sessions_->UpsertBookEntry(peer_id, multiaddr, PeerAddrSource::CallHop);
+    }
+    return {};
   }
 
   bool IsDialable(const std::string& peer_key) const override {

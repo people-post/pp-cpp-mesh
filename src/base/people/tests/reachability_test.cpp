@@ -38,6 +38,18 @@ TEST(ReachabilityTest, SkipUpnpForPublicListen) {
   EXPECT_FALSE(pbr::ShouldSkipUpnpForListen("/ip4/0.0.0.0/tcp/18517"));
 }
 
+TEST(ReachabilityTest, UndialableLanAndVirtualIfaceHelpers) {
+  EXPECT_TRUE(pbr::IsLikelyUndialableLanIpv4("192.168.122.1"));
+  EXPECT_TRUE(pbr::IsLikelyUndialableLanIpv4("192.168.122.50"));
+  EXPECT_FALSE(pbr::IsLikelyUndialableLanIpv4("192.168.1.152"));
+  EXPECT_FALSE(pbr::IsLikelyUndialableLanIpv4("192.168.1.122"));
+  EXPECT_TRUE(pbr::IsVirtualLanIfaceName("virbr0"));
+  EXPECT_TRUE(pbr::IsVirtualLanIfaceName("docker0"));
+  EXPECT_TRUE(pbr::IsVirtualLanIfaceName("vethabc123"));
+  EXPECT_FALSE(pbr::IsVirtualLanIfaceName("enp9s0"));
+  EXPECT_FALSE(pbr::IsVirtualLanIfaceName("wlan0"));
+}
+
 TEST(ReachabilityTest, BuildAdvertisedListenSetFiltersWildcardAndPrioritizesDialBack) {
   pbr::ReachabilitySignals signals;
   signals.dial_back_ok = true;

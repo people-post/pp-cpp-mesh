@@ -172,6 +172,30 @@ bool IsPublicIpv4(const std::string& dotted_quad) {
   return !IsPrivateIpv4(dotted_quad);
 }
 
+bool IsLikelyUndialableLanIpv4(const std::string& dotted_quad) {
+  // libvirt virbr0 default NAT network — UP/NO-CARRIER on many Linux desktops; phones cannot
+  // route to it. Dogfood: Samsung mDNS kept overwriting CallSfuAttach /ip4/192.168.1.x with this.
+  std::array<int, 4> octets{};
+  if (!ParseIpv4Octets(dotted_quad, octets)) {
+    return false;
+  }
+  return octets[0] == 192 && octets[1] == 168 && octets[2] == 122;
+}
+
+bool IsVirtualLanIfaceName(const std::string& ifname) {
+  if (ifname.empty()) {
+    return false;
+  }
+  auto starts_with = [&](const char* prefix) {
+    const size_t n = std::char_traits<char>::length(prefix);
+    return ifname.size() >= n && ifname.compare(0, n, prefix) == 0;
+  };
+  return starts_with("virbr") || starts_with("docker") || starts_with("veth") ||
+         starts_with("lxcbr") || starts_with("br-") || starts_with("vmnet") ||
+         starts_with("vboxnet") || starts_with("zt") || starts_with("tailscale") ||
+         ifname == "docker0";
+}
+
 bool IsGlobalIpv6(const std::string& addr) {
   if (addr.empty() || addr.find(':') == std::string::npos) {
     return false;
@@ -384,7 +408,7 @@ std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string&
         continue;
       }
       const std::string ip(buf);
-      if (ip == "127.0.0.1" || !IsPrivateIpv4(ip)) {
+      if (ip == "127.0.0.1" || !IsPrivateIpv4(ip) || IsLikelyUndialableLanIpv4(ip)) {
         continue;
       }
       AppendUnique(out, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
@@ -397,7 +421,12 @@ std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string&
       if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) {
         continue;
       }
-      if ((ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_LOOPBACK) != 0) {
+      // Require carrier (IFF_RUNNING): virbr0 is often UP+NO-CARRIER and still has an IP.
+      if ((ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_RUNNING) == 0 ||
+          (ifa->ifa_flags & IFF_LOOPBACK) != 0) {
+        continue;
+      }
+      if (ifa->ifa_name && IsVirtualLanIfaceName(ifa->ifa_name)) {
         continue;
       }
       const auto* addr = reinterpret_cast<const sockaddr_in*>(ifa->ifa_addr);
@@ -406,7 +435,7 @@ std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string&
         continue;
       }
       const std::string ip(buf);
-      if (ip == "127.0.0.1" || !IsPrivateIpv4(ip)) {
+      if (ip == "127.0.0.1" || !IsPrivateIpv4(ip) || IsLikelyUndialableLanIpv4(ip)) {
         continue;
       }
       AppendUnique(out, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));

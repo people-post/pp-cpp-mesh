@@ -49,6 +49,15 @@ bool IsPrivateIpv4(const std::string& dotted_quad);
 bool IsPublicIpv4(const std::string& dotted_quad);
 bool IsGlobalIpv6(const std::string& addr);
 
+/**
+ * True for IPs that are private but typically undialable from LAN peers
+ * (libvirt virbr default 192.168.122.0/24). Used to filter call/mDNS advertise.
+ */
+bool IsLikelyUndialableLanIpv4(const std::string& dotted_quad);
+
+/** True for virtual NIC names (virbr*, docker*, veth*, …) that should not be advertised. */
+bool IsVirtualLanIfaceName(const std::string& ifname);
+
 /** Extract `/ip4/<addr>` or `/ip6/<addr>` host portion from a multiaddr prefix. */
 std::string IpHostFromMultiaddrPrefix(const std::string& multiaddr);
 
@@ -85,7 +94,8 @@ void AppendIpv6ListenCandidatesForPreferred(const std::string& preferred_multiad
 
 /**
  * LAN private IPv4 listen addrs for mobile call-scoped publish (N025).
- * Skips reachability probe; enumerates up non-loopback private interface IPs.
+ * Skips reachability probe; enumerates carrier-up non-loopback private IPs.
+ * Filters virtual NICs (virbr/docker/…) and libvirt default 192.168.122.0/24.
  */
 std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string& bound_listen_multiaddr,
                                                               const std::string& local_peer_id);
