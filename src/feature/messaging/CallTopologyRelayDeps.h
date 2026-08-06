@@ -37,6 +37,8 @@ public:
   virtual void Detach() = 0;
   virtual bool IsAttached() const = 0;
   virtual bool IsLocalHopAttached() const = 0;
+  /** Hop drop pressure 0..1 (V032); default 0 for fakes. */
+  virtual double PathPressure() const { return 0.0; }
 };
 
 /** Dial registry surface for hop RegisterEndpoint / IsDialable. */
@@ -138,6 +140,10 @@ public:
 
   bool IsLocalHopAttached() const override {
     return service_ && service_->IsLocalHopAttached();
+  }
+
+  double PathPressure() const override {
+    return service_ ? service_->PathPressure() : 0.0;
   }
 
 private:
