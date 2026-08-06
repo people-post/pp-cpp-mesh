@@ -39,6 +39,8 @@ public:
   virtual bool IsLocalHopAttached() const = 0;
   /** Hop drop pressure 0..1 (V032); default 0 for fakes. */
   virtual double PathPressure() const { return 0.0; }
+  /** Hop health counters (V032); default empty. */
+  virtual CallHopHealth HealthSnapshot() const { return {}; }
 };
 
 /** Dial registry surface for hop RegisterEndpoint / IsDialable. */
@@ -144,6 +146,10 @@ public:
 
   double PathPressure() const override {
     return service_ ? service_->PathPressure() : 0.0;
+  }
+
+  CallHopHealth HealthSnapshot() const override {
+    return service_ ? service_->HealthSnapshot() : CallHopHealth{};
   }
 
 private:
