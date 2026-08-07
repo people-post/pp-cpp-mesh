@@ -29,6 +29,11 @@ public:
       int timeout_ms = 8000) = 0;
   /** After AcceptAndAttach + StartSfu — begin inbound frame delivery. */
   virtual void StartClientFrameReader() = 0;
+  /**
+   * Unexpected guest duplex death (not Detach). Default no-op for fakes that never lose transport.
+   * Handler may be invoked on the libp2p io thread.
+   */
+  virtual void SetClientTransportLostHandler(std::function<void()> /*handler*/) {}
   /** In-call hop: join local HostSession without dialing self. */
   virtual Roe<MediaRelayAttachResult> AttachAsLocalHop(
       const std::string& call_id, std::function<void(MediaDataFrame)> on_frame) = 0;
@@ -105,6 +110,12 @@ public:
   void StartClientFrameReader() override {
     if (service_) {
       service_->StartClientFrameReader();
+    }
+  }
+
+  void SetClientTransportLostHandler(std::function<void()> handler) override {
+    if (service_) {
+      service_->SetClientTransportLostHandler(std::move(handler));
     }
   }
 
