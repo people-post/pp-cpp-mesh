@@ -56,14 +56,6 @@ std::string EnsurePeerIdSuffix(std::string multiaddr, const std::string& peer_id
   return multiaddr;
 }
 
-std::string IpPrefixBeforeTcpLocal(const std::string& multiaddr) {
-  const auto tcp_pos = multiaddr.find("/tcp/");
-  if (tcp_pos == std::string::npos) {
-    return multiaddr;
-  }
-  return multiaddr.substr(0, tcp_pos);
-}
-
 void AppendUnique(std::vector<std::string>& out, const std::string& value) {
   if (value.empty()) {
     return;
