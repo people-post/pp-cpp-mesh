@@ -109,6 +109,8 @@ struct DirectoryHit {
   std::optional<std::string> signing_public_key_b64;
   std::optional<std::string> kem_public_key_b64;
   std::vector<std::string> multiaddrs;
+  /** Initiation floor in pp_credit minor units; missing on wire → 0 (P001). */
+  int64_t initiation_floor = 0;
 };
 
 } // namespace pbr
