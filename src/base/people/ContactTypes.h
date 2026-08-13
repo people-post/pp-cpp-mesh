@@ -7,14 +7,15 @@
 
 namespace pbr {
 
-/** Identity handle kinds on a Contact (D079 / D096).
- *  PeerId = network who; Blockchain (CAIP-10) = find/lookup; RelayUser = v1 route. */
-enum class ContactIdKind { RelayUser, PeerId, Blockchain, Custom };
+/** Identity handle kinds on a Contact (D079 / D096 / M009).
+ *  Account = person (communicating identity); PeerId = device endpoint;
+ *  Blockchain (CAIP-10) = find/lookup; RelayUser = Brief route / inbox. */
+enum class ContactIdKind { Account, RelayUser, PeerId, Blockchain, Custom };
 
 enum class TrustLevel { Unknown, Friendly, Blocked };
 
 struct ContactId {
-  ContactIdKind kind = ContactIdKind::RelayUser;
+  ContactIdKind kind = ContactIdKind::Account;
   std::string value;
   bool primary = false;
 };
@@ -80,7 +81,7 @@ inline void PromoteFlatFieldsToNested(Contact& contact) {
   contact.remote.multiaddrs = contact.multiaddrs;
 }
 
-/** Title: local display_name, else remote nickname, else primary relay id. */
+/** Title: local display_name, else remote nickname, else Account ID, else relay id. */
 inline std::string ContactEffectiveTitle(const Contact& contact) {
   if (!contact.local.display_name.empty()) {
     return contact.local.display_name;
@@ -89,7 +90,12 @@ inline std::string ContactEffectiveTitle(const Contact& contact) {
     return contact.remote.nickname;
   }
   for (const ContactId& id : contact.remote.ids) {
-    if (id.kind == ContactIdKind::RelayUser && id.primary && !id.value.empty()) {
+    if (id.kind == ContactIdKind::Account && id.primary && !id.value.empty()) {
+      return id.value;
+    }
+  }
+  for (const ContactId& id : contact.remote.ids) {
+    if (id.kind == ContactIdKind::Account && !id.value.empty()) {
       return id.value;
     }
   }
@@ -106,6 +112,7 @@ struct DirectoryHit {
   std::string display_name;
   std::string nickname;
   std::vector<ContactId> ids;
+  std::optional<std::string> account_id;
   std::optional<std::string> signing_public_key_b64;
   std::optional<std::string> kem_public_key_b64;
   std::vector<std::string> multiaddrs;
