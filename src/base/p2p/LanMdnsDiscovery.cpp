@@ -1,4 +1,4 @@
-#include "libp2p/integration/host/LanMdnsDiscovery.h"
+#include "base/p2p/LanMdnsDiscovery.h"
 
 #include <algorithm>
 #include <cctype>

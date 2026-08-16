@@ -1,10 +1,10 @@
-#include "libp2p/integration/host/ReachabilityService.h"
+#include "base/p2p/ReachabilityService.h"
 
 #include "base/data/Libp2pRole.h"
-#include "libp2p/integration/host/DialBackService.h"
-#include "libp2p/integration/host/Libp2pWorker.h"
-#include "libp2p/integration/host/NatTraversal.h"
-#include "libp2p/integration/host/NodeRuntime.h"
+#include "base/p2p/DialBackService.h"
+#include "base/p2p/Libp2pWorker.h"
+#include "base/p2p/NatTraversal.h"
+#include "base/p2p/NodeRuntime.h"
 
 #include <future>
 #include <memory>

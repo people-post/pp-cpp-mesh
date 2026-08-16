@@ -1,8 +1,8 @@
 #pragma once
 
-#include "libp2p/integration/host/MediaRelayService.h"
-#include "libp2p/integration/host/CallMediaDirectService.h"
-#include "libp2p/integration/host/PeerSessionManager.h"
+#include "base/p2p/MediaRelayService.h"
+#include "base/p2p/CallMediaDirectService.h"
+#include "base/p2p/PeerSessionManager.h"
 
 #include "common/Error.h"
 

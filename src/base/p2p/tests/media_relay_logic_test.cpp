@@ -1,6 +1,6 @@
-#include "libp2p/integration/host/MediaRelayAttachSm.h"
-#include "libp2p/integration/host/MediaRelayLogic.h"
-#include "libp2p/integration/host/MediaRelayService.h"
+#include "base/p2p/MediaRelayAttachSm.h"
+#include "base/p2p/MediaRelayLogic.h"
+#include "base/p2p/MediaRelayService.h"
 
 #include <gtest/gtest.h>
 
