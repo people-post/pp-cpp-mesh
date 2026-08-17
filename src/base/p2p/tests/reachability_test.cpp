@@ -1,4 +1,4 @@
-#include "libp2p/integration/host/Reachability.h"
+#include "base/p2p/Reachability.h"
 
 #include <algorithm>
 #include <gtest/gtest.h>

@@ -1,5 +1,5 @@
-#include "libp2p/integration/host/MediaRelayFrames.h"
-#include "libp2p/integration/host/MediaRelayService.h"
+#include "base/p2p/MediaRelayFrames.h"
+#include "base/p2p/MediaRelayService.h"
 
 #include <cstring>
 

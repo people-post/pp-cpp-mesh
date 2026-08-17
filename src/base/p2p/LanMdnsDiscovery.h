@@ -14,6 +14,10 @@
 
 namespace pbr {
 
+namespace lan_mdns {
+class UdpMulticastSocket;
+}
+
 /** mDNS service type for pp-browser LAN peer discovery (ns2). */
 inline constexpr const char* kLanMdnsServiceType = "_pp-browser._tcp.local";
 
@@ -58,13 +62,8 @@ public:
 
 private:
   void ThreadMain();
-#if defined(_WIN32)
-  using NativeSocket = uintptr_t;
-#else
-  using NativeSocket = int;
-#endif
-  void SendBrowseQuery(NativeSocket socket_fd);
-  void SendAnnouncement(NativeSocket socket_fd);
+  void SendBrowseQuery(lan_mdns::UdpMulticastSocket& socket);
+  void SendAnnouncement(lan_mdns::UdpMulticastSocket& socket);
   void HandlePacket(const uint8_t* data, size_t len);
 
   DiscoveredFn on_discovered_;

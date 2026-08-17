@@ -2,13 +2,13 @@
 
 #include "base/data/Config.h"
 #include "common/Error.h"
-#include "libp2p/integration/host/CircuitRelayService.h"
-#include "libp2p/integration/host/DialBackService.h"
-#include "libp2p/integration/host/Libp2pHost.h"
-#include "libp2p/integration/host/MediaRelayService.h"
-#include "libp2p/integration/host/NodeRuntime.h"
-#include "libp2p/integration/host/PeerSessionManager.h"
-#include "libp2p/integration/host/ReachabilityService.h"
+#include "base/p2p/CircuitRelayService.h"
+#include "base/p2p/DialBackService.h"
+#include "base/p2p/Libp2pHost.h"
+#include "base/p2p/MediaRelayService.h"
+#include "base/p2p/NodeRuntime.h"
+#include "base/p2p/PeerSessionManager.h"
+#include "base/p2p/ReachabilityService.h"
 
 #include <functional>
 #include <memory>

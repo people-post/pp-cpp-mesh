@@ -1,6 +1,6 @@
 #pragma once
 
-#include "libp2p/integration/host/Reachability.h"
+#include "base/p2p/Reachability.h"
 
 #include <atomic>
 #include <functional>

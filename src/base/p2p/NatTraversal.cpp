@@ -1,4 +1,4 @@
-#include "libp2p/integration/host/NatTraversal.h"
+#include "base/p2p/NatTraversal.h"
 
 #include <mutex>
 #include <string>
