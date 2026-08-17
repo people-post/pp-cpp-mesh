@@ -1,4 +1,5 @@
 #include "base/p2p/LanMdnsDiscovery.h"
+#include "base/p2p/LanMdnsSocket.h"
 
 #include <algorithm>
 #include <cctype>
@@ -6,22 +7,6 @@
 #include <cstring>
 #include <string_view>
 #include <unordered_map>
-
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <arpa/inet.h>
-#include <ifaddrs.h>
-#include <net/if.h>
-#include <netinet/in.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
 
 namespace pbr {
 namespace {
@@ -33,38 +18,6 @@ constexpr uint16_t kDnsTypeA = 1;
 constexpr uint16_t kDnsClassIn = 1;
 constexpr int kMdnsPort = 5353;
 constexpr const char* kMdnsMulticast = "224.0.0.251";
-
-#if defined(_WIN32)
-using SocketHandle = SOCKET;
-constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
-
-bool EnsureWinsock() {
-  static bool ready = false;
-  static bool ok = false;
-  if (ready) {
-    return ok;
-  }
-  WSADATA data {};
-  ok = (WSAStartup(MAKEWORD(2, 2), &data) == 0);
-  ready = true;
-  return ok;
-}
-
-void CloseSocket(SocketHandle fd) {
-  if (fd != kInvalidSocket) {
-    closesocket(fd);
-  }
-}
-#else
-using SocketHandle = int;
-constexpr SocketHandle kInvalidSocket = -1;
-
-void CloseSocket(SocketHandle fd) {
-  if (fd >= 0) {
-    close(fd);
-  }
-}
-#endif
 
 void AppendU16(std::vector<uint8_t>& out, uint16_t v) {
   out.push_back(static_cast<uint8_t>((v >> 8) & 0xff));
@@ -355,11 +308,9 @@ Roe<std::string> LanMdnsDiscovery::DecodeDnsName(const std::vector<uint8_t>& pac
 }
 
 Roe<void> LanMdnsDiscovery::Start() {
-#if defined(_WIN32)
-  if (!EnsureWinsock()) {
-    return Error("WSAStartup failed for LAN mDNS");
+  if (!lan_mdns::UdpMulticastSocket::Init()) {
+    return Error("LAN mDNS socket init failed");
   }
-#endif
   if (running_.load()) {
     return {};
   }
@@ -393,67 +344,24 @@ std::optional<std::string> LanMdnsDiscovery::BuildMultiaddr(const LanMdnsDiscove
 }
 
 void LanMdnsDiscovery::ThreadMain() {
-  const SocketHandle fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-  if (fd == kInvalidSocket) {
+  lan_mdns::UdpMulticastSocket socket;
+  if (!socket.Open(static_cast<uint16_t>(kMdnsPort), kMdnsMulticast)) {
     running_.store(false);
     return;
   }
-
-  int reuse = 1;
-#if defined(_WIN32)
-  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
-#else
-  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-#ifdef SO_REUSEPORT
-  setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse));
-#endif
-#endif
-
-  sockaddr_in bind_addr {};
-  bind_addr.sin_family = AF_INET;
-  bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  bind_addr.sin_port = htons(static_cast<uint16_t>(kMdnsPort));
-  if (bind(fd, reinterpret_cast<sockaddr*>(&bind_addr), sizeof(bind_addr)) != 0) {
-    CloseSocket(fd);
-    running_.store(false);
-    return;
-  }
-
-  ip_mreq mreq {};
-#if defined(_WIN32)
-  InetPtonA(AF_INET, kMdnsMulticast, &mreq.imr_multiaddr);
-#else
-  mreq.imr_multiaddr.s_addr = inet_addr(kMdnsMulticast);
-#endif
-  mreq.imr_interface.s_addr = htonl(INADDR_ANY);
-#if defined(_WIN32)
-  setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&mreq), sizeof(mreq));
-#else
-  setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
-#endif
 
   int64_t last_browse_ms = 0;
   int64_t last_announce_ms = 0;
 
   while (!stop_requested_.load()) {
-    fd_set readfds;
-    FD_ZERO(&readfds);
-    FD_SET(fd, &readfds);
-    timeval tv {};
-    tv.tv_sec = 0;
-    tv.tv_usec = 200000;
-#if defined(_WIN32)
-    (void)select(0, &readfds, nullptr, nullptr, &tv);
-#else
-    (void)select(fd + 1, &readfds, nullptr, nullptr, &tv);
-#endif
+    const bool readable = socket.WaitReadable(200);
 
     const int64_t now_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
             .count();
 
     if (now_ms - last_browse_ms >= 10000) {
-      SendBrowseQuery(static_cast<NativeSocket>(fd));
+      SendBrowseQuery(socket);
       last_browse_ms = now_ms;
     }
 
@@ -467,50 +375,32 @@ void LanMdnsDiscovery::ThreadMain() {
                         now_ms - last_announce_ms >= 3000;
     }
     if (should_announce) {
-      SendAnnouncement(static_cast<NativeSocket>(fd));
+      SendAnnouncement(socket);
       last_announce_ms = now_ms;
     }
 
-    if (FD_ISSET(fd, &readfds)) {
+    if (readable) {
       uint8_t buf[9000];
-#if defined(_WIN32)
-      const int n = recvfrom(fd, reinterpret_cast<char*>(buf), sizeof(buf), 0, nullptr, nullptr);
-#else
-      const ssize_t n = recvfrom(fd, buf, sizeof(buf), 0, nullptr, nullptr);
-#endif
+      const int n = socket.Recv(buf, sizeof(buf));
       if (n > 0) {
         HandlePacket(buf, static_cast<size_t>(n));
       }
     }
   }
 
-  CloseSocket(fd);
+  socket.Close();
   running_.store(false);
 }
 
-void LanMdnsDiscovery::SendBrowseQuery(NativeSocket socket_fd) {
+void LanMdnsDiscovery::SendBrowseQuery(lan_mdns::UdpMulticastSocket& socket) {
   const auto packet = BuildBrowseQuery();
   if (packet.empty()) {
     return;
   }
-  sockaddr_in dest {};
-  dest.sin_family = AF_INET;
-#if defined(_WIN32)
-  InetPtonA(AF_INET, kMdnsMulticast, &dest.sin_addr);
-#else
-  dest.sin_addr.s_addr = inet_addr(kMdnsMulticast);
-#endif
-  dest.sin_port = htons(static_cast<uint16_t>(kMdnsPort));
-#if defined(_WIN32)
-  (void)sendto(static_cast<SOCKET>(socket_fd), reinterpret_cast<const char*>(packet.data()),
-               static_cast<int>(packet.size()), 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
-#else
-  (void)sendto(static_cast<int>(socket_fd), packet.data(), packet.size(), 0,
-               reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
-#endif
+  socket.Send(packet.data(), packet.size(), static_cast<uint16_t>(kMdnsPort), kMdnsMulticast);
 }
 
-void LanMdnsDiscovery::SendAnnouncement(NativeSocket socket_fd) {
+void LanMdnsDiscovery::SendAnnouncement(lan_mdns::UdpMulticastSocket& socket) {
   std::string peer_id;
   int port = 0;
   std::vector<std::string> ips;
@@ -524,21 +414,7 @@ void LanMdnsDiscovery::SendAnnouncement(NativeSocket socket_fd) {
   if (packet.empty()) {
     return;
   }
-  sockaddr_in dest {};
-  dest.sin_family = AF_INET;
-#if defined(_WIN32)
-  InetPtonA(AF_INET, kMdnsMulticast, &dest.sin_addr);
-#else
-  dest.sin_addr.s_addr = inet_addr(kMdnsMulticast);
-#endif
-  dest.sin_port = htons(static_cast<uint16_t>(kMdnsPort));
-#if defined(_WIN32)
-  (void)sendto(static_cast<SOCKET>(socket_fd), reinterpret_cast<const char*>(packet.data()),
-               static_cast<int>(packet.size()), 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
-#else
-  (void)sendto(static_cast<int>(socket_fd), packet.data(), packet.size(), 0,
-               reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
-#endif
+  socket.Send(packet.data(), packet.size(), static_cast<uint16_t>(kMdnsPort), kMdnsMulticast);
 }
 
 void LanMdnsDiscovery::HandlePacket(const uint8_t* data, size_t len) {

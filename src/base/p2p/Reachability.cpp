@@ -1,4 +1,5 @@
 #include "base/p2p/Reachability.h"
+#include "base/p2p/ReachabilityNetIf.h"
 
 #include <algorithm>
 #include <array>
@@ -6,22 +7,6 @@
 #include <cstdlib>
 #include <optional>
 #include <sstream>
-
-#if !defined(_WIN32)
-#include <arpa/inet.h>
-#include <ifaddrs.h>
-#include <net/if.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#else
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <iphlpapi.h>
-#endif
 
 namespace pbr {
 
@@ -64,16 +49,6 @@ void AppendUnique(std::vector<std::string>& out, const std::string& value) {
     out.push_back(value);
   }
 }
-
-#if !defined(_WIN32)
-bool IsIpv6LinkLocal(const in6_addr& addr) {
-  return (addr.s6_addr[0] == 0xfe) && ((addr.s6_addr[1] & 0xc0) == 0x80);
-}
-
-bool IsIpv6UniqueLocal(const in6_addr& addr) {
-  return (addr.s6_addr[0] == 0xfc) || (addr.s6_addr[0] == 0xfd);
-}
-#endif
 
 std::optional<int> TcpPortFromMultiaddrLocal(const std::string& multiaddr) {
   const std::string marker = "/tcp/";
@@ -225,31 +200,11 @@ std::string IpHostFromMultiaddrPrefix(const std::string& multiaddr) {
 
 std::vector<std::string> EnumerateGlobalIpv6Addresses() {
   std::vector<std::string> out;
-#if !defined(_WIN32)
-  ifaddrs* ifap = nullptr;
-  if (getifaddrs(&ifap) != 0) {
-    return out;
-  }
-  for (const ifaddrs* ifa = ifap; ifa != nullptr; ifa = ifa->ifa_next) {
-    if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET6) {
-      continue;
-    }
-    const auto* addr = reinterpret_cast<const sockaddr_in6*>(ifa->ifa_addr);
-    if (IN6_IS_ADDR_LOOPBACK(&addr->sin6_addr) || IsIpv6LinkLocal(addr->sin6_addr) ||
-        IsIpv6UniqueLocal(addr->sin6_addr)) {
-      continue;
-    }
-    char buf[INET6_ADDRSTRLEN] = {};
-    if (!inet_ntop(AF_INET6, &addr->sin6_addr, buf, sizeof(buf))) {
-      continue;
-    }
-    const std::string ip(buf);
+  for (const std::string& ip : reachability_netif::GlobalIpv6Addresses()) {
     if (IsGlobalIpv6(ip)) {
       AppendUnique(out, ip);
     }
   }
-  freeifaddrs(ifap);
-#endif
   return out;
 }
 
@@ -293,26 +248,11 @@ std::vector<std::string> BuildReachabilityProbeTargets(const std::string& bound_
     AppendUnique(targets, EnsurePeerIdSuffix("/ip6/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
   }
 
-#if !defined(_WIN32)
-  ifaddrs* ifap = nullptr;
-  if (getifaddrs(&ifap) == 0) {
-    for (const ifaddrs* ifa = ifap; ifa != nullptr; ifa = ifa->ifa_next) {
-      if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) {
-        continue;
-      }
-      const auto* addr = reinterpret_cast<const sockaddr_in*>(ifa->ifa_addr);
-      char buf[INET_ADDRSTRLEN] = {};
-      if (!inet_ntop(AF_INET, &addr->sin_addr, buf, sizeof(buf))) {
-        continue;
-      }
-      const std::string ip(buf);
-      if (IsPublicIpv4(ip)) {
-        AppendUnique(targets, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
-      }
+  for (const std::string& ip : reachability_netif::PublicIpv4Addresses()) {
+    if (IsPublicIpv4(ip)) {
+      AppendUnique(targets, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
     }
-    freeifaddrs(ifap);
   }
-#endif
 
   AppendUnique(targets, EnsurePeerIdSuffix(bound_listen_multiaddr, local_peer_id));
   return targets;
@@ -368,73 +308,19 @@ std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string&
     return out;
   }
 
-#if defined(_WIN32)
-  ULONG size = 0;
-  if (GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
-                                        GAA_FLAG_SKIP_DNS_SERVER,
-                           nullptr, nullptr, &size) != ERROR_BUFFER_OVERFLOW ||
-      size == 0) {
-    return out;
-  }
-  std::vector<uint8_t> buffer(size);
-  auto* adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
-  if (GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
-                                        GAA_FLAG_SKIP_DNS_SERVER,
-                           nullptr, adapters, &size) != NO_ERROR) {
-    return out;
-  }
-  for (IP_ADAPTER_ADDRESSES* adapter = adapters; adapter != nullptr; adapter = adapter->Next) {
-    if (adapter->OperStatus != IfOperStatusUp) {
+  for (const auto& iface : reachability_netif::LanIpv4Interfaces()) {
+    if (!iface.up_running_non_loopback) {
       continue;
     }
-    if (adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK) {
+    if (!iface.ifname.empty() && IsVirtualLanIfaceName(iface.ifname)) {
       continue;
     }
-    for (IP_ADAPTER_UNICAST_ADDRESS* uni = adapter->FirstUnicastAddress; uni != nullptr; uni = uni->Next) {
-      if (!uni->Address.lpSockaddr || uni->Address.lpSockaddr->sa_family != AF_INET) {
-        continue;
-      }
-      const auto* addr = reinterpret_cast<const sockaddr_in*>(uni->Address.lpSockaddr);
-      char buf[INET_ADDRSTRLEN] = {};
-      if (!InetNtopA(AF_INET, &addr->sin_addr, buf, sizeof(buf))) {
-        continue;
-      }
-      const std::string ip(buf);
-      if (ip == "127.0.0.1" || !IsPrivateIpv4(ip) || IsLikelyUndialableLanIpv4(ip)) {
-        continue;
-      }
-      AppendUnique(out, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
+    const std::string& ip = iface.ip;
+    if (ip == "127.0.0.1" || !IsPrivateIpv4(ip) || IsLikelyUndialableLanIpv4(ip)) {
+      continue;
     }
+    AppendUnique(out, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
   }
-#else
-  ifaddrs* ifap = nullptr;
-  if (getifaddrs(&ifap) == 0) {
-    for (const ifaddrs* ifa = ifap; ifa != nullptr; ifa = ifa->ifa_next) {
-      if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) {
-        continue;
-      }
-      // Require carrier (IFF_RUNNING): virbr0 is often UP+NO-CARRIER and still has an IP.
-      if ((ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_RUNNING) == 0 ||
-          (ifa->ifa_flags & IFF_LOOPBACK) != 0) {
-        continue;
-      }
-      if (ifa->ifa_name && IsVirtualLanIfaceName(ifa->ifa_name)) {
-        continue;
-      }
-      const auto* addr = reinterpret_cast<const sockaddr_in*>(ifa->ifa_addr);
-      char buf[INET_ADDRSTRLEN] = {};
-      if (!inet_ntop(AF_INET, &addr->sin_addr, buf, sizeof(buf))) {
-        continue;
-      }
-      const std::string ip(buf);
-      if (ip == "127.0.0.1" || !IsPrivateIpv4(ip) || IsLikelyUndialableLanIpv4(ip)) {
-        continue;
-      }
-      AppendUnique(out, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
-    }
-    freeifaddrs(ifap);
-  }
-#endif
 
   return out;
 }

@@ -35,6 +35,16 @@ set(PP_BASE_P2P_SOURCES
   CallMediaFrameCrypto.cpp
 )
 
+if(WIN32)
+  list(APPEND PP_BASE_P2P_SOURCES
+    LanMdnsSocket_Win32.cpp
+    ReachabilityNetIf_Win32.cpp)
+else()
+  list(APPEND PP_BASE_P2P_SOURCES
+    LanMdnsSocket_Posix.cpp
+    ReachabilityNetIf_Posix.cpp)
+endif()
+
 add_library(pp_base_p2p STATIC ${PP_BASE_P2P_SOURCES})
 target_include_directories(pp_base_p2p PUBLIC
   ${CMAKE_SOURCE_DIR}/src
