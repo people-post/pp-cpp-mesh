@@ -24,7 +24,7 @@ struct MediaRelayClientPhaseOutcome {
   MediaRelayClientPhase next = MediaRelayClientPhase::Idle;
 };
 
-/** Pure client-phase table (N026). Logging / SetPhase stay in MediaRelayService::Impl. */
+/** Pure client-phase table (N026). Logging / SetPhase stay in MediaRelayRuntime. */
 MediaRelayClientPhaseOutcome DecideMediaRelayClientPhase(MediaRelayClientPhase phase,
                                                          MediaRelayClientEvent ev);
 

@@ -21,6 +21,7 @@ set(PP_BASE_P2P_SOURCES
   ReachabilityService.cpp
   NatTraversal.cpp
   CircuitRelayService.cpp
+  CircuitRelayRuntime.cpp
   MediaRelayService.cpp
   MediaRelayHostInbound.cpp
   MediaRelayClientAttach.cpp
@@ -29,6 +30,7 @@ set(PP_BASE_P2P_SOURCES
   MediaRelayLogic.cpp
   LanMdnsDiscovery.cpp
   CallMediaDirectService.cpp
+  CallMediaSession.cpp
   CallMediaSessionLogic.cpp
   CallMediaFrameCrypto.cpp
 )
