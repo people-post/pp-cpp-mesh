@@ -1,6 +1,6 @@
 # Product libp2p glue (base layer). Fork lives in src/lib/libp2p.
 
-include(PpBrowserLib)
+include(pp_lib_paths)
 include(PpBrowserWarnings)
 
 set(PP_BASE_P2P_SOURCES
