@@ -28,6 +28,15 @@ struct ContactId {
   bool primary = false;
 };
 
+/** Public directory icon reference (plaintext CDN). */
+struct ProfileIconRef {
+  std::string url;
+  std::string blob_id;
+  std::string kind;
+
+  bool empty() const { return url.empty() && blob_id.empty(); }
+};
+
 /** User annotations — Sync must not overwrite these. */
 struct ContactLocal {
   std::string display_name;
@@ -42,6 +51,7 @@ struct ContactRemote {
   std::vector<std::string> multiaddrs;
   /** Unix ms when remote was last refreshed; 0 = never synced. */
   int64_t fetched_at = 0;
+  std::optional<ProfileIconRef> icon;
 };
 
 /**
@@ -187,6 +197,7 @@ struct DirectoryHit {
   std::vector<std::string> multiaddrs;
   /** Initiation floor in pp_credit minor units; missing on wire → 0 (P001). */
   int64_t initiation_floor = 0;
+  std::optional<ProfileIconRef> icon;
 };
 
 } // namespace pbr
