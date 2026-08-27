@@ -5,10 +5,10 @@
 #include "base/p2p/Libp2pWorker.h"
 #include "base/p2p/NatTraversal.h"
 #include "base/p2p/NodeRuntime.h"
+#include "common/ValueJson.h"
 
 #include <future>
 #include <memory>
-#include <nlohmann/json.hpp>
 
 namespace pbr {
 
@@ -158,25 +158,25 @@ void ReachabilityService::RunProbe(NodeRuntime& runtime, DialBackService& dial_b
 
 std::string ReachabilityService::FormatOpsStatusJson() const {
   const ReachabilitySnapshot snap = Snapshot();
-  nlohmann::json j;
-  j["status"] = ReachabilityStatusKey(snap.status);
-  j["seed_dial_ok"] = snap.signals.seed_dial_ok;
-  j["dial_back_ok"] = snap.signals.dial_back_ok;
-  j["upnp_mapped"] = snap.signals.upnp_mapped;
-  j["has_global_ipv6"] = snap.signals.has_global_ipv6;
+  Object j;
+  j.set("status", ReachabilityStatusKey(snap.status));
+  j.set("seed_dial_ok", snap.signals.seed_dial_ok);
+  j.set("dial_back_ok", snap.signals.dial_back_ok);
+  j.set("upnp_mapped", snap.signals.upnp_mapped);
+  j.set("has_global_ipv6", snap.signals.has_global_ipv6);
   if (!snap.signals.dial_back_dialed.empty()) {
-    j["dial_back_dialed"] = snap.signals.dial_back_dialed;
+    j.set("dial_back_dialed", snap.signals.dial_back_dialed);
   }
   if (!snap.signals.upnp_external_ip.empty()) {
-    j["upnp_external_ip"] = snap.signals.upnp_external_ip;
+    j.set("upnp_external_ip", snap.signals.upnp_external_ip);
   }
   if (!snap.signals.seed_dial_error.empty()) {
-    j["seed_dial_error"] = snap.signals.seed_dial_error;
+    j.set("seed_dial_error", snap.signals.seed_dial_error);
   }
   if (!snap.signals.dial_back_error.empty()) {
-    j["dial_back_error"] = snap.signals.dial_back_error;
+    j.set("dial_back_error", snap.signals.dial_back_error);
   }
-  return j.dump();
+  return DumpJson(j);
 }
 
 } // namespace pbr

@@ -55,7 +55,7 @@ pp_browser_add_base_library(pp_base_p2p
     p2p_identify
     p2p_peer_id
     p2p_wire
-    nlohmann_json::nlohmann_json)
+    pp_common)
 
 target_include_directories(pp_base_p2p PUBLIC ${PP_LIB_LIBP2P_INCLUDE})
 
