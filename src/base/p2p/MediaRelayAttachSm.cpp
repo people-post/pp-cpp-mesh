@@ -1,6 +1,7 @@
 #include "base/p2p/MediaRelayAttachSm.h"
 
 #include "common/Logger.h"
+#include "common/PbrCompat.h"
 
 namespace pbr {
 

@@ -2,6 +2,7 @@
 #include "base/p2p/MediaRelayService.h"
 
 #include <cstring>
+#include "common/PbrCompat.h"
 
 namespace pbr {
 
