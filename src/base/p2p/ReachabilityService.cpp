@@ -9,6 +9,7 @@
 
 #include <future>
 #include <memory>
+#include "common/PbrCompat.h"
 
 namespace pbr {
 
