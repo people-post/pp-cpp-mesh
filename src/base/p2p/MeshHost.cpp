@@ -1,4 +1,5 @@
 #include "base/p2p/MeshHost.h"
+#include "common/PbrCompat.h"
 
 namespace pbr {
 

@@ -7,6 +7,7 @@
 #include <cstring>
 #include <string_view>
 #include <unordered_map>
+#include "common/PbrCompat.h"
 
 namespace pbr {
 namespace {
