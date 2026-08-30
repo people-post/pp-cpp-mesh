@@ -32,6 +32,8 @@ set(PP_BASE_P2P_SOURCES
   CallMediaSession.cpp
   CallMediaSessionLogic.cpp
   CallMediaFrameCrypto.cpp
+  CallMediaAdpKey.cpp
+  CallMediaAdpPath.cpp
 )
 
 if(WIN32)
@@ -50,6 +52,7 @@ pp_browser_add_base_library(pp_base_p2p
   PUBLIC_LIBS
     pp_base_data
     pp_base_crypto
+    pp_base_adp
     pp_base_runtime_core
     p2p
     p2p_identify
