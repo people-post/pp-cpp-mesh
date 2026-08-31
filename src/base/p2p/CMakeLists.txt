@@ -1,10 +1,22 @@
-# Product Amp mesh glue (base layer). Libp2p Host/Yamux/Noise L4 retired from product (A017/D10).
-# PeerId crypto still via vendored libp2p (`p2p_peer_id` / PeerIdUtil).
+# PeerId derivation (retained libp2p PeerId + ML-DSA wire). Separate from product MeshHost
+# so mesh/link tests can use real PeerIds without linking pp_base_p2p (SRC_LAYOUT: mesh ↛ p2p).
 
 include(pp_lib_paths)
 
+pp_browser_add_base_library(pp_base_peer_id
+  SOURCES
+    PeerIdUtil.cpp
+  PUBLIC_LIBS
+    pp_base_crypto
+    p2p_peer_id
+    p2p_wire
+    pp_common)
+
+target_include_directories(pp_base_peer_id PUBLIC ${PP_LIB_LIBP2P_INCLUDE})
+
+# Product Amp mesh glue (base layer). Libp2p Host/Yamux/Noise L4 retired from product (A017/D10).
+
 set(PP_BASE_P2P_SOURCES
-  PeerIdUtil.cpp
   MeshHost.cpp
   LengthPrefixedCodec.cpp
   Reachability.cpp
@@ -45,12 +57,9 @@ pp_browser_add_base_library(pp_base_p2p
     pp_base_crypto
     pp_base_adp
     pp_base_mesh_link
+    pp_base_peer_id
     pp_base_runtime_core
-    p2p_peer_id
-    p2p_wire
     pp_common)
-
-target_include_directories(pp_base_p2p PUBLIC ${PP_LIB_LIBP2P_INCLUDE})
 
 if(WIN32)
   target_link_libraries(pp_base_p2p PUBLIC ws2_32 iphlpapi)
