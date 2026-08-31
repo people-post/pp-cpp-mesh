@@ -4,7 +4,7 @@
 #include "base/mesh/link/MeshRuntime.h"
 #include "base/p2p/CircuitBridgeTarget.h"
 #include "base/p2p/CircuitBundleLogic.h"
-#include "base/p2p/CircuitRelayService.h"
+#include "base/p2p/CircuitRelayTypes.h"
 
 #include "common/Error.h"
 #include "common/PbrCompat.h"

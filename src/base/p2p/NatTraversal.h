@@ -13,10 +13,16 @@ struct UpnpMappingResult {
   std::string error;
 };
 
-/** Try UPnP IGD port mapping WAN→internal (nu). No-op when `ShouldSkipUpnpForListen`. */
+/** Try UPnP IGD UDP port mapping WAN→internal (Amp listen). */
+UpnpMappingResult TryUpnpUdpPortMapping(int internal_port, int external_port = 0);
+
+/** Remove a prior UPnP UDP mapping (best-effort). */
+void ReleaseUpnpUdpPortMapping(int external_port);
+
+/** Try UPnP IGD TCP port mapping WAN→internal (legacy; Amp uses UDP). */
 UpnpMappingResult TryUpnpTcpPortMapping(int internal_port, int external_port = 0);
 
-/** Remove a prior UPnP mapping (best-effort). */
+/** Remove a prior UPnP TCP mapping (best-effort). */
 void ReleaseUpnpTcpPortMapping(int external_port);
 
 } // namespace pbr

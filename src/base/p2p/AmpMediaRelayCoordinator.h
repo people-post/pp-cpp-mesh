@@ -5,7 +5,7 @@
 #include "base/media/CallMediaHealth.h"
 #include "base/p2p/AmpCircuitHopRegistry.h"
 #include "base/p2p/MediaRelayBundleLogic.h"
-#include "base/p2p/MediaRelayService.h"
+#include "base/p2p/MediaRelayTypes.h"
 
 #include "common/Error.h"
 #include "common/PbrCompat.h"

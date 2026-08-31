@@ -1,36 +1,44 @@
 #include "base/p2p/ReachabilityService.h"
 
-#include "base/data/Libp2pRole.h"
-#include "base/p2p/DialBackService.h"
-#include "base/p2p/Libp2pWorker.h"
+#include "base/mesh/link/AdpMultiaddr.h"
+#include "base/p2p/AmpDialBackService.h"
 #include "base/p2p/NatTraversal.h"
-#include "base/p2p/NodeRuntime.h"
 #include "common/ValueJson.h"
 
+#include <chrono>
 #include <future>
-#include <memory>
+#include <thread>
 #include "common/PbrCompat.h"
 
 namespace pbr {
 
 namespace {
 
-ReachabilitySignals AnalyzeListenAddrs(const std::string& bound_listen, const std::vector<std::string>& ipv6_addrs) {
+using Clock = std::chrono::steady_clock;
+
+ReachabilitySignals AnalyzeAmpListen(const std::string& amp_listen,
+                                     const std::vector<std::string>& /*ipv6_unused*/) {
   ReachabilitySignals signals;
-  const auto tcp_pos = bound_listen.find("/tcp/");
-  const std::string prefix = tcp_pos == std::string::npos ? bound_listen : bound_listen.substr(0, tcp_pos);
-  const std::string ip = IpHostFromMultiaddrPrefix(prefix);
-  signals.listen_is_wildcard = (ip == "0.0.0.0" || ip == "::");
-  if (!ip.empty() && !signals.listen_is_wildcard) {
-    if (bound_listen.rfind("/ip6/", 0) == 0) {
-      signals.has_global_ipv6 = IsGlobalIpv6(ip);
-    } else {
+  if (auto parsed = amp::ParseAdpMultiaddr(amp_listen)) {
+    const std::string ip = IpHostFromMultiaddrPrefix(amp_listen);
+    signals.listen_is_wildcard = (ip == "0.0.0.0" || ip == "::");
+    if (!ip.empty() && !signals.listen_is_wildcard) {
       signals.has_private_listen_ip = IsPrivateIpv4(ip);
       signals.has_public_listen_ip = IsPublicIpv4(ip);
     }
+  } else {
+    signals.listen_is_wildcard = amp_listen.find("/ip4/0.0.0.0/") != std::string::npos;
   }
-  signals.has_global_ipv6 = signals.has_global_ipv6 || !ipv6_addrs.empty();
   return signals;
+}
+
+std::optional<std::string> FirstAdpBootstrap(const std::vector<std::string>& bootstrap_peers) {
+  for (const std::string& ma : bootstrap_peers) {
+    if (amp::ParseAdpMultiaddr(ma)) {
+      return ma;
+    }
+  }
+  return std::nullopt;
 }
 
 } // namespace
@@ -57,7 +65,7 @@ void ReachabilityService::Publish(ReachabilitySnapshot snapshot) {
   }
 }
 
-void ReachabilityService::StartProbe(NodeRuntime& runtime, DialBackService& dial_back, bool try_upnp_first) {
+void ReachabilityService::StartProbe(AmpReachabilityProbeDeps deps) {
   if (probing_.exchange(true)) {
     return;
   }
@@ -66,42 +74,39 @@ void ReachabilityService::StartProbe(NodeRuntime& runtime, DialBackService& dial
   checking.status = ReachabilityStatus::Checking;
   Publish(checking);
 
-  Libp2pHost* host = runtime.Host();
-  if (!host) {
+  auto run = [this, deps = std::move(deps)]() mutable {
+    RunProbe(std::move(deps));
     probing_.store(false);
-    return;
+  };
+  if (deps.post_worker) {
+    deps.post_worker(std::move(run));
+  } else {
+    run();
   }
-  PostLibp2pWorker(*host, WorkerLane::Background, [this, &runtime, &dial_back, try_upnp_first]() {
-    RunProbe(runtime, dial_back, try_upnp_first);
-    probing_.store(false);
-  });
 }
 
-void ReachabilityService::RunProbeBlocking(NodeRuntime& runtime, DialBackService& dial_back,
-                                           bool try_upnp_first) {
-  StartProbe(runtime, dial_back, try_upnp_first);
+void ReachabilityService::RunProbeBlocking(AmpReachabilityProbeDeps deps) {
+  StartProbe(std::move(deps));
   while (probing_.load()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 }
 
-void ReachabilityService::RunProbe(NodeRuntime& runtime, DialBackService& dial_back, bool try_upnp_first) {
+void ReachabilityService::RunProbe(AmpReachabilityProbeDeps deps) {
   ReachabilitySnapshot result;
-  result.measured_at = std::chrono::steady_clock::now();
+  result.measured_at = Clock::now();
 
-  if (!runtime.IsRunning() || !runtime.Host() || !runtime.Sessions()) {
+  if (!deps.links || !deps.dial_back || deps.amp_listen_multiaddr.empty() || deps.local_peer_id.empty()) {
     result.status = ReachabilityStatus::Unknown;
     Publish(result);
     return;
   }
 
-  const std::string bound = runtime.BoundListenMultiaddr();
-  const auto ipv6_addrs = EnumerateGlobalIpv6Addresses();
-  result.signals = AnalyzeListenAddrs(bound, ipv6_addrs);
+  result.signals = AnalyzeAmpListen(deps.amp_listen_multiaddr, {});
 
-  const auto port = TcpPortFromMultiaddr(bound);
-  if (try_upnp_first && port && !ShouldSkipUpnpForListen(bound)) {
-    auto mapped = TryUpnpTcpPortMapping(*port);
+  const auto udp_port = UdpPortFromMultiaddr(deps.amp_listen_multiaddr);
+  if (deps.try_upnp_first && udp_port && !ShouldSkipUpnpForListen(deps.amp_listen_multiaddr)) {
+    auto mapped = TryUpnpUdpPortMapping(*udp_port);
     if (mapped.ok) {
       result.signals.upnp_mapped = true;
       result.signals.upnp_external_ip = mapped.external_ip;
@@ -111,34 +116,57 @@ void ReachabilityService::RunProbe(NodeRuntime& runtime, DialBackService& dial_b
     }
   }
 
-  const std::string seed = PeerIdFromMultiaddr(kDefaultLibp2pBootstrapPeer);
+  auto seed_ma = FirstAdpBootstrap(deps.bootstrap_peers);
+  if (!seed_ma) {
+    result.signals.seed_dial_error = "no ADP bootstrap peers (dial-back needs /udp/…/adp/1.0.0/p2p/…)";
+    // Without an Amp seed we cannot distinguish inbound; keep chrome honest (not Blocked).
+    result.status = ReachabilityStatus::Unknown;
+    Publish(result);
+    return;
+  }
 
-  auto seed_promise = std::make_shared<std::promise<Roe<void>>>();
-  auto seed_future = seed_promise->get_future();
-  runtime.Sessions()->EnsureConnection(seed, [seed_promise](Roe<void> dial_result) {
-    try {
-      seed_promise->set_value(std::move(dial_result));
-    } catch (const std::future_error&) {
+  const std::string seed_key = "reachability:seed";
+  if (auto registered = deps.links->RegisterEndpoint(seed_key, *seed_ma); !registered) {
+    result.signals.seed_dial_error = registered.error().message;
+    result.status = ClassifyReachability(result.signals);
+    Publish(result);
+    return;
+  }
+
+  {
+    auto seed_promise = std::make_shared<std::promise<Roe<void>>>();
+    auto seed_future = seed_promise->get_future();
+    deps.links->EnsureAssociation(seed_key, [seed_promise](Roe<void> dial_result) {
+      try {
+        seed_promise->set_value(std::move(dial_result));
+      } catch (const std::future_error&) {
+      }
+    });
+    const auto deadline = Clock::now() + std::chrono::milliseconds(10000);
+    while (Clock::now() < deadline &&
+           seed_future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+      if (deps.io_pump) {
+        deps.io_pump();
+      } else {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
     }
-  });
-  if (seed_future.wait_for(std::chrono::milliseconds(10000)) == std::future_status::ready) {
-    auto seed_result = seed_future.get();
-    result.signals.seed_dial_ok = static_cast<bool>(seed_result);
-    if (!seed_result) {
-      result.signals.seed_dial_error = seed_result.error().message;
+    if (seed_future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+      auto seed_result = seed_future.get();
+      result.signals.seed_dial_ok = static_cast<bool>(seed_result);
+      if (!seed_result) {
+        result.signals.seed_dial_error = seed_result.error().message;
+      }
+    } else {
+      result.signals.seed_dial_error = "seed dial timed out";
     }
-  } else {
-    result.signals.seed_dial_error = "seed dial timed out";
   }
 
   if (result.signals.seed_dial_ok) {
-    std::string peer_id;
-    if (auto local = runtime.Host()->LocalPeerIdBase58()) {
-      peer_id = *local;
-    }
-    const auto targets = BuildReachabilityProbeTargets(bound, peer_id, ipv6_addrs, upnp_external_ip_);
-    if (dial_back.IsStarted()) {
-      auto probed = dial_back.Probe(seed, targets, 8000);
+    const auto targets = BuildAmpReachabilityProbeTargets(
+        deps.amp_listen_multiaddr, deps.local_peer_id, upnp_external_ip_);
+    if (deps.dial_back->IsStarted()) {
+      auto probed = deps.dial_back->Probe(seed_key, targets, 8000);
       if (probed) {
         result.signals.dial_back_ok = probed->ok;
         result.signals.dial_back_dialed = probed->dialed;

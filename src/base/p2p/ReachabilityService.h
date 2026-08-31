@@ -6,13 +6,30 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace pbr {
 
-class DialBackService;
-class NodeRuntime;
+class AmpDialBackService;
 
-/** Async reachability probe orchestration (nr). Thread-safe snapshot reads. */
+namespace amp {
+class PeerLinkManager;
+}
+
+/** Inputs for an Amp dial-back reachability probe (D8). */
+struct AmpReachabilityProbeDeps {
+  amp::PeerLinkManager* links = nullptr;
+  AmpDialBackService* dial_back = nullptr;
+  std::string amp_listen_multiaddr;
+  std::string local_peer_id;
+  /** ADP multiaddrs preferred; TCP bootstrap entries are skipped. */
+  std::vector<std::string> bootstrap_peers;
+  std::function<void()> io_pump;
+  std::function<void(std::function<void()>)> post_worker;
+  bool try_upnp_first = false;
+};
+
+/** Async reachability probe orchestration. Thread-safe snapshot reads. */
 class ReachabilityService {
 public:
   ReachabilityService() = default;
@@ -21,11 +38,11 @@ public:
 
   bool IsProbing() const { return probing_.load(); }
 
-  /** Fire-and-forget probe on the libp2p worker pool (Background lane). */
-  void StartProbe(NodeRuntime& runtime, DialBackService& dial_back, bool try_upnp_first);
+  /** Fire-and-forget Amp dial-back probe on a worker (or inline if no post_worker). */
+  void StartProbe(AmpReachabilityProbeDeps deps);
 
   /** Block until an in-flight probe completes (pp-node --status). */
-  void RunProbeBlocking(NodeRuntime& runtime, DialBackService& dial_back, bool try_upnp_first);
+  void RunProbeBlocking(AmpReachabilityProbeDeps deps);
 
   /** Ops / pp-node --status JSON line. */
   std::string FormatOpsStatusJson() const;
@@ -34,7 +51,7 @@ public:
   void SetOnUpdated(std::function<void()> callback);
 
 private:
-  void RunProbe(NodeRuntime& runtime, DialBackService& dial_back, bool try_upnp_first);
+  void RunProbe(AmpReachabilityProbeDeps deps);
   void Publish(ReachabilitySnapshot snapshot);
 
   mutable std::mutex mutex_;

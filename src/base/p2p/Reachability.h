@@ -3,6 +3,7 @@
 #include "common/Error.h"
 
 #include <chrono>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -69,6 +70,17 @@ std::vector<std::string> BuildReachabilityProbeTargets(const std::string& bound_
                                                        const std::string& local_peer_id,
                                                        const std::vector<std::string>& global_ipv6_addrs,
                                                        const std::string& upnp_external_ip);
+
+/**
+ * Build Amp dial-back probe targets (D8): public IPv4 + UPnP external + bound listen as ADP MAs.
+ * (ADP multiaddrs are IPv4-only today.)
+ */
+std::vector<std::string> BuildAmpReachabilityProbeTargets(const std::string& amp_listen_multiaddr,
+                                                          const std::string& local_peer_id,
+                                                          const std::string& upnp_external_ip);
+
+/** UDP port from `/udp/<n>` in a multiaddr, if present. */
+std::optional<int> UdpPortFromMultiaddr(const std::string& multiaddr);
 
 /**
  * Build dialable multiaddrs to advertise via Identify for this Node (media-hop L2).

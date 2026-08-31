@@ -2,53 +2,55 @@
 
 #include "base/data/Config.h"
 #include "base/mesh/link/AmpStack.h"
-#include "common/Error.h"
 #include "base/p2p/AmpCircuitHopRegistry.h"
+#include "base/p2p/AmpDialBackService.h"
 #include "base/p2p/AmpMediaRelayCoordinator.h"
-#include "base/p2p/CircuitRelayService.h"
 #include "base/p2p/CircuitTunnelCoordinator.h"
-#include "base/p2p/DialBackService.h"
-#include "base/p2p/Libp2pHost.h"
-#include "base/p2p/MediaRelayService.h"
-#include "base/p2p/NodeRuntime.h"
-#include "base/p2p/PeerSessionManager.h"
+#include "base/p2p/Libp2pHostConfig.h"
 #include "base/p2p/ReachabilityService.h"
+#include "common/Error.h"
 
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 #include "common/PbrCompat.h"
 
 namespace pbr {
 
+class NodeRuntime;
+class Libp2pHost;
+class PeerSessionManager;
+class DialBackService;
+class CircuitRelayService;
+class MediaRelayService;
+
 /**
- * Shared libp2p mesh host (Wave 1): NodeRuntime + dial-back + circuit / media relay +
- * reachability, converging the pp-browser MessagingHub and headless pp-node start paths.
+ * Amp-only mesh host (A017/D10): owns AmpStack + Amp L4 coordinators + reachability.
  *
- * Optional parallel AMP stack ([A020](../../projects/adp/DECISIONS.md)): when enabled or
- * attached, owns `amp::AmpStack` plus Amp L4 coordinators and circuit-hop registry.
- * Product SoftMigrate media-relay uses Amp when coordinators are up; circuit NAT adopts
- * bridged ChannelSessions via AmpCircuitHopRegistry (D9 step 5c).
- *
- * NOT owned here (app-only glue): CallMediaDirectService, LanMdnsDiscovery.
+ * Product SoftMigrate uses Amp when coordinators are up; circuit NAT adopts bridged
+ * ChannelSessions via AmpCircuitHopRegistry. Dial-back (D8) feeds Me→Network chrome.
  */
 struct MeshHostConfig {
-  NodeRuntimeConfig runtime;
+  /** ML-DSA identity for Amp PeerId (same keys historically used by Libp2pHost). */
+  Libp2pHostConfig host;
   /** Start inbound circuit-relay hosting (Node with circuit_relay capability). */
   bool host_circuit_relay = false;
   /** Start inbound media_relay hosting (Node with media_relay capability). */
   bool host_media_relay = false;
   MediaRelayBudgetConfig media_relay_budget{};
   RelayPricingConfig media_relay_pricing{};
-  /** Fire a reachability probe after start (Node / pp-node). */
+  /** Fire an Amp dial-back reachability probe after start (Node / pp-node). */
   bool start_reachability_probe = false;
   bool try_upnp_first = false;
   /** Optional probe-completion callback (worker thread). */
   std::function<void()> on_reachability_updated;
+  /** Bootstrap peers for seed dial (ADP multiaddrs preferred for dial-back). */
+  std::vector<std::string> bootstrap_peers;
 
   /**
    * Bind UDP + AmpStack as the product underlay (D10 hard-require).
-   * Requires `runtime.host.device_ml_dsa_*` so AMP PeerId matches identity.
+   * Requires `host.device_ml_dsa_*` so AMP PeerId matches identity.
    * Failure fails `MeshHost::Start` (no TCP underlay fallback).
    */
   bool enable_amp_stack = false;
@@ -69,10 +71,13 @@ public:
   void Tick();
   bool IsRunning() const;
 
+  /** Always null after A017 (TCP Host shell retired). */
   NodeRuntime* Runtime();
+  /** Always null after A017. */
   Libp2pHost* Host();
+  /** Always null after A017. */
   PeerSessionManager* Sessions() const;
-  /** Always null after D10 (TCP DialBack retired; Amp dial-back is D8). */
+  /** Always null (TCP DialBack retired). Prefer AmpDialBack(). */
   DialBackService* DialBack();
   /** Always null after D10 (Amp circuit owns product path). */
   CircuitRelayService* CircuitRelay();
@@ -80,37 +85,30 @@ public:
   MediaRelayService* MediaRelay();
   ReachabilityService& Reachability();
 
-  /** Parallel AMP stack when `enable_amp_stack` or `AttachAmpStack` (may be null). */
+  /** Amp stack when `enable_amp_stack` or `AttachAmpStack` (may be null). */
   amp::AmpStack* Amp();
   const amp::AmpStack* Amp() const;
   const std::string& AmpListenMultiaddr() const { return amp_listen_multiaddr_; }
   /** Set when Amp was requested but failed (Start returns error; for diagnostics). */
   const std::string& AmpLastError() const { return amp_last_error_; }
 
-  /**
-   * Amp L4 circuit tunnel when Amp is up (always Started for outbound; inbound gated by
-   * host_circuit_relay via SetServeInbound).
-   */
   CircuitTunnelCoordinator* AmpCircuitTunnel();
-  /**
-   * Amp L4 media-relay when Amp is up (always Started for SoftMigrate clients; inbound gated
-   * by host_media_relay via SetServeInbound).
-   */
   AmpMediaRelayCoordinator* AmpMediaRelayCoord();
-  /** Bridged Amp circuit sessions for SoftMigrate / call-media NAT (may be null). */
   AmpCircuitHopRegistry* AmpCircuitHops();
+  /** Amp dial-back for reachability chrome (D8); null when Amp is down. */
+  AmpDialBackService* AmpDialBack();
 
-  /**
-   * Install a parallel AmpStack (tests / custom DatagramIo). Takes ownership, starts the
-   * stack, and clears any previous AmpStack. Does not flip product L4 traffic.
-   */
   Roe<void> AttachAmpStack(std::unique_ptr<amp::AmpStack> stack, std::string listen_multiaddr = {});
 
+  /** Amp listen multiaddr when running; otherwise empty. */
   const std::string& BoundListenMultiaddr() const;
   const std::string& LastError() const { return last_error_; }
 
-  /** Abort in-flight circuit RequestBridge waiters (shutdown / Leave paths). */
   void AbortInflightCircuitRequests();
+
+  /** Build deps and run Amp reachability probe (async). */
+  void StartReachabilityProbe(bool try_upnp_first = false);
+  void RunReachabilityProbeBlocking(bool try_upnp_first = false);
 
 private:
   Roe<void> StartAmpFromConfig(const MeshHostConfig& config);
@@ -118,17 +116,19 @@ private:
   void ApplyAmpAdvertisement(const MeshHostConfig& config);
   void EnsureAmpL4Coordinators();
   void StartAmpL4Hosting(bool host_circuit, bool host_media);
+  AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
 
-  std::unique_ptr<NodeRuntime> runtime_;
   std::unique_ptr<ReachabilityService> reachability_;
   std::unique_ptr<amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
   std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
   std::unique_ptr<AmpMediaRelayCoordinator> amp_media_relay_;
+  std::unique_ptr<AmpDialBackService> amp_dial_back_;
   std::shared_ptr<adp::Clock> amp_clock_;
   std::string amp_listen_multiaddr_;
   std::string amp_last_error_;
   std::string last_error_;
+  std::vector<std::string> bootstrap_peers_;
 };
 
 } // namespace pbr

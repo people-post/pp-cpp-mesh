@@ -3,9 +3,8 @@
 #include "base/mesh/link/AdpMultiaddr.h"
 #include "base/mesh/link/PeerLinkManager.h"
 #include "base/p2p/AmpCircuitHopRegistry.h"
-#include "base/p2p/MediaRelayService.h"
-#include "base/p2p/CallMediaDirectService.h"
-#include "base/p2p/PeerSessionManager.h"
+#include "base/p2p/ICallMediaTransport.h"
+#include "base/p2p/MediaRelayTypes.h"
 
 #include "common/Error.h"
 
@@ -71,157 +70,32 @@ public:
   virtual ~ICircuitHopReach() = default;
   /** Reach a media_relay hop (topology / prefetch). */
   virtual Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) = 0;
-  /** Reach a call peer for 1:1 libp2p call-media when not directly dialable. */
+  /** Reach a call peer for 1:1 call-media when not directly dialable. */
   virtual Roe<void> TryEnsureCallMediaReachable(const std::string& peer_key) = 0;
 };
 
-/** Forwards to MediaRelayService. */
-class MediaRelayServiceClient final : public IMediaRelayClient {
-public:
-  explicit MediaRelayServiceClient(MediaRelayService* service) : service_(service) {}
-
-  Roe<std::string> LocalPeerIdBase58() const override {
-    if (!service_) {
-      return Error("media_relay not available");
-    }
-    return service_->LocalPeerIdBase58();
-  }
-
-  bool IsStarted() const override { return service_ && service_->IsStarted(); }
-
-  Roe<MediaRelayQuote> RequestQuote(const std::string& hop_peer_key,
-                                    const MediaRelayQuoteRequest& request,
-                                    int timeout_ms) override {
-    if (!service_) {
-      return Error("media_relay not available");
-    }
-    return service_->RequestQuote(hop_peer_key, request, timeout_ms);
-  }
-
-  Roe<MediaRelayAttachResult> AcceptAndAttach(const std::string& hop_peer_key,
-                                              const std::string& quote_id,
-                                              const std::string& call_id,
-                                              const std::string& auth_stub,
-                                              std::function<void(MediaDataFrame)> on_frame,
-                                              int timeout_ms) override {
-    if (!service_) {
-      return Error("media_relay not available");
-    }
-    return service_->AcceptAndAttach(hop_peer_key, quote_id, call_id, auth_stub, std::move(on_frame),
-                                     timeout_ms);
-  }
-
-  void StartClientFrameReader() override {
-    if (service_) {
-      service_->StartClientFrameReader();
-    }
-  }
-
-  void SetClientTransportLostHandler(std::function<void()> handler) override {
-    if (service_) {
-      service_->SetClientTransportLostHandler(std::move(handler));
-    }
-  }
-
-  Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& call_id,
-                                               std::function<void(MediaDataFrame)> on_frame) override {
-    if (!service_) {
-      return Error("media_relay not available");
-    }
-    return service_->AttachAsLocalHop(call_id, std::move(on_frame));
-  }
-
-  Roe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) override {
-    if (!service_) {
-      return Error("media_relay not available");
-    }
-    return service_->Subscribe(stream_id, channel_id);
-  }
-
-  Roe<void> SendFrame(const MediaDataFrame& frame) override {
-    if (!service_) {
-      return Error("media_relay not available");
-    }
-    return service_->SendFrame(frame);
-  }
-
-  void Detach() override {
-    if (service_) {
-      service_->Detach();
-    }
-  }
-
-  bool IsAttached() const override {
-    return service_ && service_->IsAttached();
-  }
-
-  bool IsLocalHopAttached() const override {
-    return service_ && service_->IsLocalHopAttached();
-  }
-
-  double PathPressure() const override {
-    return service_ ? service_->PathPressure() : 0.0;
-  }
-
-  CallHopHealth HealthSnapshot() const override {
-    return service_ ? service_->HealthSnapshot() : CallHopHealth{};
-  }
-
-private:
-  MediaRelayService* service_ = nullptr;
-};
-
-/** Forwards to PeerSessionManager; optionally mirrors ADP endpoints to Amp PeerLinkManager. */
+/** Amp-only dial registry (PeerLinkManager + AmpCircuitHopRegistry). */
 class PeerSessionDialRegistry final : public IDialRegistry {
 public:
-  explicit PeerSessionDialRegistry(PeerSessionManager* sessions) : sessions_(sessions) {}
+  PeerSessionDialRegistry() = default;
 
-  void SetSessions(PeerSessionManager* sessions) { sessions_ = sessions; }
   void SetAmpLinks(amp::PeerLinkManager* amp_links) { amp_links_ = amp_links; }
   void SetAmpCircuitHops(AmpCircuitHopRegistry* hops) { amp_hops_ = hops; }
 
   Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) override {
-    bool registered_amp = false;
     if (amp_links_) {
       if (auto parsed = amp::ParseAdpMultiaddr(multiaddr)) {
         (void)amp_links_->RegisterEndpoint(peer_key, multiaddr);
         if (!parsed->peer_id.empty() && parsed->peer_id != peer_key) {
           (void)amp_links_->RegisterEndpoint(parsed->peer_id, multiaddr);
         }
-        registered_amp = true;
+        return {};
       }
-    }
-    if (sessions_) {
-      auto registered = sessions_->RegisterEndpoint(peer_key, multiaddr);
-      if (!registered) {
-        return registered;
-      }
-      // Pin hop in the address book above mDNS — OpenStream hydrates Preferred from the book
-      // and would otherwise dial a poisoned virbr multiaddr over CallSfuAttach's LAN hop.
-      std::string peer_id = peer_key;
-      const auto p2p_pos = multiaddr.rfind("/p2p/");
-      if (p2p_pos != std::string::npos) {
-        peer_id = multiaddr.substr(p2p_pos + 5);
-        const auto slash = peer_id.find('/');
-        if (slash != std::string::npos) {
-          peer_id.resize(slash);
-        }
-      }
-      if (!peer_id.empty()) {
-        (void)sessions_->UpsertBookEntry(peer_id, multiaddr, PeerAddrSource::CallHop);
-      }
-      return {};
-    }
-    if (registered_amp) {
-      return {};
     }
     return Error("dial registry not available");
   }
 
   bool IsDialable(const std::string& peer_key) const override {
-    if (sessions_ && sessions_->IsDialable(peer_key)) {
-      return true;
-    }
     if (amp_links_ && amp_links_->GetLinkSnapshot(peer_key).has_endpoint) {
       return true;
     }
@@ -237,40 +111,25 @@ public:
         return amp_ma;
       }
     }
-    if (sessions_) {
-      return sessions_->PreferredPeerMultiaddr(peer_key);
-    }
     return std::nullopt;
   }
 
-  void ClearDialBackoff(const std::string& peer_key) override {
-    if (sessions_) {
-      sessions_->ClearDialBackoff(peer_key);
-    }
-  }
+  void ClearDialBackoff(const std::string& /*peer_key*/) override {}
 
-  void AbortInflightDial(const std::string& peer_key) override {
-    if (sessions_) {
-      sessions_->AbortInflightDial(peer_key);
-    }
-  }
+  void AbortInflightDial(const std::string& /*peer_key*/) override {}
 
   void ClearCallMediaCircuitHop(const std::string& peer_key) override {
-    if (sessions_) {
-      sessions_->ClearCircuitHop(peer_key, kCallMediaDirectProtocolId);
-    }
     if (amp_hops_) {
       amp_hops_->Clear(peer_key, kCallMediaDirectProtocolId);
     }
   }
 
 private:
-  PeerSessionManager* sessions_ = nullptr;
   amp::PeerLinkManager* amp_links_ = nullptr;
   AmpCircuitHopRegistry* amp_hops_ = nullptr;
 };
 
-/** Forwards to PeerSessionManager + CircuitRelayService via MessagingHub wiring. */
+/** Forwards to MessagingHub / CallStack wiring. */
 class CircuitHopReachClient final : public ICircuitHopReach {
 public:
   CircuitHopReachClient(std::function<Roe<void>(const std::string&)> try_media_hop_reach,

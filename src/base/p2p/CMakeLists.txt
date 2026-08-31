@@ -1,35 +1,19 @@
-# Product libp2p glue (base layer). Fork lives in src/lib/libp2p.
+# Product Amp mesh glue (base layer). Libp2p Host/Yamux/Noise L4 retired from product (A017/D10).
+# PeerId crypto still via vendored libp2p (`p2p_peer_id` / PeerIdUtil).
 
 include(pp_lib_paths)
 
 set(PP_BASE_P2P_SOURCES
-  Libp2pHost.cpp
-  PeerAddressBook.cpp
-  CircuitBridgeTarget.cpp
-  IdentifyIntegrationService.cpp
-  AdvertisedAddrPublisher.cpp
-  PeerSessionManager.cpp
   PeerIdUtil.cpp
-  NodeRuntime.cpp
   MeshHost.cpp
-  DialBackService.cpp
-  StreamJsonFrame.cpp
-  StreamFrameIo.cpp
-  Libp2pScheduler.cpp
+  LengthPrefixedCodec.cpp
   Reachability.cpp
   ReachabilityService.cpp
   NatTraversal.cpp
-  CircuitRelayService.cpp
-  CircuitRelayRuntime.cpp
-  MediaRelayService.cpp
-  MediaRelayHostInbound.cpp
-  MediaRelayClientAttach.cpp
   MediaRelayFrames.cpp
   MediaRelayAttachSm.cpp
   MediaRelayLogic.cpp
   LanMdnsDiscovery.cpp
-  CallMediaDirectService.cpp
-  CallMediaSession.cpp
   CallMediaLegCoordinator.cpp
   CallMediaAmpTransport.cpp
   CallMediaBundleLogic.cpp
@@ -40,6 +24,7 @@ set(PP_BASE_P2P_SOURCES
   CircuitTunnelCoordinator.cpp
   MediaRelayBundleLogic.cpp
   AmpMediaRelayCoordinator.cpp
+  AmpDialBackService.cpp
 )
 
 if(WIN32)
@@ -61,8 +46,6 @@ pp_browser_add_base_library(pp_base_p2p
     pp_base_adp
     pp_base_mesh_link
     pp_base_runtime_core
-    p2p
-    p2p_identify
     p2p_peer_id
     p2p_wire
     pp_common)

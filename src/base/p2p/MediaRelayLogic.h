@@ -1,6 +1,6 @@
 #pragma once
 
-#include "base/p2p/MediaRelayService.h"
+#include "base/p2p/MediaRelayTypes.h"
 
 #include <cstddef>
 #include <cstdint>

@@ -1,5 +1,6 @@
 #include "base/p2p/NatTraversal.h"
 
+#include <cstdio>
 #include <mutex>
 #include <string>
 
@@ -14,12 +15,11 @@ namespace {
 
 #if defined(PP_BROWSER_HAS_MINIUPNPC)
 std::mutex g_upnp_mutex;
-int g_mapped_external_port = 0;
+int g_mapped_tcp_external_port = 0;
+int g_mapped_udp_external_port = 0;
 #endif
 
-} // namespace
-
-UpnpMappingResult TryUpnpTcpPortMapping(int internal_port, int external_port) {
+UpnpMappingResult TryUpnpPortMapping(int internal_port, int external_port, const char* protocol) {
   UpnpMappingResult out;
   if (internal_port <= 0 || internal_port > 65535) {
     out.error = "invalid internal port";
@@ -47,9 +47,9 @@ UpnpMappingResult TryUpnpTcpPortMapping(int internal_port, int external_port) {
     return out;
   }
 
-  char lanaddr[64] = {};
-  if (UPNP_GetExternalIPAddress(urls.controlURL, data.first.servicetype, lanaddr) != UPNPCOMMAND_SUCCESS) {
-    lanaddr[0] = '\0';
+  char ext_ip[64] = {};
+  if (UPNP_GetExternalIPAddress(urls.controlURL, data.first.servicetype, ext_ip) != UPNPCOMMAND_SUCCESS) {
+    ext_ip[0] = '\0';
   }
 
   char int_client[64] = {};
@@ -58,8 +58,16 @@ UpnpMappingResult TryUpnpTcpPortMapping(int internal_port, int external_port) {
   snprintf(int_port_str, sizeof(int_port_str), "%d", internal_port);
   snprintf(ext_port_str, sizeof(ext_port_str), "%d", external_port);
 
+  // Bind mapping to this host's LAN address when discovery provides it.
+  char lanaddr[64] = {};
+  UPNP_GetValidIGD(devlist, &urls, &data, lanaddr, sizeof(lanaddr));
+  if (lanaddr[0] != '\0') {
+    snprintf(int_client, sizeof(int_client), "%s", lanaddr);
+  }
+
   const int map_rc = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, ext_port_str, int_port_str,
-                                       int_client, "pp-browser", "TCP", nullptr, "86400");
+                                         int_client[0] ? int_client : lanaddr, "pp-browser", protocol, nullptr,
+                                         "86400");
   FreeUPNPUrls(&urls);
   freeUPNPDevlist(devlist);
 
@@ -68,20 +76,23 @@ UpnpMappingResult TryUpnpTcpPortMapping(int internal_port, int external_port) {
     return out;
   }
 
-  g_mapped_external_port = external_port;
+  if (std::string(protocol) == "UDP") {
+    g_mapped_udp_external_port = external_port;
+  } else {
+    g_mapped_tcp_external_port = external_port;
+  }
   out.ok = true;
-  out.external_ip = lanaddr;
+  out.external_ip = ext_ip;
   out.external_port = external_port;
   return out;
 #else
-  (void)internal_port;
-  (void)external_port;
+  (void)protocol;
   out.error = "UPnP not available in this build";
   return out;
 #endif
 }
 
-void ReleaseUpnpTcpPortMapping(int external_port) {
+void ReleaseUpnpPortMapping(int external_port, const char* protocol) {
 #if defined(PP_BROWSER_HAS_MINIUPNPC)
   if (external_port <= 0) {
     return;
@@ -101,15 +112,34 @@ void ReleaseUpnpTcpPortMapping(int external_port) {
   }
   char ext_port_str[16] = {};
   snprintf(ext_port_str, sizeof(ext_port_str), "%d", external_port);
-  UPNP_DeletePortMapping(urls.controlURL, data.first.servicetype, ext_port_str, "TCP", nullptr);
+  UPNP_DeletePortMapping(urls.controlURL, data.first.servicetype, ext_port_str, protocol, nullptr);
   FreeUPNPUrls(&urls);
   freeUPNPDevlist(devlist);
-  if (g_mapped_external_port == external_port) {
-    g_mapped_external_port = 0;
+  if (std::string(protocol) == "UDP") {
+    if (g_mapped_udp_external_port == external_port) {
+      g_mapped_udp_external_port = 0;
+    }
+  } else if (g_mapped_tcp_external_port == external_port) {
+    g_mapped_tcp_external_port = 0;
   }
 #else
   (void)external_port;
+  (void)protocol;
 #endif
 }
+
+} // namespace
+
+UpnpMappingResult TryUpnpTcpPortMapping(int internal_port, int external_port) {
+  return TryUpnpPortMapping(internal_port, external_port, "TCP");
+}
+
+void ReleaseUpnpTcpPortMapping(int external_port) { ReleaseUpnpPortMapping(external_port, "TCP"); }
+
+UpnpMappingResult TryUpnpUdpPortMapping(int internal_port, int external_port) {
+  return TryUpnpPortMapping(internal_port, external_port, "UDP");
+}
+
+void ReleaseUpnpUdpPortMapping(int external_port) { ReleaseUpnpPortMapping(external_port, "UDP"); }
 
 } // namespace pbr

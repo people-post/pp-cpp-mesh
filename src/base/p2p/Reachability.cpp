@@ -71,6 +71,24 @@ std::optional<int> TcpPortFromMultiaddrLocal(const std::string& multiaddr) {
 
 } // namespace
 
+std::optional<int> UdpPortFromMultiaddr(const std::string& multiaddr) {
+  const std::string marker = "/udp/";
+  const auto pos = multiaddr.find(marker);
+  if (pos == std::string::npos) {
+    return std::nullopt;
+  }
+  size_t i = pos + marker.size();
+  if (i >= multiaddr.size() || !std::isdigit(static_cast<unsigned char>(multiaddr[i]))) {
+    return std::nullopt;
+  }
+  char* end = nullptr;
+  const long port = std::strtol(multiaddr.c_str() + static_cast<std::ptrdiff_t>(i), &end, 10);
+  if (end == multiaddr.c_str() + static_cast<std::ptrdiff_t>(i) || port < 0 || port > 65535) {
+    return std::nullopt;
+  }
+  return static_cast<int>(port);
+}
+
 const char* ReachabilityStatusKey(ReachabilityStatus status) {
   switch (status) {
   case ReachabilityStatus::Checking:
@@ -256,6 +274,36 @@ std::vector<std::string> BuildReachabilityProbeTargets(const std::string& bound_
   }
 
   AppendUnique(targets, EnsurePeerIdSuffix(bound_listen_multiaddr, local_peer_id));
+  return targets;
+}
+
+std::vector<std::string> BuildAmpReachabilityProbeTargets(const std::string& amp_listen_multiaddr,
+                                                          const std::string& local_peer_id,
+                                                          const std::string& upnp_external_ip) {
+  std::vector<std::string> targets;
+  const auto port = UdpPortFromMultiaddr(amp_listen_multiaddr);
+  if (!port || *port <= 0) {
+    AppendUnique(targets, EnsurePeerIdSuffix(amp_listen_multiaddr, local_peer_id));
+    return targets;
+  }
+
+  auto append_adp = [&](const std::string& ip) {
+    if (ip.empty() || ip == "0.0.0.0" || ip == "127.0.0.1") {
+      return;
+    }
+    AppendUnique(targets, EnsurePeerIdSuffix("/ip4/" + ip + "/udp/" + std::to_string(*port) + "/adp/1.0.0",
+                                             local_peer_id));
+  };
+
+  if (!upnp_external_ip.empty() && IsPublicIpv4(upnp_external_ip)) {
+    append_adp(upnp_external_ip);
+  }
+  for (const std::string& ip : reachability_netif::PublicIpv4Addresses()) {
+    if (IsPublicIpv4(ip)) {
+      append_adp(ip);
+    }
+  }
+  AppendUnique(targets, EnsurePeerIdSuffix(amp_listen_multiaddr, local_peer_id));
   return targets;
 }
 

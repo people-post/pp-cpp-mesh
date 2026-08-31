@@ -34,45 +34,37 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   last_error_.clear();
   amp_last_error_.clear();
 
-  MeshHostConfig effective = config;
-  // D10: Amp is the only product underlay when enable_amp_stack is set (hard-require).
-  if (config.enable_amp_stack) {
-    if (auto amp_started = StartAmpFromConfig(config); !amp_started) {
-      amp_last_error_ = amp_started.error().message;
-      last_error_ = amp_last_error_;
-      return amp_started.error();
-    }
-    // Amp owns mesh — no silent Libp2pHost / PeerSessionManager / TCP listen.
+  // D10/A017: Amp is the only product underlay. enable_amp_stack=false leaves mesh off.
+  if (!config.enable_amp_stack) {
     reachability_ = std::make_unique<ReachabilityService>();
     if (config.on_reachability_updated) {
       reachability_->SetOnUpdated(config.on_reachability_updated);
     }
-    return {};
+    last_error_ = "mesh host: enable_amp_stack required (TCP Host underlay retired)";
+    return Error(last_error_);
   }
 
-  // enable_amp_stack=false: Host shell only (no DialBack / TCP L4). Product mesh is off.
-  runtime_ = std::make_unique<NodeRuntime>();
-  effective.runtime.host.listen_enabled = false;
-  effective.runtime.skip_identify = true;
-  effective.runtime.listen_candidates.clear();
-  if (auto started = runtime_->Start(effective.runtime); !started) {
-    last_error_ = runtime_->LastError().empty() ? started.error().message : runtime_->LastError();
-    runtime_.reset();
-    return started.error();
+  if (auto amp_started = StartAmpFromConfig(config); !amp_started) {
+    amp_last_error_ = amp_started.error().message;
+    last_error_ = amp_last_error_;
+    return amp_started.error();
   }
 
+  bootstrap_peers_ = config.bootstrap_peers;
   reachability_ = std::make_unique<ReachabilityService>();
   if (config.on_reachability_updated) {
     reachability_->SetOnUpdated(config.on_reachability_updated);
   }
-
+  if (config.start_reachability_probe) {
+    StartReachabilityProbe(config.try_upnp_first);
+  }
   return {};
 }
 
 Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
-  const auto& host_cfg = config.runtime.host;
+  const auto& host_cfg = config.host;
   if (!host_cfg.device_ml_dsa_private_key || !host_cfg.device_ml_dsa_public_key) {
-    return Error("mesh host: enable_amp_stack requires device ML-DSA keys (shared PeerId with libp2p)");
+    return Error("mesh host: enable_amp_stack requires device ML-DSA keys");
   }
 
   amp::MshIdentity identity;
@@ -134,6 +126,10 @@ void MeshHost::EnsureAmpL4Coordinators() {
     amp_media_relay_ = std::make_unique<AmpMediaRelayCoordinator>(amp_->Runtime());
   }
   amp_media_relay_->SetCircuitHopRegistry(amp_circuit_hops_.get());
+  if (!amp_dial_back_) {
+    AmpDialBackService::IoPump pump = [this]() { Tick(); };
+    amp_dial_back_ = std::make_unique<AmpDialBackService>(amp_->Links(), std::move(pump));
+  }
 }
 
 void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media) {
@@ -149,6 +145,9 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media)
   if (amp_media_relay_ && !amp_media_relay_->IsStarted()) {
     amp_media_relay_->Start();
   }
+  if (amp_dial_back_ && !amp_dial_back_->IsStarted()) {
+    amp_dial_back_->Start();
+  }
   if (amp_circuit_) {
     amp_circuit_->SetServeInbound(host_circuit);
   }
@@ -160,6 +159,10 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media)
 void MeshHost::StopAmp() {
   if (amp_) {
     amp_->Links().EnableNestedCarrierAccept(false);
+  }
+  if (amp_dial_back_) {
+    amp_dial_back_->Stop();
+    amp_dial_back_.reset();
   }
   if (amp_media_relay_) {
     amp_media_relay_->Stop();
@@ -204,7 +207,8 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
     return;
   }
   std::vector<std::string> protocols = {"/pp-browser/chat/1.0.0", "/pp-browser/chat-history/1.0.0",
-                                        "/pp-browser/chat-blob/1.0.0", "/pp-browser/call-media/1.0.0"};
+                                        "/pp-browser/chat-blob/1.0.0", "/pp-browser/call-media/1.0.0",
+                                        "/pp-browser/dial-back/1.0.0"};
   if (config.host_circuit_relay) {
     protocols.push_back("/pp-browser/circuit-relay/1.0.0");
   }
@@ -221,39 +225,59 @@ void MeshHost::Stop() {
   if (amp_media_relay_) {
     amp_media_relay_->AbortInflight();
   }
-  if (runtime_) {
-    runtime_->Stop();
-    runtime_.reset();
-  }
   StopAmp();
+  bootstrap_peers_.clear();
   // Keep a fresh, valid ReachabilityService so Reachability() references stay safe.
   reachability_ = std::make_unique<ReachabilityService>();
 }
 
 void MeshHost::Tick() {
-  if (runtime_) {
-    runtime_->Tick();
-  }
   if (amp_) {
     amp_->Pump();
     amp_->Tick();
   }
 }
 
-bool MeshHost::IsRunning() const {
-  if (amp_) {
-    return true;
-  }
-  return runtime_ && runtime_->IsRunning();
-}
+bool MeshHost::IsRunning() const { return static_cast<bool>(amp_); }
 
-NodeRuntime* MeshHost::Runtime() { return runtime_.get(); }
+NodeRuntime* MeshHost::Runtime() { return nullptr; }
 
-Libp2pHost* MeshHost::Host() { return runtime_ ? runtime_->Host() : nullptr; }
+Libp2pHost* MeshHost::Host() { return nullptr; }
 
-PeerSessionManager* MeshHost::Sessions() const { return runtime_ ? runtime_->Sessions() : nullptr; }
+PeerSessionManager* MeshHost::Sessions() const { return nullptr; }
 
 DialBackService* MeshHost::DialBack() { return nullptr; }
+
+AmpDialBackService* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
+
+AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) const {
+  AmpReachabilityProbeDeps deps;
+  if (!amp_ || !amp_dial_back_) {
+    return deps;
+  }
+  deps.links = &amp_->Links();
+  deps.dial_back = amp_dial_back_.get();
+  deps.amp_listen_multiaddr = amp_listen_multiaddr_;
+  deps.local_peer_id = amp_->LocalPeerId();
+  deps.bootstrap_peers = bootstrap_peers_;
+  deps.io_pump = [self = const_cast<MeshHost*>(this)]() { self->Tick(); };
+  deps.try_upnp_first = try_upnp_first;
+  return deps;
+}
+
+void MeshHost::StartReachabilityProbe(bool try_upnp_first) {
+  if (!amp_ || !amp_dial_back_) {
+    return;
+  }
+  reachability_->StartProbe(MakeReachabilityDeps(try_upnp_first));
+}
+
+void MeshHost::RunReachabilityProbeBlocking(bool try_upnp_first) {
+  if (!amp_ || !amp_dial_back_) {
+    return;
+  }
+  reachability_->RunProbeBlocking(MakeReachabilityDeps(try_upnp_first));
+}
 
 CircuitRelayService* MeshHost::CircuitRelay() { return nullptr; }
 
@@ -273,7 +297,7 @@ AmpCircuitHopRegistry* MeshHost::AmpCircuitHops() { return amp_circuit_hops_.get
 
 const std::string& MeshHost::BoundListenMultiaddr() const {
   static const std::string kEmpty;
-  return runtime_ ? runtime_->BoundListenMultiaddr() : kEmpty;
+  return amp_listen_multiaddr_.empty() ? kEmpty : amp_listen_multiaddr_;
 }
 
 void MeshHost::AbortInflightCircuitRequests() {
