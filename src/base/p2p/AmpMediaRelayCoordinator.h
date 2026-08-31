@@ -16,7 +16,8 @@ namespace pbr {
 
 /**
  * Non-blocking `/pp-browser/media-relay/1.0.0` quote + attach on MeshRuntime ([A022]).
- * Parallel stack — production still uses MediaRelayService ([A020]).
+ * MeshHost owns a parallel instance when Amp is up; SoftMigrate still uses MediaRelayService
+ * ([A020]) until Amp Subscribe/SendFrame/local-hop lands.
  * D7b: quote/accept/attach handshake only; fan-out SoftMigrate deferred.
  */
 class AmpMediaRelayCoordinator {

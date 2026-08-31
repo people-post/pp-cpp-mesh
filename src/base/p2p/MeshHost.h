@@ -3,7 +3,9 @@
 #include "base/data/Config.h"
 #include "base/mesh/link/AmpStack.h"
 #include "common/Error.h"
+#include "base/p2p/AmpMediaRelayCoordinator.h"
 #include "base/p2p/CircuitRelayService.h"
+#include "base/p2p/CircuitTunnelCoordinator.h"
 #include "base/p2p/DialBackService.h"
 #include "base/p2p/Libp2pHost.h"
 #include "base/p2p/MediaRelayService.h"
@@ -23,7 +25,9 @@ namespace pbr {
  * reachability, converging the pp-browser MessagingHub and headless pp-node start paths.
  *
  * Optional parallel AMP stack ([A020](../../projects/adp/DECISIONS.md)): when enabled or
- * attached, owns `amp::AmpStack` but does not yet route product L4 traffic.
+ * attached, owns `amp::AmpStack`. Product L4 chat/history/call-media may already route via
+ * Amp; circuit/media-relay SoftMigrate stays on libp2p until fan-out lands — MeshHost still
+ * hosts Amp circuit/media-relay coordinators in parallel when `host_*` flags are set.
  *
  * NOT owned here (app-only glue): CallMediaDirectService, LanMdnsDiscovery.
  */
@@ -80,6 +84,17 @@ public:
   const std::string& AmpLastError() const { return amp_last_error_; }
 
   /**
+   * Amp L4 circuit tunnel when Amp is up (created always; Start() only if hosting).
+   * SoftMigrate product path still uses `CircuitRelay()` (libp2p) until fan-out cutover.
+   */
+  CircuitTunnelCoordinator* AmpCircuitTunnel();
+  /**
+   * Amp L4 media-relay when Amp is up (created always; Start() only if hosting).
+   * SoftMigrate product path still uses `MediaRelay()` (libp2p) until fan-out lands.
+   */
+  AmpMediaRelayCoordinator* AmpMediaRelayCoord();
+
+  /**
    * Install a parallel AmpStack (tests / custom DatagramIo). Takes ownership, starts the
    * stack, and clears any previous AmpStack. Does not flip product L4 traffic.
    */
@@ -95,6 +110,8 @@ private:
   Roe<void> StartAmpFromConfig(const MeshHostConfig& config);
   void StopAmp();
   void ApplyAmpAdvertisement(const MeshHostConfig& config);
+  void EnsureAmpL4Coordinators();
+  void StartAmpL4Hosting(bool host_circuit, bool host_media);
 
   std::unique_ptr<NodeRuntime> runtime_;
   std::unique_ptr<DialBackService> dial_back_;
@@ -102,6 +119,8 @@ private:
   std::unique_ptr<MediaRelayService> media_relay_;
   std::unique_ptr<ReachabilityService> reachability_;
   std::unique_ptr<amp::AmpStack> amp_;
+  std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
+  std::unique_ptr<AmpMediaRelayCoordinator> amp_media_relay_;
   std::shared_ptr<adp::Clock> amp_clock_;
   std::string amp_listen_multiaddr_;
   std::string amp_last_error_;

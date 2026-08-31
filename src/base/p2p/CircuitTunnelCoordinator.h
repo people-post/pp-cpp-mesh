@@ -25,7 +25,8 @@ struct CircuitTunnelBridgeResult {
 
 /**
  * Non-blocking `/pp-browser/circuit-relay/1.0.0` tunnels on MeshRuntime ([A022]).
- * Parallel stack — production still uses CircuitRelayService ([A020]).
+ * MeshHost owns a parallel instance when Amp is up; SoftMigrate still uses CircuitRelayService
+ * ([A020]) until Amp fan-out / adopt-session cutover.
  * No IoPump / nested Pump; OpenChannel + PostToIo callbacks only.
  */
 class CircuitTunnelCoordinator {

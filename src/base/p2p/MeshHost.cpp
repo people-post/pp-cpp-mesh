@@ -119,10 +119,42 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   amp_ = std::move(*stack);
   ApplyAmpAdvertisement(config);
+  EnsureAmpL4Coordinators();
+  StartAmpL4Hosting(config.host_circuit_relay, config.host_media_relay);
   return Roe<void>();
 }
 
+void MeshHost::EnsureAmpL4Coordinators() {
+  if (!amp_) {
+    return;
+  }
+  if (!amp_circuit_) {
+    amp_circuit_ = std::make_unique<CircuitTunnelCoordinator>(amp_->Runtime());
+  }
+  if (!amp_media_relay_) {
+    amp_media_relay_ = std::make_unique<AmpMediaRelayCoordinator>(amp_->Runtime());
+  }
+}
+
+void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media) {
+  EnsureAmpL4Coordinators();
+  if (host_circuit && amp_circuit_ && !amp_circuit_->IsStarted()) {
+    amp_circuit_->Start();
+  }
+  if (host_media && amp_media_relay_ && !amp_media_relay_->IsStarted()) {
+    amp_media_relay_->Start();
+  }
+}
+
 void MeshHost::StopAmp() {
+  if (amp_media_relay_) {
+    amp_media_relay_->Stop();
+    amp_media_relay_.reset();
+  }
+  if (amp_circuit_) {
+    amp_circuit_->Stop();
+    amp_circuit_.reset();
+  }
   if (amp_) {
     amp_->Stop();
     amp_.reset();
@@ -143,6 +175,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<amp::AmpStack> stack, std::st
   if (!amp_listen_multiaddr_.empty()) {
     amp_->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   }
+  EnsureAmpL4Coordinators();
   return Roe<void>();
 }
 
@@ -216,6 +249,10 @@ amp::AmpStack* MeshHost::Amp() { return amp_.get(); }
 
 const amp::AmpStack* MeshHost::Amp() const { return amp_.get(); }
 
+CircuitTunnelCoordinator* MeshHost::AmpCircuitTunnel() { return amp_circuit_.get(); }
+
+AmpMediaRelayCoordinator* MeshHost::AmpMediaRelayCoord() { return amp_media_relay_.get(); }
+
 const std::string& MeshHost::BoundListenMultiaddr() const {
   static const std::string kEmpty;
   return runtime_ ? runtime_->BoundListenMultiaddr() : kEmpty;
@@ -224,6 +261,9 @@ const std::string& MeshHost::BoundListenMultiaddr() const {
 void MeshHost::AbortInflightCircuitRequests() {
   if (circuit_relay_) {
     circuit_relay_->AbortInflightRequests();
+  }
+  if (amp_circuit_) {
+    amp_circuit_->AbortInflight();
   }
 }
 
