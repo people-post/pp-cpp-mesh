@@ -26,6 +26,8 @@ struct LanMdnsDiscoveredPeer {
   std::string peer_id_base58;
   std::string host_ip;
   int tcp_port = 0;
+  /** AMP UDP listen port from TXT `amp_udp=` (0 = not advertised). */
+  int amp_udp_port = 0;
 };
 
 /**
@@ -52,10 +54,12 @@ public:
 
   /** Update what we announce (PeerId + bound TCP listen port). Empty peer_id stops announce. */
   void SetAdvertisement(const std::string& peer_id_base58, int tcp_port,
-                        const std::vector<std::string>& lan_ipv4_addrs);
+                        const std::vector<std::string>& lan_ipv4_addrs, int amp_udp_port = 0);
 
   /** Build `/ip4/…/tcp/…/p2p/…` from a browse result. */
   static std::optional<std::string> BuildMultiaddr(const LanMdnsDiscoveredPeer& peer);
+  /** Build `/ip4/…/udp/…/adp/1.0.0/p2p/…` when amp_udp_port is set. */
+  static std::optional<std::string> BuildAdpMultiaddr(const LanMdnsDiscoveredPeer& peer);
 
   /** Test helpers — DNS name encode/decode (no socket I/O). */
   static Roe<std::vector<uint8_t>> EncodeDnsName(const std::string& fqdn);
@@ -71,6 +75,7 @@ private:
   mutable std::mutex advertise_mutex_;
   std::string advertise_peer_id_;
   int advertise_port_ = 0;
+  int advertise_amp_udp_port_ = 0;
   std::vector<std::string> advertise_ips_;
 
   std::atomic<bool> running_{false};

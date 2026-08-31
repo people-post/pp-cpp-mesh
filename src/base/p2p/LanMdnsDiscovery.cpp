@@ -171,7 +171,7 @@ void AppendRecord(std::vector<uint8_t>& packet, const std::string& name, uint16_
 }
 
 std::vector<uint8_t> BuildAnnouncement(const std::string& peer_id, int tcp_port,
-                                       const std::vector<std::string>& lan_ips) {
+                                       const std::vector<std::string>& lan_ips, int amp_udp_port) {
   if (peer_id.empty() || tcp_port <= 0 || lan_ips.empty()) {
     return {};
   }
@@ -210,12 +210,17 @@ std::vector<uint8_t> BuildAnnouncement(const std::string& peer_id, int tcp_port,
     }
   }
 
-  // TXT peer id
+  // TXT peer id (+ optional amp_udp for ADP LAN dial)
   {
-    const std::string txt_line = "peer=" + peer_id;
     std::vector<uint8_t> txt;
-    txt.push_back(static_cast<uint8_t>(txt_line.size()));
-    txt.insert(txt.end(), txt_line.begin(), txt_line.end());
+    const std::string peer_line = "peer=" + peer_id;
+    txt.push_back(static_cast<uint8_t>(peer_line.size()));
+    txt.insert(txt.end(), peer_line.begin(), peer_line.end());
+    if (amp_udp_port > 0 && amp_udp_port <= 65535) {
+      const std::string amp_line = "amp_udp=" + std::to_string(amp_udp_port);
+      txt.push_back(static_cast<uint8_t>(amp_line.size()));
+      txt.insert(txt.end(), amp_line.begin(), amp_line.end());
+    }
     AppendRecord(packet, instance, kDnsTypeTxt, 120, txt, true);
     answer_count++;
   }
@@ -234,7 +239,13 @@ std::vector<uint8_t> BuildAnnouncement(const std::string& peer_id, int tcp_port,
   return packet;
 }
 
-std::optional<std::string> ParseTxtPeerId(const std::vector<uint8_t>& rdata) {
+struct TxtPeerFields {
+  std::string peer_id;
+  int amp_udp_port = 0;
+};
+
+std::optional<TxtPeerFields> ParseTxtPeerFields(const std::vector<uint8_t>& rdata) {
+  TxtPeerFields out;
   size_t pos = 0;
   while (pos < rdata.size()) {
     const uint8_t len = rdata[pos++];
@@ -243,12 +254,24 @@ std::optional<std::string> ParseTxtPeerId(const std::vector<uint8_t>& rdata) {
     }
     const std::string line(reinterpret_cast<const char*>(rdata.data() + pos), len);
     pos += len;
-    constexpr std::string_view kPrefix = "peer=";
-    if (line.rfind(std::string(kPrefix), 0) == 0) {
-      return line.substr(kPrefix.size());
+    constexpr std::string_view kPeerPrefix = "peer=";
+    constexpr std::string_view kAmpPrefix = "amp_udp=";
+    if (line.rfind(std::string(kPeerPrefix), 0) == 0) {
+      out.peer_id = line.substr(kPeerPrefix.size());
+    } else if (line.rfind(std::string(kAmpPrefix), 0) == 0) {
+      try {
+        const int port = std::stoi(line.substr(kAmpPrefix.size()));
+        if (port > 0 && port <= 65535) {
+          out.amp_udp_port = port;
+        }
+      } catch (...) {
+      }
     }
   }
-  return std::nullopt;
+  if (out.peer_id.empty()) {
+    return std::nullopt;
+  }
+  return out;
 }
 
 std::optional<int> ParseSrvPort(const std::vector<uint8_t>& rdata) {
@@ -330,10 +353,11 @@ void LanMdnsDiscovery::Stop() {
 }
 
 void LanMdnsDiscovery::SetAdvertisement(const std::string& peer_id_base58, int tcp_port,
-                                        const std::vector<std::string>& lan_ipv4_addrs) {
+                                        const std::vector<std::string>& lan_ipv4_addrs, int amp_udp_port) {
   std::lock_guard lock(advertise_mutex_);
   advertise_peer_id_ = peer_id_base58;
   advertise_port_ = tcp_port;
+  advertise_amp_udp_port_ = amp_udp_port;
   advertise_ips_ = lan_ipv4_addrs;
 }
 
@@ -342,6 +366,14 @@ std::optional<std::string> LanMdnsDiscovery::BuildMultiaddr(const LanMdnsDiscove
     return std::nullopt;
   }
   return "/ip4/" + peer.host_ip + "/tcp/" + std::to_string(peer.tcp_port) + "/p2p/" + peer.peer_id_base58;
+}
+
+std::optional<std::string> LanMdnsDiscovery::BuildAdpMultiaddr(const LanMdnsDiscoveredPeer& peer) {
+  if (peer.peer_id_base58.empty() || peer.host_ip.empty() || peer.amp_udp_port <= 0) {
+    return std::nullopt;
+  }
+  return "/ip4/" + peer.host_ip + "/udp/" + std::to_string(peer.amp_udp_port) + "/adp/1.0.0/p2p/" +
+         peer.peer_id_base58;
 }
 
 void LanMdnsDiscovery::ThreadMain() {
@@ -404,14 +436,16 @@ void LanMdnsDiscovery::SendBrowseQuery(lan_mdns::UdpMulticastSocket& socket) {
 void LanMdnsDiscovery::SendAnnouncement(lan_mdns::UdpMulticastSocket& socket) {
   std::string peer_id;
   int port = 0;
+  int amp_udp = 0;
   std::vector<std::string> ips;
   {
     std::lock_guard lock(advertise_mutex_);
     peer_id = advertise_peer_id_;
     port = advertise_port_;
+    amp_udp = advertise_amp_udp_port_;
     ips = advertise_ips_;
   }
-  const auto packet = BuildAnnouncement(peer_id, port, ips);
+  const auto packet = BuildAnnouncement(peer_id, port, ips, amp_udp);
   if (packet.empty()) {
     return;
   }
@@ -441,7 +475,7 @@ void LanMdnsDiscovery::HandlePacket(const uint8_t* data, size_t len) {
   }
 
   std::unordered_map<std::string, int> srv_ports;
-  std::unordered_map<std::string, std::string> txt_peers;
+  std::unordered_map<std::string, TxtPeerFields> txt_peers;
   std::unordered_map<std::string, std::string> a_ips;
 
   const auto parse_records = [&](uint16_t count) {
@@ -476,8 +510,8 @@ void LanMdnsDiscovery::HandlePacket(const uint8_t* data, size_t len) {
             srv_ports[*name] = *port;
           }
         } else if (type == kDnsTypeTxt) {
-          if (auto peer = ParseTxtPeerId(rdata)) {
-            txt_peers[*name] = *peer;
+          if (auto fields = ParseTxtPeerFields(rdata)) {
+            txt_peers[*name] = *fields;
           }
         } else if (type == kDnsTypeA) {
           if (auto ip = ParseARecordIp(rdata)) {
@@ -493,14 +527,15 @@ void LanMdnsDiscovery::HandlePacket(const uint8_t* data, size_t len) {
     return;
   }
 
-  for (const auto& [instance, peer_id] : txt_peers) {
+  for (const auto& [instance, fields] : txt_peers) {
     (void)instance;
     LanMdnsDiscoveredPeer discovered;
-    discovered.peer_id_base58 = peer_id;
+    discovered.peer_id_base58 = fields.peer_id;
+    discovered.amp_udp_port = fields.amp_udp_port;
     for (const auto& [name, port] : srv_ports) {
-      if (name.find(SanitizeInstanceLabel(peer_id)) != std::string::npos) {
+      if (name.find(SanitizeInstanceLabel(fields.peer_id)) != std::string::npos) {
         discovered.tcp_port = port;
-        const std::string target = HostTargetFqdn(peer_id);
+        const std::string target = HostTargetFqdn(fields.peer_id);
         if (auto it = a_ips.find(target); it != a_ips.end()) {
           discovered.host_ip = it->second;
         }
@@ -509,7 +544,7 @@ void LanMdnsDiscovery::HandlePacket(const uint8_t* data, size_t len) {
     }
     if (discovered.host_ip.empty()) {
       for (const auto& [host, ip] : a_ips) {
-        if (host.find(SanitizeInstanceLabel(peer_id)) != std::string::npos) {
+        if (host.find(SanitizeInstanceLabel(fields.peer_id)) != std::string::npos) {
           discovered.host_ip = ip;
           break;
         }
