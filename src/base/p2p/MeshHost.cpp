@@ -240,14 +240,6 @@ void MeshHost::Tick() {
 
 bool MeshHost::IsRunning() const { return static_cast<bool>(amp_); }
 
-NodeRuntime* MeshHost::Runtime() { return nullptr; }
-
-Libp2pHost* MeshHost::Host() { return nullptr; }
-
-PeerSessionManager* MeshHost::Sessions() const { return nullptr; }
-
-DialBackService* MeshHost::DialBack() { return nullptr; }
-
 AmpDialBackService* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
 
 AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) const {
@@ -278,10 +270,6 @@ void MeshHost::RunReachabilityProbeBlocking(bool try_upnp_first) {
   }
   reachability_->RunProbeBlocking(MakeReachabilityDeps(try_upnp_first));
 }
-
-CircuitRelayService* MeshHost::CircuitRelay() { return nullptr; }
-
-MediaRelayService* MeshHost::MediaRelay() { return nullptr; }
 
 ReachabilityService& MeshHost::Reachability() { return *reachability_; }
 

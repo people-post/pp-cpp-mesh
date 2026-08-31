@@ -18,13 +18,6 @@
 
 namespace pbr {
 
-class NodeRuntime;
-class Libp2pHost;
-class PeerSessionManager;
-class DialBackService;
-class CircuitRelayService;
-class MediaRelayService;
-
 /**
  * Amp-only mesh host (A017/D10): owns AmpStack + Amp L4 coordinators + reachability.
  *
@@ -32,7 +25,7 @@ class MediaRelayService;
  * ChannelSessions via AmpCircuitHopRegistry. Dial-back (D8) feeds Me→Network chrome.
  */
 struct MeshHostConfig {
-  /** ML-DSA identity for Amp PeerId (same keys historically used by Libp2pHost). */
+  /** ML-DSA identity for Amp PeerId (device keys; historically shared with Libp2pHost). */
   Libp2pHostConfig host;
   /** Start inbound circuit-relay hosting (Node with circuit_relay capability). */
   bool host_circuit_relay = false;
@@ -71,18 +64,6 @@ public:
   void Tick();
   bool IsRunning() const;
 
-  /** Always null after A017 (TCP Host shell retired). */
-  NodeRuntime* Runtime();
-  /** Always null after A017. */
-  Libp2pHost* Host();
-  /** Always null after A017. */
-  PeerSessionManager* Sessions() const;
-  /** Always null (TCP DialBack retired). Prefer AmpDialBack(). */
-  DialBackService* DialBack();
-  /** Always null after D10 (Amp circuit owns product path). */
-  CircuitRelayService* CircuitRelay();
-  /** Always null after D10 (Amp media-relay owns product path). */
-  MediaRelayService* MediaRelay();
   ReachabilityService& Reachability();
 
   /** Amp stack when `enable_amp_stack` or `AttachAmpStack` (may be null). */

@@ -1,6 +1,6 @@
 #include "base/p2p/MediaRelayAttachSm.h"
 #include "base/p2p/MediaRelayLogic.h"
-#include "base/p2p/MediaRelayService.h"
+#include "base/p2p/MediaRelayTypes.h"
 
 #include <gtest/gtest.h>
 
@@ -110,10 +110,10 @@ TEST(MediaRelayLogicTest, CallScopedAdmitAndCaps) {
   EXPECT_TRUE(MediaRelayCallScopedAdmit(false, true));
   EXPECT_FALSE(MediaRelayCallScopedAdmit(false, false));
 
-  EXPECT_TRUE(MediaRelayCanOpenHostSession(3, MediaRelayService::kMaxHostSessions));
-  EXPECT_FALSE(MediaRelayCanOpenHostSession(4, MediaRelayService::kMaxHostSessions));
-  EXPECT_TRUE(MediaRelayCanAddParticipant(7, MediaRelayService::kMaxParticipantsPerSession));
-  EXPECT_FALSE(MediaRelayCanAddParticipant(8, MediaRelayService::kMaxParticipantsPerSession));
+  EXPECT_TRUE(MediaRelayCanOpenHostSession(3, kMediaRelayMaxHostSessions));
+  EXPECT_FALSE(MediaRelayCanOpenHostSession(4, kMediaRelayMaxHostSessions));
+  EXPECT_TRUE(MediaRelayCanAddParticipant(7, kMediaRelayMaxParticipantsPerSession));
+  EXPECT_FALSE(MediaRelayCanAddParticipant(8, kMediaRelayMaxParticipantsPerSession));
 }
 
 } // namespace
