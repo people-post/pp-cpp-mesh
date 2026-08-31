@@ -35,8 +35,6 @@ set(PP_BASE_P2P_SOURCES
   CallMediaBundleLogic.cpp
   CallMediaSessionLogic.cpp
   CallMediaFrameCrypto.cpp
-  CallMediaAdpKey.cpp
-  CallMediaAdpPath.cpp
   AmpCircuitHopRegistry.cpp
   CircuitBundleLogic.cpp
   CircuitTunnelCoordinator.cpp

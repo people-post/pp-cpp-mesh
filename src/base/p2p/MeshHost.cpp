@@ -33,44 +33,60 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   Stop();
   last_error_.clear();
 
-  runtime_ = std::make_unique<NodeRuntime>();
-  if (auto started = runtime_->Start(config.runtime); !started) {
-    last_error_ = runtime_->LastError().empty() ? started.error().message : runtime_->LastError();
-    runtime_.reset();
-    return started.error();
-  }
-
-  dial_back_ = std::make_unique<DialBackService>(*runtime_->Host(), *runtime_->Sessions());
-  dial_back_->Start();
-
-  circuit_relay_ = std::make_unique<CircuitRelayService>(*runtime_->Host(), *runtime_->Sessions());
-  if (config.host_circuit_relay) {
-    circuit_relay_->Start();
-  }
-
-  // Outbound client API always available; inbound hosting only when requested.
-  media_relay_ = std::make_unique<MediaRelayService>(*runtime_->Host(), *runtime_->Sessions());
-  media_relay_->SetBudget(config.media_relay_budget);
-  media_relay_->SetPricing(config.media_relay_pricing);
-  if (config.host_media_relay) {
-    media_relay_->Start();
-  }
-
-  reachability_ = std::make_unique<ReachabilityService>();
-  if (config.on_reachability_updated) {
-    reachability_->SetOnUpdated(config.on_reachability_updated);
-  }
-  if (config.start_reachability_probe) {
-    reachability_->StartProbe(*runtime_, *dial_back_, config.try_upnp_first);
-  }
-
+  MeshHostConfig effective = config;
+  // Prefer Amp underlay first so NodeRuntime can skip TCP listen + Identify (D9 step 6).
   if (config.enable_amp_stack) {
     amp_last_error_.clear();
     if (auto amp_started = StartAmpFromConfig(config); !amp_started) {
-      // Soft-fail: keep libp2p up until L4 cutover (A023 parallel phase).
       amp_last_error_ = amp_started.error().message;
+    } else {
+      effective.runtime.host.listen_enabled = false;
+      effective.runtime.skip_identify = true;
+      effective.runtime.listen_candidates.clear();
     }
   }
+
+  runtime_ = std::make_unique<NodeRuntime>();
+  if (auto started = runtime_->Start(effective.runtime); !started) {
+    last_error_ = runtime_->LastError().empty() ? started.error().message : runtime_->LastError();
+    runtime_.reset();
+    StopAmp();
+    return started.error();
+  }
+
+  const bool amp_owns_mesh = static_cast<bool>(amp_);
+
+  if (!amp_owns_mesh) {
+    dial_back_ = std::make_unique<DialBackService>(*runtime_->Host(), *runtime_->Sessions());
+    dial_back_->Start();
+
+    circuit_relay_ = std::make_unique<CircuitRelayService>(*runtime_->Host(), *runtime_->Sessions());
+    if (config.host_circuit_relay) {
+      circuit_relay_->Start();
+    }
+
+    media_relay_ = std::make_unique<MediaRelayService>(*runtime_->Host(), *runtime_->Sessions());
+    media_relay_->SetBudget(config.media_relay_budget);
+    media_relay_->SetPricing(config.media_relay_pricing);
+    if (config.host_media_relay) {
+      media_relay_->Start();
+    }
+
+    reachability_ = std::make_unique<ReachabilityService>();
+    if (config.on_reachability_updated) {
+      reachability_->SetOnUpdated(config.on_reachability_updated);
+    }
+    if (config.start_reachability_probe) {
+      reachability_->StartProbe(*runtime_, *dial_back_, config.try_upnp_first);
+    }
+  } else {
+    // Amp L4 coordinators already own circuit/media-relay; DialBack/Identify retired with TCP listen.
+    reachability_ = std::make_unique<ReachabilityService>();
+    if (config.on_reachability_updated) {
+      reachability_->SetOnUpdated(config.on_reachability_updated);
+    }
+  }
+
   return {};
 }
 
@@ -114,7 +130,8 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   }
 
   (*stack)->Start();
-  (*stack)->GetEndpoint().SetAcceptEnabled(config.runtime.host.listen_enabled);
+  // Amp UDP accept is independent of TCP listen_enabled (Clients need inbound Amp).
+  (*stack)->GetEndpoint().SetAcceptEnabled(true);
   amp_listen_multiaddr_ = *listen;
   (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   amp_ = std::move(*stack);
@@ -208,7 +225,8 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
     return;
   }
   std::vector<std::string> protocols = {"/pp-browser/chat/1.0.0", "/pp-browser/chat-history/1.0.0",
-                                        "/pp-browser/call-media/1.0.0", kDialBackProtocolId};
+                                        "/pp-browser/chat-blob/1.0.0", "/pp-browser/call-media/1.0.0",
+                                        kDialBackProtocolId};
   if (config.host_circuit_relay) {
     protocols.push_back("/pp-browser/circuit-relay/1.0.0");
   }
