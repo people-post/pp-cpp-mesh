@@ -36,7 +36,8 @@ set(PP_BASE_P2P_SOURCES
   CallMediaFrameCrypto.cpp
   CallMediaAdpKey.cpp
   CallMediaAdpPath.cpp
-  AmpCircuitRelayService.cpp
+  CircuitBundleLogic.cpp
+  CircuitTunnelCoordinator.cpp
 )
 
 if(WIN32)

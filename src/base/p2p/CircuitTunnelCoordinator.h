@@ -1,0 +1,74 @@
+#pragma once
+
+#include "base/mesh/channel/ChannelSession.h"
+#include "base/mesh/link/MeshRuntime.h"
+#include "base/p2p/CircuitBridgeTarget.h"
+#include "base/p2p/CircuitBundleLogic.h"
+#include "base/p2p/CircuitRelayService.h"
+
+#include "common/Error.h"
+#include "common/PbrCompat.h"
+
+#include <functional>
+#include <memory>
+#include <string>
+
+namespace pbr {
+
+struct CircuitTunnelBridgeResult {
+  bool ok = false;
+  std::string error;
+  std::string resolved_multiaddr;
+  /** Client circuit session after bridge ack (coordinator-owned; valid while Bridging). */
+  std::shared_ptr<amp::ChannelSession> session;
+};
+
+/**
+ * Non-blocking `/pp-browser/circuit-relay/1.0.0` tunnels on MeshRuntime ([A022]).
+ * Parallel stack — production still uses CircuitRelayService ([A020]).
+ * No IoPump / nested Pump; OpenChannel + PostToIo callbacks only.
+ */
+class CircuitTunnelCoordinator {
+public:
+  using FrameHandler = amp::ChannelSession::FrameHandler;
+  using ClosedCallback = amp::ChannelSession::ClosedCallback;
+  using BridgeFinished = std::function<void(Roe<CircuitTunnelBridgeResult>)>;
+
+  explicit CircuitTunnelCoordinator(amp::MeshRuntime& runtime);
+  ~CircuitTunnelCoordinator();
+
+  CircuitTunnelCoordinator(const CircuitTunnelCoordinator&) = delete;
+  CircuitTunnelCoordinator& operator=(const CircuitTunnelCoordinator&) = delete;
+
+  void Start();
+  void Stop();
+  bool IsStarted() const;
+
+  void SetAdmissionPolicy(CircuitRelayAdmissionPolicy policy);
+
+  /** Cancel all in-flight / bridging tunnels (Leave / shutdown). */
+  void AbortInflight();
+
+  /**
+   * Client: returns tunnel id immediately; completion via `on_finished` when Bridging or error.
+   * Optional `on_payload` receives forwarded DATA after ack.
+   */
+  CircuitTunnelId StartBridge(const std::string& relay_peer_key, const CircuitBridgeTarget& target,
+                              FrameHandler on_payload = {}, ClosedCallback on_closed = {},
+                              BridgeFinished on_finished = {}, int timeout_ms = 8000);
+
+  void CancelTunnel(CircuitTunnelId id);
+
+  CircuitTunnelPhase Phase(CircuitTunnelId id) const;
+  bool IsTunnelActive(CircuitTunnelId id) const;
+
+  /** Bridging client session (null if not ready / relay-serve). */
+  std::shared_ptr<amp::ChannelSession> Session(CircuitTunnelId id) const;
+
+private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+  amp::MeshRuntime& runtime_;
+};
+
+} // namespace pbr

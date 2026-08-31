@@ -1,4 +1,4 @@
-#include "base/p2p/AmpCircuitRelayService.h"
+#include "base/p2p/CircuitTunnelCoordinator.h"
 
 #include "base/mesh/channel/ChannelPolicy.h"
 #include "base/mesh/channel/ChannelSession.h"
@@ -17,7 +17,7 @@ namespace {
 
 inline constexpr const char* kAmpBridgeTargetProtocol = "/pp-browser/circuit-relay-bridge-test/1.0.0";
 
-class AmpCircuitRelayServiceTest : public ::testing::Test {
+class CircuitTunnelCoordinatorTest : public ::testing::Test {
 protected:
   void SetUp() override {
     auto created = test::AmpMeshTripleHarness::Create();
@@ -26,29 +26,23 @@ protected:
 
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_a().RegisterEndpoint("relay", harness_->ma_r)));
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_r().RegisterEndpoint("b", harness_->ma_b)));
-    // Optional reverse book entries for peer-id resolution.
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_r().RegisterEndpoint(harness_->peer_id_b, harness_->ma_b)));
 
-    auto pump = [this] {
-      if (harness_) {
-        harness_->PumpAll();
-      }
-    };
-    relay_service_ = std::make_unique<AmpCircuitRelayService>(*harness_->runtime_r, pump);
-    client_service_ = std::make_unique<AmpCircuitRelayService>(*harness_->runtime_a, pump);
-    relay_service_->Start();
-    client_service_->Start();
+    relay_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_r);
+    client_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_a);
+    relay_->Start();
+    client_->Start();
   }
 
   void TearDown() override {
-    if (client_service_) {
-      client_service_->Stop();
+    if (client_) {
+      client_->Stop();
     }
-    if (relay_service_) {
-      relay_service_->Stop();
+    if (relay_) {
+      relay_->Stop();
     }
-    client_service_.reset();
-    relay_service_.reset();
+    client_.reset();
+    relay_.reset();
     harness_.reset();
   }
 
@@ -70,16 +64,33 @@ protected:
         });
   }
 
+  struct BridgeWait {
+    std::atomic<bool> done{false};
+    Roe<CircuitTunnelBridgeResult> result = Error("pending");
+
+    CircuitTunnelCoordinator::BridgeFinished Fn() {
+      return [this](Roe<CircuitTunnelBridgeResult> r) {
+        result = std::move(r);
+        done.store(true, std::memory_order_release);
+      };
+    }
+
+    void PumpUntilDone(test::AmpMeshTripleHarness& harness, const size_t max_rounds = 800) {
+      harness.PumpUntil([this] { return done.load(std::memory_order_acquire); }, max_rounds);
+      ASSERT_TRUE(done.load(std::memory_order_acquire)) << "bridge completion timed out";
+    }
+  };
+
   std::unique_ptr<test::AmpMeshTripleHarness> harness_;
-  std::unique_ptr<AmpCircuitRelayService> relay_service_;
-  std::unique_ptr<AmpCircuitRelayService> client_service_;
+  std::unique_ptr<CircuitTunnelCoordinator> relay_;
+  std::unique_ptr<CircuitTunnelCoordinator> client_;
   std::shared_ptr<amp::ChannelSession> target_session_;
   std::mutex target_mu_;
   bool target_got_ = false;
   std::vector<uint8_t> target_received_;
 };
 
-TEST_F(AmpCircuitRelayServiceTest, BridgeForwardsPayload) {
+TEST_F(CircuitTunnelCoordinatorTest, BridgeForwardsPayload) {
   ArmTargetReader();
 
   CircuitBridgeTarget target;
@@ -87,14 +98,16 @@ TEST_F(AmpCircuitRelayServiceTest, BridgeForwardsPayload) {
   target.target_peer_id = harness_->peer_id_b;
   target.target_protocol = kAmpBridgeTargetProtocol;
 
-  auto bridged = client_service_->RequestBridge("relay", target, {}, {}, 8000);
-  ASSERT_TRUE(bridged) << bridged.error().message;
-  ASSERT_TRUE(bridged->ok) << bridged->error;
-  ASSERT_TRUE(bridged->session);
+  BridgeWait wait;
+  auto id = client_->StartBridge("relay", target, {}, {}, wait.Fn(), 8000);
+  ASSERT_TRUE(id);
+  wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(wait.result) << wait.result.error().message;
+  ASSERT_TRUE(wait.result->ok) << wait.result->error;
+  ASSERT_TRUE(wait.result->session);
 
   const std::vector<uint8_t> payload = {'c', 'i', 'r', 'c', 'u', 'i', 't'};
-  ASSERT_TRUE(bridged->session->EnqueueOutbound(payload));
-
+  ASSERT_TRUE(wait.result->session->EnqueueOutbound(payload));
   harness_->PumpUntil([this] {
     std::lock_guard lock(target_mu_);
     return target_got_;
@@ -106,7 +119,7 @@ TEST_F(AmpCircuitRelayServiceTest, BridgeForwardsPayload) {
   }
 }
 
-TEST_F(AmpCircuitRelayServiceTest, BridgeForwardsReversePayload) {
+TEST_F(CircuitTunnelCoordinatorTest, BridgeForwardsReversePayload) {
   ArmTargetReader();
 
   std::mutex client_mu;
@@ -118,7 +131,8 @@ TEST_F(AmpCircuitRelayServiceTest, BridgeForwardsReversePayload) {
   target.target_peer_id = harness_->peer_id_b;
   target.target_protocol = kAmpBridgeTargetProtocol;
 
-  auto bridged = client_service_->RequestBridge(
+  BridgeWait wait;
+  auto id = client_->StartBridge(
       "relay", target,
       [&](Roe<std::vector<uint8_t>> frame) {
         if (!frame) {
@@ -129,10 +143,11 @@ TEST_F(AmpCircuitRelayServiceTest, BridgeForwardsReversePayload) {
         client_got = true;
         return true;
       },
-      {}, 8000);
-  ASSERT_TRUE(bridged) << bridged.error().message;
-  ASSERT_TRUE(bridged->ok) << bridged->error;
-  ASSERT_TRUE(bridged->session);
+      {}, wait.Fn(), 8000);
+  ASSERT_TRUE(id);
+  wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(wait.result) << wait.result.error().message;
+  ASSERT_TRUE(wait.result->ok);
 
   harness_->PumpUntil([this] { return static_cast<bool>(target_session_); });
   ASSERT_TRUE(target_session_);
@@ -150,21 +165,24 @@ TEST_F(AmpCircuitRelayServiceTest, BridgeForwardsReversePayload) {
   }
 }
 
-TEST_F(AmpCircuitRelayServiceTest, StrangerRefusedWhenContactsOnly) {
+TEST_F(CircuitTunnelCoordinatorTest, StrangerRefusedWhenContactsOnly) {
   CircuitRelayAdmissionPolicy policy;
   policy.prefer_contacts_only = true;
   policy.serve_scope_mask = kRelayScopeLinkSiteSocial;
   policy.contact_peer_ids = {"not-the-client"};
-  relay_service_->SetAdmissionPolicy(std::move(policy));
+  relay_->SetAdmissionPolicy(std::move(policy));
 
   CircuitBridgeTarget target;
   target.target_multiaddr = harness_->ma_b;
   target.target_peer_id = harness_->peer_id_b;
   target.target_protocol = kAmpBridgeTargetProtocol;
 
-  auto bridged = client_service_->RequestBridge("relay", target, {}, {}, 5000);
-  ASSERT_FALSE(bridged);
-  EXPECT_NE(bridged.error().message.find("stranger"), std::string::npos);
+  BridgeWait wait;
+  auto id = client_->StartBridge("relay", target, {}, {}, wait.Fn(), 5000);
+  ASSERT_TRUE(id);
+  wait.PumpUntilDone(*harness_);
+  ASSERT_FALSE(wait.result);
+  EXPECT_NE(wait.result.error().message.find("stranger"), std::string::npos);
 }
 
 } // namespace
