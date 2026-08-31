@@ -30,6 +30,8 @@ set(PP_BASE_P2P_SOURCES
   LanMdnsDiscovery.cpp
   CallMediaDirectService.cpp
   CallMediaSession.cpp
+  CallMediaLegCoordinator.cpp
+  CallMediaBundleLogic.cpp
   CallMediaSessionLogic.cpp
   CallMediaFrameCrypto.cpp
   CallMediaAdpKey.cpp
@@ -53,6 +55,7 @@ pp_browser_add_base_library(pp_base_p2p
     pp_base_data
     pp_base_crypto
     pp_base_adp
+    pp_base_mesh_link
     pp_base_runtime_core
     p2p
     p2p_identify
