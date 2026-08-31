@@ -38,6 +38,8 @@ set(PP_BASE_P2P_SOURCES
   CallMediaAdpPath.cpp
   CircuitBundleLogic.cpp
   CircuitTunnelCoordinator.cpp
+  MediaRelayBundleLogic.cpp
+  AmpMediaRelayCoordinator.cpp
 )
 
 if(WIN32)
