@@ -30,7 +30,6 @@ set(PP_BASE_P2P_SOURCES
   LanMdnsDiscovery.cpp
   CallMediaDirectService.cpp
   CallMediaSession.cpp
-  AmpCallMediaDirectService.cpp
   CallMediaLegCoordinator.cpp
   CallMediaSessionLogic.cpp
   CallMediaFrameCrypto.cpp
