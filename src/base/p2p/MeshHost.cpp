@@ -233,8 +233,8 @@ void MeshHost::Stop() {
 
 void MeshHost::Tick() {
   if (amp_) {
-    amp_->Pump();
-    amp_->Tick();
+    // Single locked Drive: Connect waiters (worker) and TickLibp2p (coordinator) both call Tick.
+    amp_->Runtime().Drive();
   }
 }
 

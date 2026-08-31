@@ -114,6 +114,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, AdmitRefusesStrangerOnQuote) {
 }
 
 TEST_F(AmpMediaRelayCoordinatorTest, LocalHopFanoutRoundTrip) {
+  // Ownership canary (A027): adopt into client_ then EnqueueOutbound (Subscribe) must work.
   const std::string call_id = "call-amp-fanout";
   MediaRelayQuoteRequest req;
   req.call_id = call_id;
