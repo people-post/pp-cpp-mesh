@@ -65,10 +65,10 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   }
 
   if (config.enable_amp_stack) {
+    amp_last_error_.clear();
     if (auto amp_started = StartAmpFromConfig(config); !amp_started) {
-      last_error_ = amp_started.error().message;
-      Stop();
-      return amp_started.error();
+      // Soft-fail: keep libp2p up until L4 cutover (A023 parallel phase).
+      amp_last_error_ = amp_started.error().message;
     }
   }
   return {};
@@ -129,6 +129,7 @@ void MeshHost::StopAmp() {
   }
   amp_clock_.reset();
   amp_listen_multiaddr_.clear();
+  amp_last_error_.clear();
 }
 
 Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<amp::AmpStack> stack, std::string listen_multiaddr) {

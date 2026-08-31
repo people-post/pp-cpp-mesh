@@ -44,6 +44,7 @@ struct MeshHostConfig {
   /**
    * Bind UDP + AmpStack beside libp2p (no L4 traffic flip).
    * Requires `runtime.host.device_ml_dsa_*` so AMP PeerId matches libp2p.
+   * Failure is soft: libp2p stays up; see `AmpLastError()`.
    */
   bool enable_amp_stack = false;
   /** ADP UDP listen port; 0 = ephemeral. */
@@ -75,6 +76,8 @@ public:
   amp::AmpStack* Amp();
   const amp::AmpStack* Amp() const;
   const std::string& AmpListenMultiaddr() const { return amp_listen_multiaddr_; }
+  /** Set when `enable_amp_stack` was requested but Amp failed to start (libp2p may still run). */
+  const std::string& AmpLastError() const { return amp_last_error_; }
 
   /**
    * Install a parallel AmpStack (tests / custom DatagramIo). Takes ownership, starts the
@@ -101,6 +104,7 @@ private:
   std::unique_ptr<amp::AmpStack> amp_;
   std::shared_ptr<adp::Clock> amp_clock_;
   std::string amp_listen_multiaddr_;
+  std::string amp_last_error_;
   std::string last_error_;
 };
 
