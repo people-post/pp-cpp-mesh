@@ -27,7 +27,8 @@ public:
   Roe<void> TryEnsureCallMediaReachable(const std::string& peer_key) override;
 
 private:
-  Roe<void> EnsureViaCircuit(const std::string& target_peer_id, const std::string& target_protocol);
+  Roe<void> EnsureViaCircuit(const std::string& target_peer_id, const std::string& target_protocol,
+                             bool register_endpoint, bool nested_session);
 
   CircuitTunnelCoordinator& circuit_;
   AmpCircuitHopRegistry& hops_;
