@@ -130,12 +130,6 @@ void ReleaseUpnpPortMapping(int external_port, const char* protocol) {
 
 } // namespace
 
-UpnpMappingResult TryUpnpTcpPortMapping(int internal_port, int external_port) {
-  return TryUpnpPortMapping(internal_port, external_port, "TCP");
-}
-
-void ReleaseUpnpTcpPortMapping(int external_port) { ReleaseUpnpPortMapping(external_port, "TCP"); }
-
 UpnpMappingResult TryUpnpUdpPortMapping(int internal_port, int external_port) {
   return TryUpnpPortMapping(internal_port, external_port, "UDP");
 }

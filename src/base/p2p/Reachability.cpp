@@ -51,24 +51,6 @@ void AppendUnique(std::vector<std::string>& out, const std::string& value) {
   }
 }
 
-std::optional<int> TcpPortFromMultiaddrLocal(const std::string& multiaddr) {
-  const std::string marker = "/tcp/";
-  const auto pos = multiaddr.find(marker);
-  if (pos == std::string::npos) {
-    return std::nullopt;
-  }
-  size_t i = pos + marker.size();
-  if (i >= multiaddr.size() || !std::isdigit(static_cast<unsigned char>(multiaddr[i]))) {
-    return std::nullopt;
-  }
-  char* end = nullptr;
-  const long port = std::strtol(multiaddr.c_str() + static_cast<std::ptrdiff_t>(i), &end, 10);
-  if (end == multiaddr.c_str() + static_cast<std::ptrdiff_t>(i) || port < 0 || port > 65535) {
-    return std::nullopt;
-  }
-  return static_cast<int>(port);
-}
-
 } // namespace
 
 std::optional<int> UdpPortFromMultiaddr(const std::string& multiaddr) {
@@ -217,64 +199,23 @@ std::string IpHostFromMultiaddrPrefix(const std::string& multiaddr) {
   return {};
 }
 
-std::vector<std::string> EnumerateGlobalIpv6Addresses() {
-  std::vector<std::string> out;
-  for (const std::string& ip : reachability_netif::GlobalIpv6Addresses()) {
-    if (IsGlobalIpv6(ip)) {
-      AppendUnique(out, ip);
-    }
-  }
-  return out;
-}
-
-void AppendIpv6ListenCandidates(std::vector<std::string>& candidates, int tcp_port) {
-  if (tcp_port <= 0 || tcp_port > 65535) {
-    return;
-  }
-  for (const std::string& ip : EnumerateGlobalIpv6Addresses()) {
-    AppendUnique(candidates, "/ip6/" + ip + "/tcp/" + std::to_string(tcp_port));
-  }
-}
-
 bool ShouldSkipUpnpForListen(const std::string& bound_listen_multiaddr) {
   const auto tcp_pos = bound_listen_multiaddr.find("/tcp/");
+  const auto udp_pos = bound_listen_multiaddr.find("/udp/");
+  size_t cut = std::string::npos;
+  if (tcp_pos != std::string::npos) {
+    cut = tcp_pos;
+  }
+  if (udp_pos != std::string::npos && (cut == std::string::npos || udp_pos < cut)) {
+    cut = udp_pos;
+  }
   const std::string prefix =
-      tcp_pos == std::string::npos ? bound_listen_multiaddr : bound_listen_multiaddr.substr(0, tcp_pos);
+      cut == std::string::npos ? bound_listen_multiaddr : bound_listen_multiaddr.substr(0, cut);
   const std::string ip = IpHostFromMultiaddrPrefix(prefix);
   if (ip.empty() || ip == "0.0.0.0") {
     return false;
   }
   return IsPublicIpv4(ip);
-}
-
-std::vector<std::string> BuildReachabilityProbeTargets(const std::string& bound_listen_multiaddr,
-                                                       const std::string& local_peer_id,
-                                                       const std::vector<std::string>& global_ipv6_addrs,
-                                                       const std::string& upnp_external_ip) {
-  std::vector<std::string> targets;
-  const auto port = TcpPortFromMultiaddrLocal(bound_listen_multiaddr);
-  if (!port || *port <= 0) {
-    AppendUnique(targets, EnsurePeerIdSuffix(bound_listen_multiaddr, local_peer_id));
-    return targets;
-  }
-
-  if (!upnp_external_ip.empty() && IsPublicIpv4(upnp_external_ip)) {
-    AppendUnique(targets, EnsurePeerIdSuffix("/ip4/" + upnp_external_ip + "/tcp/" + std::to_string(*port),
-                                             local_peer_id));
-  }
-
-  for (const std::string& ip : global_ipv6_addrs) {
-    AppendUnique(targets, EnsurePeerIdSuffix("/ip6/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
-  }
-
-  for (const std::string& ip : reachability_netif::PublicIpv4Addresses()) {
-    if (IsPublicIpv4(ip)) {
-      AppendUnique(targets, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
-    }
-  }
-
-  AppendUnique(targets, EnsurePeerIdSuffix(bound_listen_multiaddr, local_peer_id));
-  return targets;
 }
 
 std::vector<std::string> BuildAmpReachabilityProbeTargets(const std::string& amp_listen_multiaddr,
@@ -307,45 +248,6 @@ std::vector<std::string> BuildAmpReachabilityProbeTargets(const std::string& amp
   return targets;
 }
 
-std::vector<std::string> BuildAdvertisedListenSet(const ReachabilitySignals& signals,
-                                                  const std::string& bound_listen_multiaddr,
-                                                  const std::string& local_peer_id,
-                                                  const std::vector<std::string>& global_ipv6_addrs) {
-  std::vector<std::string> out = BuildReachabilityProbeTargets(
-      bound_listen_multiaddr, local_peer_id, global_ipv6_addrs, signals.upnp_external_ip);
-
-  out.erase(std::remove_if(out.begin(), out.end(),
-                           [](const std::string& ma) {
-                             return ma.find("/ip4/0.0.0.0/") != std::string::npos ||
-                                    ma.find("/ip6/::/") != std::string::npos;
-                           }),
-            out.end());
-
-  if (signals.dial_back_ok && !signals.dial_back_dialed.empty()) {
-    const auto it = std::find(out.begin(), out.end(), signals.dial_back_dialed);
-    if (it != out.end() && it != out.begin()) {
-      out.erase(it);
-      out.insert(out.begin(), signals.dial_back_dialed);
-    } else if (it == out.end()) {
-      out.insert(out.begin(), signals.dial_back_dialed);
-    }
-  }
-
-  if (out.empty() && !signals.listen_is_wildcard && !bound_listen_multiaddr.empty()) {
-    AppendUnique(out, EnsurePeerIdSuffix(bound_listen_multiaddr, local_peer_id));
-  }
-  return out;
-}
-
-void AppendIpv6ListenCandidatesForPreferred(const std::string& preferred_multiaddr,
-                                            std::vector<std::string>& candidates) {
-  const auto port = TcpPortFromMultiaddrLocal(preferred_multiaddr);
-  if (!port || *port <= 0) {
-    return;
-  }
-  AppendIpv6ListenCandidates(candidates, *port);
-}
-
 std::vector<std::string> EnumerateDialableLanIpv4Hosts() {
   std::vector<std::string> out;
   for (const auto& iface : reachability_netif::LanIpv4Interfaces()) {
@@ -361,24 +263,6 @@ std::vector<std::string> EnumerateDialableLanIpv4Hosts() {
     }
     AppendUnique(out, ip);
   }
-  return out;
-}
-
-std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string& bound_listen_multiaddr,
-                                                              const std::string& local_peer_id) {
-  std::vector<std::string> out;
-  if (local_peer_id.empty()) {
-    return out;
-  }
-  const auto port = TcpPortFromMultiaddrLocal(bound_listen_multiaddr);
-  if (!port || *port <= 0) {
-    return out;
-  }
-
-  for (const std::string& ip : EnumerateDialableLanIpv4Hosts()) {
-    AppendUnique(out, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
-  }
-
   return out;
 }
 

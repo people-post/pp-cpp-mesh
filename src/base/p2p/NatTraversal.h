@@ -19,10 +19,4 @@ UpnpMappingResult TryUpnpUdpPortMapping(int internal_port, int external_port = 0
 /** Remove a prior UPnP UDP mapping (best-effort). */
 void ReleaseUpnpUdpPortMapping(int external_port);
 
-/** Try UPnP IGD TCP port mapping WAN→internal (legacy; Amp uses UDP). */
-UpnpMappingResult TryUpnpTcpPortMapping(int internal_port, int external_port = 0);
-
-/** Remove a prior UPnP TCP mapping (best-effort). */
-void ReleaseUpnpTcpPortMapping(int external_port);
-
 } // namespace pbr

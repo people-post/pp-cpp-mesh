@@ -34,13 +34,13 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   last_error_.clear();
   amp_last_error_.clear();
 
-  // D10/A017: Amp is the only product underlay. enable_amp_stack=false leaves mesh off.
-  if (!config.enable_amp_stack) {
+  // D10/A017: Amp is the only product underlay. mesh_enabled=false leaves mesh off.
+  if (!config.mesh_enabled) {
     reachability_ = std::make_unique<ReachabilityService>();
     if (config.on_reachability_updated) {
       reachability_->SetOnUpdated(config.on_reachability_updated);
     }
-    last_error_ = "mesh host: enable_amp_stack required (TCP Host underlay retired)";
+    last_error_ = "mesh host: mesh_enabled required (TCP Host underlay retired)";
     return Error(last_error_);
   }
 
@@ -64,7 +64,7 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
 Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   const auto& host_cfg = config.host;
   if (!host_cfg.device_ml_dsa_private_key || !host_cfg.device_ml_dsa_public_key) {
-    return Error("mesh host: enable_amp_stack requires device ML-DSA keys");
+    return Error("mesh host: mesh_enabled requires device ML-DSA keys");
   }
 
   amp::MshIdentity identity;
@@ -101,7 +101,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   }
 
   (*stack)->Start();
-  // Amp UDP accept is independent of TCP listen_enabled (Clients need inbound Amp).
+  // Amp UDP accept is always on (Clients need inbound Amp for dial-back / LAN).
   (*stack)->GetEndpoint().SetAcceptEnabled(true);
   amp_listen_multiaddr_ = *listen;
   (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
@@ -282,11 +282,6 @@ CircuitTunnelCoordinator* MeshHost::AmpCircuitTunnel() { return amp_circuit_.get
 AmpMediaRelayCoordinator* MeshHost::AmpMediaRelayCoord() { return amp_media_relay_.get(); }
 
 AmpCircuitHopRegistry* MeshHost::AmpCircuitHops() { return amp_circuit_hops_.get(); }
-
-const std::string& MeshHost::BoundListenMultiaddr() const {
-  static const std::string kEmpty;
-  return amp_listen_multiaddr_.empty() ? kEmpty : amp_listen_multiaddr_;
-}
 
 void MeshHost::AbortInflightCircuitRequests() {
   if (amp_circuit_) {

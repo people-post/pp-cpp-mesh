@@ -42,11 +42,11 @@ struct MeshHostConfig {
   std::vector<std::string> bootstrap_peers;
 
   /**
-   * Bind UDP + AmpStack as the product underlay (D10 hard-require).
+   * Peer mesh on/off. When true, bind UDP + AmpStack (D10 hard-require).
    * Requires `host.device_ml_dsa_*` so AMP PeerId matches identity.
    * Failure fails `MeshHost::Start` (no TCP underlay fallback).
    */
-  bool enable_amp_stack = false;
+  bool mesh_enabled = false;
   /** ADP UDP listen port; 0 = ephemeral. */
   uint16_t amp_udp_port = 0;
 };
@@ -66,7 +66,7 @@ public:
 
   ReachabilityService& Reachability();
 
-  /** Amp stack when `enable_amp_stack` or `AttachAmpStack` (may be null). */
+  /** Amp stack when `mesh_enabled` or `AttachAmpStack` (may be null). */
   amp::AmpStack* Amp();
   const amp::AmpStack* Amp() const;
   const std::string& AmpListenMultiaddr() const { return amp_listen_multiaddr_; }
@@ -81,8 +81,6 @@ public:
 
   Roe<void> AttachAmpStack(std::unique_ptr<amp::AmpStack> stack, std::string listen_multiaddr = {});
 
-  /** Amp listen multiaddr when running; otherwise empty. */
-  const std::string& BoundListenMultiaddr() const;
   const std::string& LastError() const { return last_error_; }
 
   void AbortInflightCircuitRequests();
