@@ -32,59 +32,38 @@ MeshHost::~MeshHost() { Stop(); }
 Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   Stop();
   last_error_.clear();
+  amp_last_error_.clear();
 
   MeshHostConfig effective = config;
-  // Prefer Amp underlay first so NodeRuntime can skip TCP listen + Identify (D9 step 6).
+  // D10: Amp is the only product underlay when enable_amp_stack is set (hard-require).
   if (config.enable_amp_stack) {
-    amp_last_error_.clear();
     if (auto amp_started = StartAmpFromConfig(config); !amp_started) {
       amp_last_error_ = amp_started.error().message;
-    } else {
-      effective.runtime.host.listen_enabled = false;
-      effective.runtime.skip_identify = true;
-      effective.runtime.listen_candidates.clear();
+      last_error_ = amp_last_error_;
+      return amp_started.error();
     }
+    // Amp owns mesh — no silent Libp2pHost / PeerSessionManager / TCP listen.
+    reachability_ = std::make_unique<ReachabilityService>();
+    if (config.on_reachability_updated) {
+      reachability_->SetOnUpdated(config.on_reachability_updated);
+    }
+    return {};
   }
 
+  // enable_amp_stack=false: Host shell only (no DialBack / TCP L4). Product mesh is off.
   runtime_ = std::make_unique<NodeRuntime>();
+  effective.runtime.host.listen_enabled = false;
+  effective.runtime.skip_identify = true;
+  effective.runtime.listen_candidates.clear();
   if (auto started = runtime_->Start(effective.runtime); !started) {
     last_error_ = runtime_->LastError().empty() ? started.error().message : runtime_->LastError();
     runtime_.reset();
-    StopAmp();
     return started.error();
   }
 
-  const bool amp_owns_mesh = static_cast<bool>(amp_);
-
-  if (!amp_owns_mesh) {
-    dial_back_ = std::make_unique<DialBackService>(*runtime_->Host(), *runtime_->Sessions());
-    dial_back_->Start();
-
-    circuit_relay_ = std::make_unique<CircuitRelayService>(*runtime_->Host(), *runtime_->Sessions());
-    if (config.host_circuit_relay) {
-      circuit_relay_->Start();
-    }
-
-    media_relay_ = std::make_unique<MediaRelayService>(*runtime_->Host(), *runtime_->Sessions());
-    media_relay_->SetBudget(config.media_relay_budget);
-    media_relay_->SetPricing(config.media_relay_pricing);
-    if (config.host_media_relay) {
-      media_relay_->Start();
-    }
-
-    reachability_ = std::make_unique<ReachabilityService>();
-    if (config.on_reachability_updated) {
-      reachability_->SetOnUpdated(config.on_reachability_updated);
-    }
-    if (config.start_reachability_probe) {
-      reachability_->StartProbe(*runtime_, *dial_back_, config.try_upnp_first);
-    }
-  } else {
-    // Amp L4 coordinators already own circuit/media-relay; DialBack/Identify retired with TCP listen.
-    reachability_ = std::make_unique<ReachabilityService>();
-    if (config.on_reachability_updated) {
-      reachability_->SetOnUpdated(config.on_reachability_updated);
-    }
+  reachability_ = std::make_unique<ReachabilityService>();
+  if (config.on_reachability_updated) {
+    reachability_->SetOnUpdated(config.on_reachability_updated);
   }
 
   return {};
@@ -225,8 +204,7 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
     return;
   }
   std::vector<std::string> protocols = {"/pp-browser/chat/1.0.0", "/pp-browser/chat-history/1.0.0",
-                                        "/pp-browser/chat-blob/1.0.0", "/pp-browser/call-media/1.0.0",
-                                        kDialBackProtocolId};
+                                        "/pp-browser/chat-blob/1.0.0", "/pp-browser/call-media/1.0.0"};
   if (config.host_circuit_relay) {
     protocols.push_back("/pp-browser/circuit-relay/1.0.0");
   }
@@ -237,20 +215,11 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
 }
 
 void MeshHost::Stop() {
-  if (circuit_relay_) {
-    circuit_relay_->AbortInflightRequests();
+  if (amp_circuit_) {
+    amp_circuit_->AbortInflight();
   }
-  if (media_relay_) {
-    media_relay_->Stop();
-    media_relay_.reset();
-  }
-  if (circuit_relay_) {
-    circuit_relay_->Stop();
-    circuit_relay_.reset();
-  }
-  if (dial_back_) {
-    dial_back_->Stop();
-    dial_back_.reset();
+  if (amp_media_relay_) {
+    amp_media_relay_->AbortInflight();
   }
   if (runtime_) {
     runtime_->Stop();
@@ -271,7 +240,12 @@ void MeshHost::Tick() {
   }
 }
 
-bool MeshHost::IsRunning() const { return runtime_ && runtime_->IsRunning(); }
+bool MeshHost::IsRunning() const {
+  if (amp_) {
+    return true;
+  }
+  return runtime_ && runtime_->IsRunning();
+}
 
 NodeRuntime* MeshHost::Runtime() { return runtime_.get(); }
 
@@ -279,11 +253,11 @@ Libp2pHost* MeshHost::Host() { return runtime_ ? runtime_->Host() : nullptr; }
 
 PeerSessionManager* MeshHost::Sessions() const { return runtime_ ? runtime_->Sessions() : nullptr; }
 
-DialBackService* MeshHost::DialBack() { return dial_back_.get(); }
+DialBackService* MeshHost::DialBack() { return nullptr; }
 
-CircuitRelayService* MeshHost::CircuitRelay() { return circuit_relay_.get(); }
+CircuitRelayService* MeshHost::CircuitRelay() { return nullptr; }
 
-MediaRelayService* MeshHost::MediaRelay() { return media_relay_.get(); }
+MediaRelayService* MeshHost::MediaRelay() { return nullptr; }
 
 ReachabilityService& MeshHost::Reachability() { return *reachability_; }
 
@@ -303,9 +277,6 @@ const std::string& MeshHost::BoundListenMultiaddr() const {
 }
 
 void MeshHost::AbortInflightCircuitRequests() {
-  if (circuit_relay_) {
-    circuit_relay_->AbortInflightRequests();
-  }
   if (amp_circuit_) {
     amp_circuit_->AbortInflight();
   }

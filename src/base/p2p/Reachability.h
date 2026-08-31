@@ -100,4 +100,15 @@ void AppendIpv6ListenCandidatesForPreferred(const std::string& preferred_multiad
 std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string& bound_listen_multiaddr,
                                                               const std::string& local_peer_id);
 
+/**
+ * LAN private IPv4 ADP multiaddrs for Amp PreferLocal / invite advertise (D10).
+ * Expands a (possibly wildcard) Amp listen MA across dialable LAN interface IPs.
+ * If no LAN IPs, returns the input multiaddr when it already has a concrete host.
+ */
+std::vector<std::string> BuildAmpLanAdvertisedAddrs(const std::string& amp_listen_multiaddr,
+                                                    const std::string& local_peer_id);
+
+/** Dialable LAN IPv4 host strings (same filters as call-scoped advertise). */
+std::vector<std::string> EnumerateDialableLanIpv4Hosts();
+
 } // namespace pbr

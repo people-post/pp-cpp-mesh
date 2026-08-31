@@ -181,36 +181,41 @@ public:
   void SetAmpCircuitHops(AmpCircuitHopRegistry* hops) { amp_hops_ = hops; }
 
   Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) override {
-    if (!sessions_) {
-      return Error("dial registry not available");
-    }
-    auto registered = sessions_->RegisterEndpoint(peer_key, multiaddr);
-    if (!registered) {
-      return registered;
-    }
+    bool registered_amp = false;
     if (amp_links_) {
       if (auto parsed = amp::ParseAdpMultiaddr(multiaddr)) {
         (void)amp_links_->RegisterEndpoint(peer_key, multiaddr);
         if (!parsed->peer_id.empty() && parsed->peer_id != peer_key) {
           (void)amp_links_->RegisterEndpoint(parsed->peer_id, multiaddr);
         }
+        registered_amp = true;
       }
     }
-    // Pin hop in the address book above mDNS — OpenStream hydrates Preferred from the book
-    // and would otherwise dial a poisoned virbr multiaddr over CallSfuAttach's LAN hop.
-    std::string peer_id = peer_key;
-    const auto p2p_pos = multiaddr.rfind("/p2p/");
-    if (p2p_pos != std::string::npos) {
-      peer_id = multiaddr.substr(p2p_pos + 5);
-      const auto slash = peer_id.find('/');
-      if (slash != std::string::npos) {
-        peer_id.resize(slash);
+    if (sessions_) {
+      auto registered = sessions_->RegisterEndpoint(peer_key, multiaddr);
+      if (!registered) {
+        return registered;
       }
+      // Pin hop in the address book above mDNS — OpenStream hydrates Preferred from the book
+      // and would otherwise dial a poisoned virbr multiaddr over CallSfuAttach's LAN hop.
+      std::string peer_id = peer_key;
+      const auto p2p_pos = multiaddr.rfind("/p2p/");
+      if (p2p_pos != std::string::npos) {
+        peer_id = multiaddr.substr(p2p_pos + 5);
+        const auto slash = peer_id.find('/');
+        if (slash != std::string::npos) {
+          peer_id.resize(slash);
+        }
+      }
+      if (!peer_id.empty()) {
+        (void)sessions_->UpsertBookEntry(peer_id, multiaddr, PeerAddrSource::CallHop);
+      }
+      return {};
     }
-    if (!peer_id.empty()) {
-      (void)sessions_->UpsertBookEntry(peer_id, multiaddr, PeerAddrSource::CallHop);
+    if (registered_amp) {
+      return {};
     }
-    return {};
+    return Error("dial registry not available");
   }
 
   bool IsDialable(const std::string& peer_key) const override {
@@ -227,10 +232,15 @@ public:
   }
 
   std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const override {
-    if (!sessions_) {
-      return std::nullopt;
+    if (amp_links_) {
+      if (auto amp_ma = amp_links_->PreferredMultiaddr(peer_key)) {
+        return amp_ma;
+      }
     }
-    return sessions_->PreferredPeerMultiaddr(peer_key);
+    if (sessions_) {
+      return sessions_->PreferredPeerMultiaddr(peer_key);
+    }
+    return std::nullopt;
   }
 
   void ClearDialBackoff(const std::string& peer_key) override {

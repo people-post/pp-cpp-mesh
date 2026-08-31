@@ -47,9 +47,9 @@ struct MeshHostConfig {
   std::function<void()> on_reachability_updated;
 
   /**
-   * Bind UDP + AmpStack beside libp2p (no L4 traffic flip).
-   * Requires `runtime.host.device_ml_dsa_*` so AMP PeerId matches libp2p.
-   * Failure is soft: libp2p stays up; see `AmpLastError()`.
+   * Bind UDP + AmpStack as the product underlay (D10 hard-require).
+   * Requires `runtime.host.device_ml_dsa_*` so AMP PeerId matches identity.
+   * Failure fails `MeshHost::Start` (no TCP underlay fallback).
    */
   bool enable_amp_stack = false;
   /** ADP UDP listen port; 0 = ephemeral. */
@@ -72,8 +72,11 @@ public:
   NodeRuntime* Runtime();
   Libp2pHost* Host();
   PeerSessionManager* Sessions() const;
+  /** Always null after D10 (TCP DialBack retired; Amp dial-back is D8). */
   DialBackService* DialBack();
+  /** Always null after D10 (Amp circuit owns product path). */
   CircuitRelayService* CircuitRelay();
+  /** Always null after D10 (Amp media-relay owns product path). */
   MediaRelayService* MediaRelay();
   ReachabilityService& Reachability();
 
@@ -81,7 +84,7 @@ public:
   amp::AmpStack* Amp();
   const amp::AmpStack* Amp() const;
   const std::string& AmpListenMultiaddr() const { return amp_listen_multiaddr_; }
-  /** Set when `enable_amp_stack` was requested but Amp failed to start (libp2p may still run). */
+  /** Set when Amp was requested but failed (Start returns error; for diagnostics). */
   const std::string& AmpLastError() const { return amp_last_error_; }
 
   /**
@@ -117,9 +120,6 @@ private:
   void StartAmpL4Hosting(bool host_circuit, bool host_media);
 
   std::unique_ptr<NodeRuntime> runtime_;
-  std::unique_ptr<DialBackService> dial_back_;
-  std::unique_ptr<CircuitRelayService> circuit_relay_;
-  std::unique_ptr<MediaRelayService> media_relay_;
   std::unique_ptr<ReachabilityService> reachability_;
   std::unique_ptr<amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;

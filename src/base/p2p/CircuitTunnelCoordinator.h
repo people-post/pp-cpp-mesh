@@ -50,6 +50,7 @@ public:
 
   /** When false, inbound bridges are refused (outbound StartBridge still works). */
   void SetServeInbound(bool serve);
+  bool ServeInbound() const;
 
   /** Cancel all in-flight / bridging tunnels (Leave / shutdown). */
   void AbortInflight();

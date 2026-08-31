@@ -39,6 +39,7 @@ public:
 
   /** When false, inbound protocol handler refuses new dials (outbound client still works). */
   void SetServeInbound(bool serve);
+  bool ServeInbound() const;
   void SetAdmissionPolicy(MediaRelayAdmissionPolicy policy);
   void SetCircuitHopRegistry(AmpCircuitHopRegistry* hops);
 

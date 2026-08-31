@@ -1,5 +1,6 @@
 #include "base/p2p/Reachability.h"
 #include "base/p2p/ReachabilityNetIf.h"
+#include "base/mesh/link/AdpMultiaddr.h"
 
 #include <algorithm>
 #include <array>
@@ -297,17 +298,8 @@ void AppendIpv6ListenCandidatesForPreferred(const std::string& preferred_multiad
   AppendIpv6ListenCandidates(candidates, *port);
 }
 
-std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string& bound_listen_multiaddr,
-                                                              const std::string& local_peer_id) {
+std::vector<std::string> EnumerateDialableLanIpv4Hosts() {
   std::vector<std::string> out;
-  if (local_peer_id.empty()) {
-    return out;
-  }
-  const auto port = TcpPortFromMultiaddrLocal(bound_listen_multiaddr);
-  if (!port || *port <= 0) {
-    return out;
-  }
-
   for (const auto& iface : reachability_netif::LanIpv4Interfaces()) {
     if (!iface.up_running_non_loopback) {
       continue;
@@ -319,9 +311,63 @@ std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string&
     if (ip == "127.0.0.1" || !IsPrivateIpv4(ip) || IsLikelyUndialableLanIpv4(ip)) {
       continue;
     }
+    AppendUnique(out, ip);
+  }
+  return out;
+}
+
+std::vector<std::string> BuildMobileCallScopedAdvertisedAddrs(const std::string& bound_listen_multiaddr,
+                                                              const std::string& local_peer_id) {
+  std::vector<std::string> out;
+  if (local_peer_id.empty()) {
+    return out;
+  }
+  const auto port = TcpPortFromMultiaddrLocal(bound_listen_multiaddr);
+  if (!port || *port <= 0) {
+    return out;
+  }
+
+  for (const std::string& ip : EnumerateDialableLanIpv4Hosts()) {
     AppendUnique(out, EnsurePeerIdSuffix("/ip4/" + ip + "/tcp/" + std::to_string(*port), local_peer_id));
   }
 
+  return out;
+}
+
+std::vector<std::string> BuildAmpLanAdvertisedAddrs(const std::string& amp_listen_multiaddr,
+                                                   const std::string& local_peer_id) {
+  std::vector<std::string> out;
+  if (amp_listen_multiaddr.empty() || local_peer_id.empty()) {
+    return out;
+  }
+  auto parsed = amp::ParseAdpMultiaddr(amp_listen_multiaddr);
+  if (!parsed) {
+    return out;
+  }
+  const uint16_t port = parsed->endpoint.port;
+  if (port == 0) {
+    return out;
+  }
+  const std::string peer =
+      !parsed->peer_id.empty() ? parsed->peer_id : local_peer_id;
+  for (const std::string& ip : EnumerateDialableLanIpv4Hosts()) {
+    std::array<int, 4> octets{};
+    if (!ParseIpv4Octets(ip, octets)) {
+      continue;
+    }
+    auto ep = adp::IpEndpoint::V4(static_cast<uint8_t>(octets[0]), static_cast<uint8_t>(octets[1]),
+                                  static_cast<uint8_t>(octets[2]), static_cast<uint8_t>(octets[3]), port);
+    if (auto formatted = amp::FormatAdpMultiaddr(ep, peer)) {
+      AppendUnique(out, *formatted);
+    }
+  }
+  if (out.empty()) {
+    // No LAN expansion — keep concrete non-wildcard listen if already dialable.
+    const std::string host = IpHostFromMultiaddrPrefix(amp_listen_multiaddr);
+    if (!host.empty() && host != "0.0.0.0" && host != "::") {
+      AppendUnique(out, EnsurePeerIdSuffix(amp_listen_multiaddr, peer));
+    }
+  }
   return out;
 }
 

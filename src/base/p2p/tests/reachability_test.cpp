@@ -68,3 +68,19 @@ TEST(ReachabilityTest, BuildAdvertisedListenSetFiltersWildcardAndPrioritizesDial
                       "/ip4/203.0.113.44/tcp/18517/p2p/12D3KooWTest"),
             advertised.end());
 }
+
+TEST(ReachabilityTest, BuildAmpLanAdvertisedAddrsExpandsWildcardOrKeepsConcrete) {
+  const auto concrete =
+      pbr::BuildAmpLanAdvertisedAddrs("/ip4/192.168.1.50/udp/19001/adp/1.0.0/p2p/12D3KooWTest", "12D3KooWTest");
+  // May be empty on hosts without dialable LAN ifaces; concrete host still returned when no iface list.
+  if (!concrete.empty()) {
+    EXPECT_NE(concrete.front().find("/udp/19001/adp/1.0.0/p2p/"), std::string::npos);
+  }
+
+  const auto wildcard =
+      pbr::BuildAmpLanAdvertisedAddrs("/ip4/0.0.0.0/udp/19001/adp/1.0.0/p2p/12D3KooWTest", "12D3KooWTest");
+  for (const std::string& ma : wildcard) {
+    EXPECT_EQ(ma.find("/ip4/0.0.0.0/"), std::string::npos);
+    EXPECT_NE(ma.find("/udp/19001/adp/1.0.0/p2p/12D3KooWTest"), std::string::npos);
+  }
+}
