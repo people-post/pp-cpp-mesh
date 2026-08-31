@@ -31,6 +31,7 @@ set(PP_BASE_P2P_SOURCES
   CallMediaDirectService.cpp
   CallMediaSession.cpp
   CallMediaLegCoordinator.cpp
+  CallMediaBundleLogic.cpp
   CallMediaSessionLogic.cpp
   CallMediaFrameCrypto.cpp
   CallMediaAdpKey.cpp
