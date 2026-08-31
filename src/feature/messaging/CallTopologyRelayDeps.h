@@ -220,7 +220,10 @@ public:
     if (amp_links_ && amp_links_->GetLinkSnapshot(peer_key).has_endpoint) {
       return true;
     }
-    return amp_hops_ && amp_hops_->HasAny(peer_key);
+    // SoftMigrate hop dialability is media-relay-specific. Call-media circuit hops
+    // must not mark a peer dialable for quote/attach (TryEnsureCallMediaReachable
+    // remains the call-media path and is protocol-keyed).
+    return amp_hops_ && static_cast<bool>(amp_hops_->Find(peer_key, kMediaRelayProtocolId));
   }
 
   std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const override {

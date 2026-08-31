@@ -28,7 +28,9 @@ Roe<void> AmpCircuitHopReach::TryEnsureCallMediaReachable(const std::string& pee
   if (peer_key.empty()) {
     return Error("missing call peer");
   }
-  if (links_.GetLinkSnapshot(peer_key).has_endpoint || hops_.HasAny(peer_key)) {
+  // Protocol-specific: a media-relay hop must not short-circuit call-media reach.
+  if (links_.GetLinkSnapshot(peer_key).has_endpoint ||
+      hops_.Find(peer_key, kCallMediaDirectProtocolId)) {
     return {};
   }
   return EnsureViaCircuit(peer_key, kCallMediaDirectProtocolId);
