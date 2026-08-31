@@ -1,5 +1,7 @@
 #pragma once
 
+#include "base/mesh/link/AdpMultiaddr.h"
+#include "base/mesh/link/PeerLinkManager.h"
 #include "base/p2p/MediaRelayService.h"
 #include "base/p2p/CallMediaDirectService.h"
 #include "base/p2p/PeerSessionManager.h"
@@ -168,12 +170,13 @@ private:
   MediaRelayService* service_ = nullptr;
 };
 
-/** Forwards to PeerSessionManager. */
+/** Forwards to PeerSessionManager; optionally mirrors ADP endpoints to Amp PeerLinkManager. */
 class PeerSessionDialRegistry final : public IDialRegistry {
 public:
   explicit PeerSessionDialRegistry(PeerSessionManager* sessions) : sessions_(sessions) {}
 
   void SetSessions(PeerSessionManager* sessions) { sessions_ = sessions; }
+  void SetAmpLinks(amp::PeerLinkManager* amp_links) { amp_links_ = amp_links; }
 
   Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) override {
     if (!sessions_) {
@@ -182,6 +185,14 @@ public:
     auto registered = sessions_->RegisterEndpoint(peer_key, multiaddr);
     if (!registered) {
       return registered;
+    }
+    if (amp_links_) {
+      if (auto parsed = amp::ParseAdpMultiaddr(multiaddr)) {
+        (void)amp_links_->RegisterEndpoint(peer_key, multiaddr);
+        if (!parsed->peer_id.empty() && parsed->peer_id != peer_key) {
+          (void)amp_links_->RegisterEndpoint(parsed->peer_id, multiaddr);
+        }
+      }
     }
     // Pin hop in the address book above mDNS — OpenStream hydrates Preferred from the book
     // and would otherwise dial a poisoned virbr multiaddr over CallSfuAttach's LAN hop.
@@ -201,7 +212,10 @@ public:
   }
 
   bool IsDialable(const std::string& peer_key) const override {
-    return sessions_ && sessions_->IsDialable(peer_key);
+    if (sessions_ && sessions_->IsDialable(peer_key)) {
+      return true;
+    }
+    return amp_links_ && amp_links_->GetLinkSnapshot(peer_key).has_endpoint;
   }
 
   std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const override {
@@ -231,6 +245,7 @@ public:
 
 private:
   PeerSessionManager* sessions_ = nullptr;
+  amp::PeerLinkManager* amp_links_ = nullptr;
 };
 
 /** Forwards to PeerSessionManager + CircuitRelayService via MessagingHub wiring. */

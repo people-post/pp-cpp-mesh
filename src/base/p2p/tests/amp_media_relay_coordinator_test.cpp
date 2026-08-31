@@ -94,7 +94,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, AcceptAndAttachRoundTrip) {
   ASSERT_TRUE(attach_wait.result) << attach_wait.result.error().message;
   EXPECT_TRUE(attach_wait.result->ok);
   EXPECT_FALSE(attach_wait.result->session_token.empty());
-  EXPECT_EQ(client_->Phase(aid), MediaRelayBundlePhase::Attached);
+  EXPECT_TRUE(client_->IsAttached());
 }
 
 TEST_F(AmpMediaRelayCoordinatorTest, AdmitRefusesStrangerOnQuote) {
@@ -111,6 +111,59 @@ TEST_F(AmpMediaRelayCoordinatorTest, AdmitRefusesStrangerOnQuote) {
   wait.PumpUntilDone(*harness_);
   ASSERT_FALSE(wait.result);
   EXPECT_NE(wait.result.error().message.find("stranger"), std::string::npos);
+}
+
+TEST_F(AmpMediaRelayCoordinatorTest, DISABLED_LocalHopFanoutRoundTrip) {
+  const std::string call_id = "call-amp-fanout";
+  MediaRelayQuoteRequest req;
+  req.call_id = call_id;
+  req.participants = 2;
+
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result);
+
+  std::atomic<int> guest_frames{0};
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach("hop", quote_wait.result->quote_id, call_id, call_id,
+                                   [&guest_frames](MediaDataFrame) { guest_frames.fetch_add(1); },
+                                   attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result);
+
+  client_->StartClientFrameReader();
+
+  std::atomic<int> local_frames{0};
+  auto local = hop_->AttachAsLocalHop(call_id, [&local_frames](MediaDataFrame) { local_frames.fetch_add(1); });
+  ASSERT_TRUE(local);
+
+  ASSERT_TRUE(client_->Subscribe(7, 0));
+  ASSERT_TRUE(hop_->Subscribe(7, 0));
+  ASSERT_TRUE(hop_->Subscribe(8, 0));
+
+  MediaDataFrame uplink;
+  uplink.stream_id = 7;
+  uplink.channel_id = 0;
+  uplink.payload = {1, 2, 3};
+  ASSERT_TRUE(hop_->SendFrame(uplink));
+
+  harness_->PumpUntil(
+      [&] { return guest_frames.load() >= 1; }, 800);
+  EXPECT_GE(guest_frames.load(), 1);
+
+  MediaDataFrame downlink;
+  downlink.stream_id = 8;
+  downlink.channel_id = 0;
+  downlink.payload = {4, 5, 6};
+  ASSERT_TRUE(client_->SendFrame(downlink));
+
+  harness_->PumpUntil(
+      [&] { return local_frames.load() >= 1; }, 800);
+  EXPECT_GE(local_frames.load(), 1);
+
+  client_->Detach();
+  hop_->Detach();
 }
 
 } // namespace
