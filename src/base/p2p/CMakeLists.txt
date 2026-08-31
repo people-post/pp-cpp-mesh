@@ -37,6 +37,7 @@ set(PP_BASE_P2P_SOURCES
   CallMediaFrameCrypto.cpp
   CallMediaAdpKey.cpp
   CallMediaAdpPath.cpp
+  AmpCircuitHopRegistry.cpp
   CircuitBundleLogic.cpp
   CircuitTunnelCoordinator.cpp
   MediaRelayBundleLogic.cpp

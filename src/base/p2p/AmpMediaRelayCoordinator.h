@@ -3,6 +3,7 @@
 #include "base/mesh/channel/ChannelSession.h"
 #include "base/mesh/link/MeshRuntime.h"
 #include "base/media/CallMediaHealth.h"
+#include "base/p2p/AmpCircuitHopRegistry.h"
 #include "base/p2p/MediaRelayBundleLogic.h"
 #include "base/p2p/MediaRelayService.h"
 
@@ -16,9 +17,9 @@
 namespace pbr {
 
 /**
- * Non-blocking `/pp-browser/media-relay/1.0.0` quote + attach on MeshRuntime ([A022]).
- * MeshHost owns a parallel instance when Amp is up. SoftMigrate uses this coordinator when
- * CallStack selects AmpMediaRelayClient ([A020]).
+ * Non-blocking `/pp-browser/media-relay/1.0.0` on MeshRuntime ([A022]).
+ * MeshHost owns an instance when Amp is up. SoftMigrate uses AmpMediaRelayClient ([A020]).
+ * Circuit-backed hops adopt sessions from AmpCircuitHopRegistry (D9 step 5c).
  */
 class AmpMediaRelayCoordinator {
 public:
@@ -36,7 +37,10 @@ public:
   void Stop();
   bool IsStarted() const;
 
+  /** When false, inbound protocol handler refuses new dials (outbound client still works). */
+  void SetServeInbound(bool serve);
   void SetAdmissionPolicy(MediaRelayAdmissionPolicy policy);
+  void SetCircuitHopRegistry(AmpCircuitHopRegistry* hops);
 
   MediaRelaySessionId StartQuote(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,
                                  QuoteFinished on_finished, int timeout_ms = 8000);
@@ -52,7 +56,6 @@ public:
   MediaRelayBundlePhase Phase(MediaRelaySessionId id) const;
   bool IsSessionActive(MediaRelaySessionId id) const;
 
-  /** Product client plane (SoftMigrate / AmpMediaRelayClient). */
   void StartClientFrameReader();
   void SetClientTransportLostHandler(std::function<void()> handler);
   Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& call_id,

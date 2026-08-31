@@ -3,6 +3,7 @@
 #include "base/data/Config.h"
 #include "base/mesh/link/AmpStack.h"
 #include "common/Error.h"
+#include "base/p2p/AmpCircuitHopRegistry.h"
 #include "base/p2p/AmpMediaRelayCoordinator.h"
 #include "base/p2p/CircuitRelayService.h"
 #include "base/p2p/CircuitTunnelCoordinator.h"
@@ -25,9 +26,9 @@ namespace pbr {
  * reachability, converging the pp-browser MessagingHub and headless pp-node start paths.
  *
  * Optional parallel AMP stack ([A020](../../projects/adp/DECISIONS.md)): when enabled or
- * attached, owns `amp::AmpStack`. Product L4 chat/history/call-media may already route via
- * Amp; circuit/media-relay SoftMigrate stays on libp2p until fan-out lands — MeshHost still
- * hosts Amp circuit/media-relay coordinators in parallel when `host_*` flags are set.
+ * attached, owns `amp::AmpStack` plus Amp L4 coordinators and circuit-hop registry.
+ * Product SoftMigrate media-relay uses Amp when coordinators are up; circuit NAT adopts
+ * bridged ChannelSessions via AmpCircuitHopRegistry (D9 step 5c).
  *
  * NOT owned here (app-only glue): CallMediaDirectService, LanMdnsDiscovery.
  */
@@ -84,15 +85,17 @@ public:
   const std::string& AmpLastError() const { return amp_last_error_; }
 
   /**
-   * Amp L4 circuit tunnel when Amp is up (created always; Start() only if hosting).
-   * SoftMigrate product path still uses `CircuitRelay()` (libp2p) until fan-out cutover.
+   * Amp L4 circuit tunnel when Amp is up (always Started for outbound; inbound gated by
+   * host_circuit_relay via SetServeInbound).
    */
   CircuitTunnelCoordinator* AmpCircuitTunnel();
   /**
-   * Amp L4 media-relay when Amp is up (created always; Start() only if hosting).
-   * SoftMigrate product path still uses `MediaRelay()` (libp2p) until fan-out lands.
+   * Amp L4 media-relay when Amp is up (always Started for SoftMigrate clients; inbound gated
+   * by host_media_relay via SetServeInbound).
    */
   AmpMediaRelayCoordinator* AmpMediaRelayCoord();
+  /** Bridged Amp circuit sessions for SoftMigrate / call-media NAT (may be null). */
+  AmpCircuitHopRegistry* AmpCircuitHops();
 
   /**
    * Install a parallel AmpStack (tests / custom DatagramIo). Takes ownership, starts the
@@ -119,6 +122,7 @@ private:
   std::unique_ptr<MediaRelayService> media_relay_;
   std::unique_ptr<ReachabilityService> reachability_;
   std::unique_ptr<amp::AmpStack> amp_;
+  std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
   std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
   std::unique_ptr<AmpMediaRelayCoordinator> amp_media_relay_;
   std::shared_ptr<adp::Clock> amp_clock_;

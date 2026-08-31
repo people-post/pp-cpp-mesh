@@ -128,21 +128,32 @@ void MeshHost::EnsureAmpL4Coordinators() {
   if (!amp_) {
     return;
   }
+  if (!amp_circuit_hops_) {
+    amp_circuit_hops_ = std::make_unique<AmpCircuitHopRegistry>();
+  }
   if (!amp_circuit_) {
     amp_circuit_ = std::make_unique<CircuitTunnelCoordinator>(amp_->Runtime());
   }
   if (!amp_media_relay_) {
     amp_media_relay_ = std::make_unique<AmpMediaRelayCoordinator>(amp_->Runtime());
   }
+  amp_media_relay_->SetCircuitHopRegistry(amp_circuit_hops_.get());
 }
 
 void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media) {
   EnsureAmpL4Coordinators();
-  if (host_circuit && amp_circuit_ && !amp_circuit_->IsStarted()) {
+  // Always Start so SoftMigrate guests / circuit clients can dial; inbound hosting is gated.
+  if (amp_circuit_ && !amp_circuit_->IsStarted()) {
     amp_circuit_->Start();
   }
-  if (host_media && amp_media_relay_ && !amp_media_relay_->IsStarted()) {
+  if (amp_media_relay_ && !amp_media_relay_->IsStarted()) {
     amp_media_relay_->Start();
+  }
+  if (amp_circuit_) {
+    amp_circuit_->SetServeInbound(host_circuit);
+  }
+  if (amp_media_relay_) {
+    amp_media_relay_->SetServeInbound(host_media);
   }
 }
 
@@ -154,6 +165,10 @@ void MeshHost::StopAmp() {
   if (amp_circuit_) {
     amp_circuit_->Stop();
     amp_circuit_.reset();
+  }
+  if (amp_circuit_hops_) {
+    amp_circuit_hops_->ClearAll();
+    amp_circuit_hops_.reset();
   }
   if (amp_) {
     amp_->Stop();
@@ -176,6 +191,8 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<amp::AmpStack> stack, std::st
     amp_->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   }
   EnsureAmpL4Coordinators();
+  // Tests / AttachAmpStack: start outbound-capable L4 without inbound hosting unless configured.
+  StartAmpL4Hosting(false, false);
   return Roe<void>();
 }
 
@@ -253,6 +270,8 @@ CircuitTunnelCoordinator* MeshHost::AmpCircuitTunnel() { return amp_circuit_.get
 
 AmpMediaRelayCoordinator* MeshHost::AmpMediaRelayCoord() { return amp_media_relay_.get(); }
 
+AmpCircuitHopRegistry* MeshHost::AmpCircuitHops() { return amp_circuit_hops_.get(); }
+
 const std::string& MeshHost::BoundListenMultiaddr() const {
   static const std::string kEmpty;
   return runtime_ ? runtime_->BoundListenMultiaddr() : kEmpty;
@@ -264,6 +283,9 @@ void MeshHost::AbortInflightCircuitRequests() {
   }
   if (amp_circuit_) {
     amp_circuit_->AbortInflight();
+  }
+  if (amp_circuit_hops_) {
+    amp_circuit_hops_->ClearAll();
   }
 }
 

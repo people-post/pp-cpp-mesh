@@ -2,6 +2,7 @@
 
 #include "base/mesh/link/AdpMultiaddr.h"
 #include "base/mesh/link/PeerLinkManager.h"
+#include "base/p2p/AmpCircuitHopRegistry.h"
 #include "base/p2p/MediaRelayService.h"
 #include "base/p2p/CallMediaDirectService.h"
 #include "base/p2p/PeerSessionManager.h"
@@ -177,6 +178,7 @@ public:
 
   void SetSessions(PeerSessionManager* sessions) { sessions_ = sessions; }
   void SetAmpLinks(amp::PeerLinkManager* amp_links) { amp_links_ = amp_links; }
+  void SetAmpCircuitHops(AmpCircuitHopRegistry* hops) { amp_hops_ = hops; }
 
   Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) override {
     if (!sessions_) {
@@ -215,7 +217,10 @@ public:
     if (sessions_ && sessions_->IsDialable(peer_key)) {
       return true;
     }
-    return amp_links_ && amp_links_->GetLinkSnapshot(peer_key).has_endpoint;
+    if (amp_links_ && amp_links_->GetLinkSnapshot(peer_key).has_endpoint) {
+      return true;
+    }
+    return amp_hops_ && amp_hops_->HasAny(peer_key);
   }
 
   std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const override {
@@ -241,11 +246,15 @@ public:
     if (sessions_) {
       sessions_->ClearCircuitHop(peer_key, kCallMediaDirectProtocolId);
     }
+    if (amp_hops_) {
+      amp_hops_->Clear(peer_key, kCallMediaDirectProtocolId);
+    }
   }
 
 private:
   PeerSessionManager* sessions_ = nullptr;
   amp::PeerLinkManager* amp_links_ = nullptr;
+  AmpCircuitHopRegistry* amp_hops_ = nullptr;
 };
 
 /** Forwards to PeerSessionManager + CircuitRelayService via MessagingHub wiring. */

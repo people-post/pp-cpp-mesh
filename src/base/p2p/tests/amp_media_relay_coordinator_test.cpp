@@ -113,7 +113,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, AdmitRefusesStrangerOnQuote) {
   EXPECT_NE(wait.result.error().message.find("stranger"), std::string::npos);
 }
 
-TEST_F(AmpMediaRelayCoordinatorTest, DISABLED_LocalHopFanoutRoundTrip) {
+TEST_F(AmpMediaRelayCoordinatorTest, LocalHopFanoutRoundTrip) {
   const std::string call_id = "call-amp-fanout";
   MediaRelayQuoteRequest req;
   req.call_id = call_id;
@@ -141,6 +141,10 @@ TEST_F(AmpMediaRelayCoordinatorTest, DISABLED_LocalHopFanoutRoundTrip) {
   ASSERT_TRUE(client_->Subscribe(7, 0));
   ASSERT_TRUE(hop_->Subscribe(7, 0));
   ASSERT_TRUE(hop_->Subscribe(8, 0));
+  // Host fan-out applies subscriptions only after the wire JSON is pumped.
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
 
   MediaDataFrame uplink;
   uplink.stream_id = 7;
@@ -148,8 +152,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, DISABLED_LocalHopFanoutRoundTrip) {
   uplink.payload = {1, 2, 3};
   ASSERT_TRUE(hop_->SendFrame(uplink));
 
-  harness_->PumpUntil(
-      [&] { return guest_frames.load() >= 1; }, 800);
+  harness_->PumpUntil([&] { return guest_frames.load() >= 1; }, 800);
   EXPECT_GE(guest_frames.load(), 1);
 
   MediaDataFrame downlink;
@@ -158,8 +161,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, DISABLED_LocalHopFanoutRoundTrip) {
   downlink.payload = {4, 5, 6};
   ASSERT_TRUE(client_->SendFrame(downlink));
 
-  harness_->PumpUntil(
-      [&] { return local_frames.load() >= 1; }, 800);
+  harness_->PumpUntil([&] { return local_frames.load() >= 1; }, 800);
   EXPECT_GE(local_frames.load(), 1);
 
   client_->Detach();

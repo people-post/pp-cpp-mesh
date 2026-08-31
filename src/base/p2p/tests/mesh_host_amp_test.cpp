@@ -65,14 +65,16 @@ TEST(MeshHostAmpTest, AttachAmpStackParallelNoLibp2p) {
   EXPECT_EQ(host.Amp()->Links().LocalCapability().listen_multiaddrs, std::vector<std::string>{*ma});
   ASSERT_NE(host.AmpCircuitTunnel(), nullptr);
   ASSERT_NE(host.AmpMediaRelayCoord(), nullptr);
-  EXPECT_FALSE(host.AmpCircuitTunnel()->IsStarted());
-  EXPECT_FALSE(host.AmpMediaRelayCoord()->IsStarted());
+  EXPECT_TRUE(host.AmpCircuitTunnel()->IsStarted());
+  EXPECT_TRUE(host.AmpMediaRelayCoord()->IsStarted());
+  ASSERT_NE(host.AmpCircuitHops(), nullptr);
 
   host.Tick();
   host.Stop();
   EXPECT_EQ(host.Amp(), nullptr);
   EXPECT_EQ(host.AmpCircuitTunnel(), nullptr);
   EXPECT_EQ(host.AmpMediaRelayCoord(), nullptr);
+  EXPECT_EQ(host.AmpCircuitHops(), nullptr);
   EXPECT_TRUE(host.AmpListenMultiaddr().empty());
 }
 

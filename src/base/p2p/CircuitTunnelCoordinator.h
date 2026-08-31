@@ -25,8 +25,9 @@ struct CircuitTunnelBridgeResult {
 
 /**
  * Non-blocking `/pp-browser/circuit-relay/1.0.0` tunnels on MeshRuntime ([A022]).
- * MeshHost owns a parallel instance when Amp is up; SoftMigrate still uses CircuitRelayService
- * ([A020]) until Amp fan-out / adopt-session cutover.
+ * MeshHost always Starts the coordinator when Amp is up (outbound client). Inbound hosting
+ * is gated by SetServeInbound. SoftMigrate NAT adopts the bridged ChannelSession via
+ * AmpCircuitHopRegistry ([A020] / D9 step 5c).
  * No IoPump / nested Pump; OpenChannel + PostToIo callbacks only.
  */
 class CircuitTunnelCoordinator {
@@ -46,6 +47,9 @@ public:
   bool IsStarted() const;
 
   void SetAdmissionPolicy(CircuitRelayAdmissionPolicy policy);
+
+  /** When false, inbound bridges are refused (outbound StartBridge still works). */
+  void SetServeInbound(bool serve);
 
   /** Cancel all in-flight / bridging tunnels (Leave / shutdown). */
   void AbortInflight();
