@@ -1,7 +1,29 @@
 #include "base/p2p/MeshHost.h"
+
+#include "base/adp/Clock.h"
+#include "base/adp/OsUdpDatagramIo.h"
+#include "base/adp/Types.h"
+#include "base/mesh/link/AdpMultiaddr.h"
+#include "base/p2p/PeerIdUtil.h"
 #include "common/PbrCompat.h"
 
 namespace pbr {
+
+namespace {
+
+amp::PeerLinkConfig MakeAmpLinkConfig() {
+  amp::PeerLinkConfig config;
+  config.peer_id_from_identity = [](const ByteVector& identity_public_key) -> std::string {
+    auto peer_id = PeerIdFromMlDsaPublicKey(identity_public_key);
+    if (!peer_id) {
+      return {};
+    }
+    return *peer_id;
+  };
+  return config;
+}
+
+} // namespace
 
 MeshHost::MeshHost() : reachability_(std::make_unique<ReachabilityService>()) {}
 
@@ -41,7 +63,101 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   if (config.start_reachability_probe) {
     reachability_->StartProbe(*runtime_, *dial_back_, config.try_upnp_first);
   }
+
+  if (config.enable_amp_stack) {
+    if (auto amp_started = StartAmpFromConfig(config); !amp_started) {
+      last_error_ = amp_started.error().message;
+      Stop();
+      return amp_started.error();
+    }
+  }
   return {};
+}
+
+Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
+  const auto& host_cfg = config.runtime.host;
+  if (!host_cfg.device_ml_dsa_private_key || !host_cfg.device_ml_dsa_public_key) {
+    return Error("mesh host: enable_amp_stack requires device ML-DSA keys (shared PeerId with libp2p)");
+  }
+
+  amp::MshIdentity identity;
+  identity.ml_dsa_secret_key.assign(host_cfg.device_ml_dsa_private_key->begin(),
+                                    host_cfg.device_ml_dsa_private_key->end());
+  identity.ml_dsa_public_key.assign(host_cfg.device_ml_dsa_public_key->begin(),
+                                    host_cfg.device_ml_dsa_public_key->end());
+
+  auto peer_id = PeerIdFromMlDsaPublicKey(identity.ml_dsa_public_key);
+  if (!peer_id) {
+    return peer_id.error();
+  }
+
+  auto bound = adp::OsUdpDatagramIo::Bind(adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
+  if (!bound) {
+    return bound.error();
+  }
+  std::shared_ptr<adp::DatagramIo> io = std::move(*bound);
+  amp_clock_ = std::make_shared<adp::WallClock>();
+
+  amp::AmpStack::Config amp_cfg;
+  amp_cfg.identity = std::move(identity);
+  amp_cfg.local_peer_id = *peer_id;
+  amp_cfg.link_config = MakeAmpLinkConfig();
+
+  auto stack = amp::AmpStack::Create(std::move(io), amp_clock_, std::move(amp_cfg));
+  if (!stack) {
+    return stack.error();
+  }
+
+  auto listen = amp::FormatAdpMultiaddr((*stack)->LocalEndpoint(), *peer_id);
+  if (!listen) {
+    return listen.error();
+  }
+
+  (*stack)->Start();
+  (*stack)->GetEndpoint().SetAcceptEnabled(config.runtime.host.listen_enabled);
+  amp_listen_multiaddr_ = *listen;
+  (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
+  amp_ = std::move(*stack);
+  ApplyAmpAdvertisement(config);
+  return Roe<void>();
+}
+
+void MeshHost::StopAmp() {
+  if (amp_) {
+    amp_->Stop();
+    amp_.reset();
+  }
+  amp_clock_.reset();
+  amp_listen_multiaddr_.clear();
+}
+
+Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<amp::AmpStack> stack, std::string listen_multiaddr) {
+  if (!stack) {
+    return Error("mesh host: null AmpStack");
+  }
+  StopAmp();
+  amp_ = std::move(stack);
+  amp_->Start();
+  amp_listen_multiaddr_ = std::move(listen_multiaddr);
+  if (!amp_listen_multiaddr_.empty()) {
+    amp_->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
+  }
+  return Roe<void>();
+}
+
+void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
+  if (!amp_) {
+    return;
+  }
+  std::vector<std::string> protocols = {"/pp-browser/chat/1.0.0", "/pp-browser/chat-history/1.0.0",
+                                        "/pp-browser/call-media/1.0.0", kDialBackProtocolId};
+  if (config.host_circuit_relay) {
+    protocols.push_back("/pp-browser/circuit-relay/1.0.0");
+  }
+  if (config.host_media_relay) {
+    protocols.push_back("/pp-browser/media-relay/1.0.0");
+  }
+  amp_->Links().SetAdvertisedProtocols(std::move(protocols));
 }
 
 void MeshHost::Stop() {
@@ -64,6 +180,7 @@ void MeshHost::Stop() {
     runtime_->Stop();
     runtime_.reset();
   }
+  StopAmp();
   // Keep a fresh, valid ReachabilityService so Reachability() references stay safe.
   reachability_ = std::make_unique<ReachabilityService>();
 }
@@ -71,6 +188,10 @@ void MeshHost::Stop() {
 void MeshHost::Tick() {
   if (runtime_) {
     runtime_->Tick();
+  }
+  if (amp_) {
+    amp_->Pump();
+    amp_->Tick();
   }
 }
 
@@ -89,6 +210,10 @@ CircuitRelayService* MeshHost::CircuitRelay() { return circuit_relay_.get(); }
 MediaRelayService* MeshHost::MediaRelay() { return media_relay_.get(); }
 
 ReachabilityService& MeshHost::Reachability() { return *reachability_; }
+
+amp::AmpStack* MeshHost::Amp() { return amp_.get(); }
+
+const amp::AmpStack* MeshHost::Amp() const { return amp_.get(); }
 
 const std::string& MeshHost::BoundListenMultiaddr() const {
   static const std::string kEmpty;
