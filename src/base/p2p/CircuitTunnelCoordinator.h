@@ -20,7 +20,7 @@ struct CircuitTunnelBridgeResult {
   std::string error;
   std::string resolved_multiaddr;
   /** Client circuit session after bridge ack (coordinator-owned; valid while Bridging). */
-  std::shared_ptr<amp::ChannelSession> session;
+  std::shared_ptr<pp::amp::ChannelSession> session;
 };
 
 /**
@@ -32,11 +32,11 @@ struct CircuitTunnelBridgeResult {
  */
 class CircuitTunnelCoordinator {
 public:
-  using FrameHandler = amp::ChannelSession::FrameHandler;
-  using ClosedCallback = amp::ChannelSession::ClosedCallback;
+  using FrameHandler = pp::amp::ChannelSession::FrameHandler;
+  using ClosedCallback = pp::amp::ChannelSession::ClosedCallback;
   using BridgeFinished = std::function<void(Roe<CircuitTunnelBridgeResult>)>;
 
-  explicit CircuitTunnelCoordinator(amp::MeshRuntime& runtime);
+  explicit CircuitTunnelCoordinator(pp::amp::MeshRuntime& runtime);
   ~CircuitTunnelCoordinator();
 
   CircuitTunnelCoordinator(const CircuitTunnelCoordinator&) = delete;
@@ -69,12 +69,12 @@ public:
   bool IsTunnelActive(CircuitTunnelId id) const;
 
   /** Bridging client session (null if not ready / relay-serve). */
-  std::shared_ptr<amp::ChannelSession> Session(CircuitTunnelId id) const;
+  std::shared_ptr<pp::amp::ChannelSession> Session(CircuitTunnelId id) const;
 
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
-  amp::MeshRuntime& runtime_;
+  pp::amp::MeshRuntime& runtime_;
 };
 
 } // namespace pbr

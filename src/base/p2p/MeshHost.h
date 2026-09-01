@@ -67,8 +67,8 @@ public:
   ReachabilityService& Reachability();
 
   /** Amp stack when `mesh_enabled` or `AttachAmpStack` (may be null). */
-  amp::AmpStack* Amp();
-  const amp::AmpStack* Amp() const;
+  pp::amp::AmpStack* Amp();
+  const pp::amp::AmpStack* Amp() const;
   const std::string& AmpListenMultiaddr() const { return amp_listen_multiaddr_; }
   /** Set when Amp was requested but failed (Start returns error; for diagnostics). */
   const std::string& AmpLastError() const { return amp_last_error_; }
@@ -79,7 +79,7 @@ public:
   /** Amp dial-back for reachability chrome (D8); null when Amp is down. */
   AmpDialBackService* AmpDialBack();
 
-  Roe<void> AttachAmpStack(std::unique_ptr<amp::AmpStack> stack, std::string listen_multiaddr = {});
+  Roe<void> AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr = {});
 
   const std::string& LastError() const { return last_error_; }
 
@@ -98,12 +98,12 @@ private:
   AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
 
   std::unique_ptr<ReachabilityService> reachability_;
-  std::unique_ptr<amp::AmpStack> amp_;
+  std::unique_ptr<pp::amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
   std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
   std::unique_ptr<AmpMediaRelayCoordinator> amp_media_relay_;
   std::unique_ptr<AmpDialBackService> amp_dial_back_;
-  std::shared_ptr<adp::Clock> amp_clock_;
+  std::shared_ptr<pp::adp::Clock> amp_clock_;
   std::string amp_listen_multiaddr_;
   std::string amp_last_error_;
   std::string last_error_;

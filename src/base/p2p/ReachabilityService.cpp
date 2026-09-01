@@ -19,7 +19,7 @@ using Clock = std::chrono::steady_clock;
 ReachabilitySignals AnalyzeAmpListen(const std::string& amp_listen,
                                      const std::vector<std::string>& /*ipv6_unused*/) {
   ReachabilitySignals signals;
-  if (auto parsed = amp::ParseAdpMultiaddr(amp_listen)) {
+  if (auto parsed = pp::amp::ParseAdpMultiaddr(amp_listen)) {
     const std::string ip = IpHostFromMultiaddrPrefix(amp_listen);
     signals.listen_is_wildcard = (ip == "0.0.0.0" || ip == "::");
     if (!ip.empty() && !signals.listen_is_wildcard) {
@@ -34,7 +34,7 @@ ReachabilitySignals AnalyzeAmpListen(const std::string& amp_listen,
 
 std::optional<std::string> FirstAdpBootstrap(const std::vector<std::string>& bootstrap_peers) {
   for (const std::string& ma : bootstrap_peers) {
-    if (amp::ParseAdpMultiaddr(ma)) {
+    if (pp::amp::ParseAdpMultiaddr(ma)) {
       return ma;
     }
   }
@@ -136,7 +136,7 @@ void ReachabilityService::RunProbe(AmpReachabilityProbeDeps deps) {
   {
     auto seed_promise = std::make_shared<std::promise<Roe<void>>>();
     auto seed_future = seed_promise->get_future();
-    deps.links->EnsureAssociation(seed_key, [seed_promise](amp::PeerLinkManager::LinkRoe dial_result) {
+    deps.links->EnsureAssociation(seed_key, [seed_promise](pp::amp::PeerLinkManager::LinkRoe dial_result) {
       try {
         if (dial_result) {
           seed_promise->set_value(Roe<void>());

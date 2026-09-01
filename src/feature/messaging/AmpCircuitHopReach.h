@@ -21,7 +21,7 @@ public:
   using CollectRelays = std::function<std::vector<std::string>(const std::string& exclude_peer_id)>;
 
   AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops,
-                     amp::PeerLinkManager& links, IoPump io_pump, CollectRelays collect_relays);
+                     pp::amp::PeerLinkManager& links, IoPump io_pump, CollectRelays collect_relays);
 
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override;
   Roe<void> TryEnsureCallMediaReachable(const std::string& peer_key) override;
@@ -32,7 +32,7 @@ private:
 
   CircuitTunnelCoordinator& circuit_;
   AmpCircuitHopRegistry& hops_;
-  amp::PeerLinkManager& links_;
+  pp::amp::PeerLinkManager& links_;
   IoPump io_pump_;
   CollectRelays collect_relays_;
 };

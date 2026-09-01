@@ -20,7 +20,7 @@ inline constexpr const char* kAmpBridgeTargetProtocol = "/pp-browser/circuit-rel
 class CircuitTunnelCoordinatorTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    auto created = test::AmpMeshTripleHarness::Create();
+    auto created = pbr::test::AmpMeshTripleHarness::Create();
     ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
     harness_ = std::move(*created);
 
@@ -48,10 +48,10 @@ protected:
 
   void ArmTargetReader() {
     harness_->mgr_b().SetProtocolHandler(
-        kAmpBridgeTargetProtocol, [this](amp::PeerLink& link, const uint32_t channel_id) {
-          auto session = std::make_shared<amp::ChannelSession>();
+        kAmpBridgeTargetProtocol, [this](pp::amp::PeerLink& link, const uint32_t channel_id) {
+          auto session = std::make_shared<pp::amp::ChannelSession>();
           target_session_ = session;
-          session->Bind(*link.Mux(), channel_id, amp::CircuitTunnelChannelPolicy(),
+          session->Bind(*link.Mux(), channel_id, pp::amp::CircuitTunnelChannelPolicy(),
                         [this, session](Roe<std::vector<uint8_t>> frame) {
                           if (!frame) {
                             return false;
@@ -75,16 +75,16 @@ protected:
       };
     }
 
-    void PumpUntilDone(test::AmpMeshTripleHarness& harness, const size_t max_rounds = 800) {
+    void PumpUntilDone(pbr::test::AmpMeshTripleHarness& harness, const size_t max_rounds = 800) {
       harness.PumpUntil([this] { return done.load(std::memory_order_acquire); }, max_rounds);
       ASSERT_TRUE(done.load(std::memory_order_acquire)) << "bridge completion timed out";
     }
   };
 
-  std::unique_ptr<test::AmpMeshTripleHarness> harness_;
+  std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness_;
   std::unique_ptr<CircuitTunnelCoordinator> relay_;
   std::unique_ptr<CircuitTunnelCoordinator> client_;
-  std::shared_ptr<amp::ChannelSession> target_session_;
+  std::shared_ptr<pp::amp::ChannelSession> target_session_;
   std::mutex target_mu_;
   bool target_got_ = false;
   std::vector<uint8_t> target_received_;

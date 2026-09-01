@@ -8,7 +8,7 @@ std::string AmpCircuitHopRegistry::Key(const std::string& peer_key, const std::s
 
 Roe<void> AmpCircuitHopRegistry::Install(const std::string& peer_key, const std::string& relay_peer_key,
                                          const std::string& target_protocol,
-                                         std::shared_ptr<amp::ChannelSession> session,
+                                         std::shared_ptr<pp::amp::ChannelSession> session,
                                          const CircuitTunnelId tunnel_id) {
   if (peer_key.empty() || relay_peer_key.empty() || target_protocol.empty() || !session) {
     return Error("amp circuit hop install incomplete");

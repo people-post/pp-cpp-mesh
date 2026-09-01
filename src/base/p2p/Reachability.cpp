@@ -272,7 +272,7 @@ std::vector<std::string> BuildAmpLanAdvertisedAddrs(const std::string& amp_liste
   if (amp_listen_multiaddr.empty() || local_peer_id.empty()) {
     return out;
   }
-  auto parsed = amp::ParseAdpMultiaddr(amp_listen_multiaddr);
+  auto parsed = pp::amp::ParseAdpMultiaddr(amp_listen_multiaddr);
   if (!parsed) {
     return out;
   }
@@ -287,9 +287,9 @@ std::vector<std::string> BuildAmpLanAdvertisedAddrs(const std::string& amp_liste
     if (!ParseIpv4Octets(ip, octets)) {
       continue;
     }
-    auto ep = adp::IpEndpoint::V4(static_cast<uint8_t>(octets[0]), static_cast<uint8_t>(octets[1]),
+    auto ep = pp::adp::IpEndpoint::V4(static_cast<uint8_t>(octets[0]), static_cast<uint8_t>(octets[1]),
                                   static_cast<uint8_t>(octets[2]), static_cast<uint8_t>(octets[3]), port);
-    if (auto formatted = amp::FormatAdpMultiaddr(ep, peer)) {
+    if (auto formatted = pp::amp::FormatAdpMultiaddr(ep, peer)) {
       AppendUnique(out, *formatted);
     }
   }

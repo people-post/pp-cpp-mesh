@@ -18,7 +18,7 @@ namespace {
 class AmpCircuitMediaRelayComposeTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    auto created = test::AmpMeshTripleHarness::Create();
+    auto created = pbr::test::AmpMeshTripleHarness::Create();
     ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
     harness_ = std::move(*created);
 
@@ -79,13 +79,13 @@ protected:
       };
     }
 
-    void PumpUntilDone(test::AmpMeshTripleHarness& harness, const size_t max_rounds = 1200) {
+    void PumpUntilDone(pbr::test::AmpMeshTripleHarness& harness, const size_t max_rounds = 1200) {
       harness.PumpUntil([this] { return done.load(std::memory_order_acquire); }, max_rounds);
       ASSERT_TRUE(done.load(std::memory_order_acquire));
     }
   };
 
-  std::unique_ptr<test::AmpMeshTripleHarness> harness_;
+  std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness_;
   std::unique_ptr<AmpCircuitHopRegistry> hops_;
   std::unique_ptr<CircuitTunnelCoordinator> circuit_r_;
   std::unique_ptr<CircuitTunnelCoordinator> circuit_a_;

@@ -12,9 +12,9 @@ namespace pbr {
 
 namespace {
 
-amp::PeerLinkConfig MakeAmpLinkConfig() {
-  amp::PeerLinkConfig config;
-  config.peer_id_from_identity = [](const amp::ByteVector& identity_public_key) -> std::string {
+pp::amp::PeerLinkConfig MakeAmpLinkConfig() {
+  pp::amp::PeerLinkConfig config;
+  config.peer_id_from_identity = [](const pp::amp::ByteVector& identity_public_key) -> std::string {
     auto peer_id = PeerIdFromMlDsaPublicKey(identity_public_key);
     if (!peer_id) {
       return {};
@@ -68,7 +68,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
     return Error("mesh host: mesh_enabled requires device ML-DSA keys");
   }
 
-  amp::MshIdentity identity;
+  pp::amp::MshIdentity identity;
   identity.ml_dsa_secret_key.assign(host_cfg.device_ml_dsa_private_key->begin(),
                                     host_cfg.device_ml_dsa_private_key->end());
   identity.ml_dsa_public_key.assign(host_cfg.device_ml_dsa_public_key->begin(),
@@ -79,24 +79,24 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
     return peer_id.error();
   }
 
-  auto bound = adp::OsUdpDatagramIo::Bind(adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
+  auto bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
   if (!bound) {
     return bound.error();
   }
-  std::shared_ptr<adp::DatagramIo> io = std::move(*bound);
-  amp_clock_ = std::make_shared<adp::WallClock>();
+  std::shared_ptr<pp::adp::DatagramIo> io = std::move(*bound);
+  amp_clock_ = std::make_shared<pp::adp::WallClock>();
 
-  amp::AmpStack::Config amp_cfg;
+  pp::amp::AmpStack::Config amp_cfg;
   amp_cfg.identity = std::move(identity);
   amp_cfg.local_peer_id = *peer_id;
   amp_cfg.link_config = MakeAmpLinkConfig();
 
-  auto stack = amp::AmpStack::Create(std::move(io), amp_clock_, std::move(amp_cfg));
+  auto stack = pp::amp::AmpStack::Create(std::move(io), amp_clock_, std::move(amp_cfg));
   if (!stack) {
     return stack.error();
   }
 
-  auto listen = amp::FormatAdpMultiaddr((*stack)->LocalEndpoint(), *peer_id);
+  auto listen = pp::amp::FormatAdpMultiaddr((*stack)->LocalEndpoint(), *peer_id);
   if (!listen) {
     return listen.error();
   }
@@ -186,7 +186,7 @@ void MeshHost::StopAmp() {
   amp_last_error_.clear();
 }
 
-Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<amp::AmpStack> stack, std::string listen_multiaddr) {
+Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr) {
   if (!stack) {
     return Error("mesh host: null AmpStack");
   }
@@ -274,9 +274,9 @@ void MeshHost::RunReachabilityProbeBlocking(bool try_upnp_first) {
 
 ReachabilityService& MeshHost::Reachability() { return *reachability_; }
 
-amp::AmpStack* MeshHost::Amp() { return amp_.get(); }
+pp::amp::AmpStack* MeshHost::Amp() { return amp_.get(); }
 
-const amp::AmpStack* MeshHost::Amp() const { return amp_.get(); }
+const pp::amp::AmpStack* MeshHost::Amp() const { return amp_.get(); }
 
 CircuitTunnelCoordinator* MeshHost::AmpCircuitTunnel() { return amp_circuit_.get(); }
 

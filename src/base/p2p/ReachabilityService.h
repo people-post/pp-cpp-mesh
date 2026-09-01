@@ -8,17 +8,17 @@
 #include <string>
 #include <vector>
 
+namespace pp::amp {
+class PeerLinkManager;
+}
+
 namespace pbr {
 
 class AmpDialBackService;
 
-namespace amp {
-class PeerLinkManager;
-}
-
 /** Inputs for an Amp dial-back reachability probe (D8). */
 struct AmpReachabilityProbeDeps {
-  amp::PeerLinkManager* links = nullptr;
+  pp::amp::PeerLinkManager* links = nullptr;
   AmpDialBackService* dial_back = nullptr;
   std::string amp_listen_multiaddr;
   std::string local_peer_id;

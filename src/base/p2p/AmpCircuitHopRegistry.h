@@ -22,7 +22,7 @@ namespace pbr {
 class AmpCircuitHopRegistry {
 public:
   struct Hop {
-    std::shared_ptr<amp::ChannelSession> session;
+    std::shared_ptr<pp::amp::ChannelSession> session;
     std::string relay_peer_key;
     std::string target_protocol;
     CircuitTunnelId tunnel_id{};
@@ -31,7 +31,7 @@ public:
   static std::string Key(const std::string& peer_key, const std::string& target_protocol);
 
   Roe<void> Install(const std::string& peer_key, const std::string& relay_peer_key,
-                    const std::string& target_protocol, std::shared_ptr<amp::ChannelSession> session,
+                    const std::string& target_protocol, std::shared_ptr<pp::amp::ChannelSession> session,
                     CircuitTunnelId tunnel_id = {});
 
   std::optional<Hop> Find(const std::string& peer_key, const std::string& target_protocol) const;

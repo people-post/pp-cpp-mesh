@@ -27,7 +27,7 @@ public:
   using AttachFinished = std::function<void(Roe<MediaRelayAttachResult>)>;
   using FrameHandler = std::function<void(MediaDataFrame)>;
 
-  explicit AmpMediaRelayCoordinator(amp::MeshRuntime& runtime);
+  explicit AmpMediaRelayCoordinator(pp::amp::MeshRuntime& runtime);
   ~AmpMediaRelayCoordinator();
 
   AmpMediaRelayCoordinator(const AmpMediaRelayCoordinator&) = delete;
@@ -72,7 +72,7 @@ public:
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
-  amp::MeshRuntime& runtime_;
+  pp::amp::MeshRuntime& runtime_;
 };
 
 } // namespace pbr

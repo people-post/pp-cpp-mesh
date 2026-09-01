@@ -79,12 +79,12 @@ class PeerSessionDialRegistry final : public IDialRegistry {
 public:
   PeerSessionDialRegistry() = default;
 
-  void SetAmpLinks(amp::PeerLinkManager* amp_links) { amp_links_ = amp_links; }
+  void SetAmpLinks(pp::amp::PeerLinkManager* amp_links) { amp_links_ = amp_links; }
   void SetAmpCircuitHops(AmpCircuitHopRegistry* hops) { amp_hops_ = hops; }
 
   Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) override {
     if (amp_links_) {
-      if (auto parsed = amp::ParseAdpMultiaddr(multiaddr)) {
+      if (auto parsed = pp::amp::ParseAdpMultiaddr(multiaddr)) {
         (void)amp_links_->RegisterEndpoint(peer_key, multiaddr);
         if (!parsed->peer_id.empty() && parsed->peer_id != peer_key) {
           (void)amp_links_->RegisterEndpoint(parsed->peer_id, multiaddr);
@@ -125,7 +125,7 @@ public:
   }
 
 private:
-  amp::PeerLinkManager* amp_links_ = nullptr;
+  pp::amp::PeerLinkManager* amp_links_ = nullptr;
   AmpCircuitHopRegistry* amp_hops_ = nullptr;
 };
 

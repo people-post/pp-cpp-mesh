@@ -12,7 +12,7 @@ namespace pbr {
 namespace {
 
 TEST(AmpDialBackServiceTest, ProbeRoundTripOk) {
-  auto created = test::AmpMeshHarness::Create();
+  auto created = pbr::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -36,7 +36,7 @@ TEST(AmpDialBackServiceTest, ProbeRoundTripOk) {
 }
 
 TEST(AmpDialBackServiceTest, ProbeRejectsNonAdpTarget) {
-  auto created = test::AmpMeshHarness::Create();
+  auto created = pbr::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
