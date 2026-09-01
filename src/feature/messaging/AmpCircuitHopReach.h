@@ -1,7 +1,7 @@
 #pragma once
 
-#include "base/p2p/AmpCircuitHopRegistry.h"
-#include "base/p2p/CircuitTunnelCoordinator.h"
+#include "base/mesh/AmpCircuitHopRegistry.h"
+#include "base/mesh/CircuitTunnelCoordinator.h"
 #include "amp/link/PeerLinkManager.h"
 #include "feature/messaging/CallTopologyRelayDeps.h"
 

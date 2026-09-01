@@ -1,9 +1,9 @@
 #include "feature/messaging/AmpCircuitHopReach.h"
 
 #include "amp/link/Types.h"
-#include "base/p2p/ICallMediaTransport.h"
-#include "base/p2p/MediaRelayTypes.h"
-#include "base/p2p/SettledWait.h"
+#include "base/mesh/ICallMediaTransport.h"
+#include "base/mesh/MediaRelayTypes.h"
+#include "base/mesh/SettledWait.h"
 
 #include <chrono>
 #include <thread>

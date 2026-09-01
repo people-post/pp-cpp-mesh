@@ -2,9 +2,9 @@
 
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/PeerLinkManager.h"
-#include "base/p2p/AmpCircuitHopRegistry.h"
-#include "base/p2p/ICallMediaTransport.h"
-#include "base/p2p/MediaRelayTypes.h"
+#include "base/mesh/AmpCircuitHopRegistry.h"
+#include "base/mesh/ICallMediaTransport.h"
+#include "base/mesh/MediaRelayTypes.h"
 
 #include "common/Error.h"
 
@@ -34,7 +34,7 @@ public:
   virtual void StartClientFrameReader() = 0;
   /**
    * Unexpected guest duplex death (not Detach). Default no-op for fakes that never lose transport.
-   * Handler may be invoked on the libp2p io thread.
+   * Handler may be invoked on the mesh io thread.
    */
   virtual void SetClientTransportLostHandler(std::function<void()> /*handler*/) {}
   /** In-call hop: join local HostSession without dialing self. */
