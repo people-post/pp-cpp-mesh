@@ -1,6 +1,6 @@
 #include "base/p2p/Reachability.h"
 #include "base/p2p/ReachabilityNetIf.h"
-#include "lib/amp/link/AdpMultiaddr.h"
+#include "amp/link/AdpMultiaddr.h"
 
 #include <algorithm>
 #include <array>

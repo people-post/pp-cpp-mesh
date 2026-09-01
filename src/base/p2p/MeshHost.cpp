@@ -1,10 +1,10 @@
 #include "base/p2p/MeshHost.h"
 
-#include "lib/amp/L1/Clock.h"
-#include "lib/amp/L1/OsUdpDatagramIo.h"
-#include "lib/amp/L1/Types.h"
-#include "lib/amp/L2/Types.h"
-#include "lib/amp/link/AdpMultiaddr.h"
+#include "amp/L1/Clock.h"
+#include "amp/L1/OsUdpDatagramIo.h"
+#include "amp/L1/Types.h"
+#include "amp/L2/Types.h"
+#include "amp/link/AdpMultiaddr.h"
 #include "base/p2p/PeerIdUtil.h"
 #include "common/PbrCompat.h"
 

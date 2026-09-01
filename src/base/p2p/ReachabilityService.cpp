@@ -1,6 +1,6 @@
 #include "base/p2p/ReachabilityService.h"
 
-#include "lib/amp/link/AdpMultiaddr.h"
+#include "amp/link/AdpMultiaddr.h"
 #include "base/p2p/AmpDialBackService.h"
 #include "base/p2p/NatTraversal.h"
 #include "common/ValueJson.h"

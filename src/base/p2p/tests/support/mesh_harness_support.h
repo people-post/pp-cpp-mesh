@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/Error.h"
-#include "lib/amp/link/Types.h"
+#include "amp/link/Types.h"
 
 namespace pbr::test {
 

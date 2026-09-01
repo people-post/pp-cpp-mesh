@@ -2,7 +2,7 @@
 
 #include "base/p2p/AmpCircuitHopRegistry.h"
 #include "base/p2p/CircuitTunnelCoordinator.h"
-#include "lib/amp/link/PeerLinkManager.h"
+#include "amp/link/PeerLinkManager.h"
 #include "feature/messaging/CallTopologyRelayDeps.h"
 
 #include <functional>
