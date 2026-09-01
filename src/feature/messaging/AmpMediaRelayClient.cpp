@@ -1,6 +1,6 @@
 #include "feature/messaging/AmpMediaRelayClient.h"
 
-#include "base/p2p/SettledWait.h"
+#include "base/mesh/SettledWait.h"
 
 #include <chrono>
 #include <thread>
