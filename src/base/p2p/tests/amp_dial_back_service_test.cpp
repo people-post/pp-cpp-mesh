@@ -1,6 +1,6 @@
 #include "base/p2p/AmpDialBackService.h"
 
-#include "base/mesh/link/tests/mesh_test_harness.h"
+#include "base/mesh/tests/support/mesh_test_harness.h"
 #include "base/p2p/DialBackTypes.h"
 
 #include <gtest/gtest.h>
