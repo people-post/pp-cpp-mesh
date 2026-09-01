@@ -3,6 +3,7 @@
 #include "lib/amp/L1/Clock.h"
 #include "lib/amp/L1/OsUdpDatagramIo.h"
 #include "lib/amp/L1/Types.h"
+#include "lib/amp/L2/Types.h"
 #include "base/mesh/link/AdpMultiaddr.h"
 #include "base/p2p/PeerIdUtil.h"
 #include "common/PbrCompat.h"
@@ -13,7 +14,7 @@ namespace {
 
 amp::PeerLinkConfig MakeAmpLinkConfig() {
   amp::PeerLinkConfig config;
-  config.peer_id_from_identity = [](const ByteVector& identity_public_key) -> std::string {
+  config.peer_id_from_identity = [](const amp::ByteVector& identity_public_key) -> std::string {
     auto peer_id = PeerIdFromMlDsaPublicKey(identity_public_key);
     if (!peer_id) {
       return {};

@@ -4,13 +4,13 @@
 
 namespace pbr::test {
 
-Roe<std::string> DeriveTestPeerId(const ByteVector& identity_public_key) {
+Roe<std::string> DeriveTestPeerId(const pbr::amp::ByteVector& identity_public_key) {
   return PeerIdFromMlDsaPublicKey(identity_public_key);
 }
 
 amp::PeerLinkConfig AmpMeshTestLinkConfig() {
   amp::PeerLinkConfig config;
-  config.peer_id_from_identity = [](const ByteVector& identity_public_key) -> std::string {
+  config.peer_id_from_identity = [](const pbr::amp::ByteVector& identity_public_key) -> std::string {
     auto peer_id = DeriveTestPeerId(identity_public_key);
     if (!peer_id) {
       return {};
