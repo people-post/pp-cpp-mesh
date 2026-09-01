@@ -2,7 +2,7 @@
 #include "base/p2p/AmpMediaRelayCoordinator.h"
 #include "base/p2p/CircuitTunnelCoordinator.h"
 
-#include "base/mesh/tests/support/mesh_triple_harness.h"
+#include "base/p2p/tests/support/mesh_triple_harness.h"
 
 #include <gtest/gtest.h>
 

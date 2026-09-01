@@ -1,4 +1,4 @@
-#include "base/mesh/tests/support/mesh_harness_support.h"
+#include "lib/amp/tests/support/mesh_harness_support.h"
 
 #include "base/p2p/PeerIdUtil.h"
 
