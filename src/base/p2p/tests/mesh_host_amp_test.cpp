@@ -1,5 +1,5 @@
-#include "base/adp/Clock.h"
-#include "base/adp/MemoryDatagramIo.h"
+#include "lib/amp/L1/Clock.h"
+#include "lib/amp/L1/MemoryDatagramIo.h"
 #include "base/crypto/MlDsa.h"
 #include "base/mesh/link/AdpMultiaddr.h"
 #include "base/mesh/link/AmpStack.h"

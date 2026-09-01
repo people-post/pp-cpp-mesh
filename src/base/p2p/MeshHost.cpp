@@ -1,8 +1,8 @@
 #include "base/p2p/MeshHost.h"
 
-#include "base/adp/Clock.h"
-#include "base/adp/OsUdpDatagramIo.h"
-#include "base/adp/Types.h"
+#include "lib/amp/L1/Clock.h"
+#include "lib/amp/L1/OsUdpDatagramIo.h"
+#include "lib/amp/L1/Types.h"
 #include "base/mesh/link/AdpMultiaddr.h"
 #include "base/p2p/PeerIdUtil.h"
 #include "common/PbrCompat.h"
