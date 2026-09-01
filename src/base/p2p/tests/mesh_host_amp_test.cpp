@@ -3,7 +3,7 @@
 #include "base/crypto/MlDsa.h"
 #include "base/mesh/link/AdpMultiaddr.h"
 #include "base/mesh/link/AmpStack.h"
-#include "base/mesh/link/tests/mesh_harness_support.h"
+#include "base/mesh/tests/support/mesh_harness_support.h"
 #include "base/p2p/AmpMediaRelayCoordinator.h"
 #include "base/p2p/CircuitTunnelCoordinator.h"
 #include "base/p2p/MeshHost.h"

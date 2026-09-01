@@ -1,3 +1,6 @@
 add_subdirectory(session)
 add_subdirectory(channel)
 add_subdirectory(link)
+if(PP_BROWSER_BUILD_TESTS)
+  add_subdirectory(tests)
+endif()

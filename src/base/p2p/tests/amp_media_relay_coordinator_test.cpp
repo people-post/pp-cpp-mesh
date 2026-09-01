@@ -1,5 +1,5 @@
 #include "base/p2p/AmpMediaRelayCoordinator.h"
-#include "base/mesh/link/tests/mesh_test_harness.h"
+#include "base/mesh/tests/support/mesh_test_harness.h"
 #include "base/people/RelayScope.h"
 
 #include <gtest/gtest.h>

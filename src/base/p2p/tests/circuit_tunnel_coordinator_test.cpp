@@ -2,7 +2,7 @@
 
 #include "base/p2p/ProductChannelPolicies.h"
 #include "base/mesh/channel/ChannelSession.h"
-#include "base/mesh/link/tests/mesh_triple_harness.h"
+#include "base/mesh/tests/support/mesh_triple_harness.h"
 #include "base/people/RelayScope.h"
 
 #include <gtest/gtest.h>
