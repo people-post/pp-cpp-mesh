@@ -1,6 +1,6 @@
 #pragma once
 
-#include "base/mesh/channel/ChannelSession.h"
+#include "lib/amp/L3/ChannelSession.h"
 #include "base/p2p/CircuitBundleLogic.h"
 
 #include "common/Error.h"

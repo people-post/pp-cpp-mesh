@@ -1,7 +1,7 @@
 #pragma once
 
-#include "base/mesh/channel/AmpChannelLimits.h"
-#include "base/mesh/channel/ChannelPolicy.h"
+#include "lib/amp/L3/AmpChannelLimits.h"
+#include "lib/amp/L3/ChannelPolicy.h"
 
 #include <chrono>
 
