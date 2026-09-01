@@ -4,7 +4,7 @@
 #include "lib/amp/L1/OsUdpDatagramIo.h"
 #include "lib/amp/L1/Types.h"
 #include "lib/amp/L2/Types.h"
-#include "base/mesh/link/AdpMultiaddr.h"
+#include "lib/amp/link/AdpMultiaddr.h"
 #include "base/p2p/PeerIdUtil.h"
 #include "common/PbrCompat.h"
 

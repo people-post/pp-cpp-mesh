@@ -1,7 +1,7 @@
 #pragma once
 
-#include "base/mesh/link/AdpMultiaddr.h"
-#include "base/mesh/link/PeerLinkManager.h"
+#include "lib/amp/link/AdpMultiaddr.h"
+#include "lib/amp/link/PeerLinkManager.h"
 #include "base/p2p/AmpCircuitHopRegistry.h"
 #include "base/p2p/ICallMediaTransport.h"
 #include "base/p2p/MediaRelayTypes.h"

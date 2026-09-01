@@ -1,7 +1,7 @@
 #pragma once
 
 #include "base/data/Config.h"
-#include "base/mesh/link/AmpStack.h"
+#include "lib/amp/link/AmpStack.h"
 #include "base/p2p/AmpCircuitHopRegistry.h"
 #include "base/p2p/AmpDialBackService.h"
 #include "base/p2p/AmpMediaRelayCoordinator.h"

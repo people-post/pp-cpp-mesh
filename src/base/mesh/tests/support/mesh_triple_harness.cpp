@@ -18,9 +18,9 @@ Roe<std::unique_ptr<AmpMeshTripleHarness>> AmpMeshTripleHarness::Create() {
   harness->ep_r->SetAcceptEnabled(true);
   harness->ep_b->SetAcceptEnabled(true);
 
-  auto alice_keys = MlDsa::GenerateKeyPair();
-  auto relay_keys = MlDsa::GenerateKeyPair();
-  auto bob_keys = MlDsa::GenerateKeyPair();
+  auto alice_keys = pp::MlDsa::GenerateKeyPair();
+  auto relay_keys = pp::MlDsa::GenerateKeyPair();
+  auto bob_keys = pp::MlDsa::GenerateKeyPair();
   if (!alice_keys || !relay_keys || !bob_keys) {
     return Error("amp triple harness: keygen failed");
   }

@@ -3,9 +3,9 @@
 #include "lib/amp/L1/Clock.h"
 #include "lib/amp/L1/Endpoint.h"
 #include "lib/amp/L1/MemoryDatagramIo.h"
-#include "base/crypto/MlDsa.h"
-#include "base/mesh/link/AdpMultiaddr.h"
-#include "base/mesh/link/MeshRuntime.h"
+#include "crypto/MlDsa.h"
+#include "lib/amp/link/AdpMultiaddr.h"
+#include "lib/amp/link/MeshRuntime.h"
 #include "base/mesh/tests/support/mesh_harness_support.h"
 
 #include <functional>

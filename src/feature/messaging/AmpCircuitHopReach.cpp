@@ -1,6 +1,6 @@
 #include "feature/messaging/AmpCircuitHopReach.h"
 
-#include "base/mesh/link/Types.h"
+#include "lib/amp/link/Types.h"
 #include "base/p2p/ICallMediaTransport.h"
 #include "base/p2p/MediaRelayTypes.h"
 #include "base/p2p/SettledWait.h"

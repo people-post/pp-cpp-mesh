@@ -1,7 +1,7 @@
 #pragma once
 
 #include "lib/amp/L3/ChannelSession.h"
-#include "base/mesh/link/MeshRuntime.h"
+#include "lib/amp/link/MeshRuntime.h"
 #include "base/media/CallMediaHealth.h"
 #include "base/p2p/AmpCircuitHopRegistry.h"
 #include "base/p2p/MediaRelayBundleLogic.h"
