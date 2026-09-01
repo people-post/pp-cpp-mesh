@@ -136,9 +136,13 @@ void ReachabilityService::RunProbe(AmpReachabilityProbeDeps deps) {
   {
     auto seed_promise = std::make_shared<std::promise<Roe<void>>>();
     auto seed_future = seed_promise->get_future();
-    deps.links->EnsureAssociation(seed_key, [seed_promise](Roe<void> dial_result) {
+    deps.links->EnsureAssociation(seed_key, [seed_promise](amp::PeerLinkManager::LinkRoe dial_result) {
       try {
-        seed_promise->set_value(std::move(dial_result));
+        if (dial_result) {
+          seed_promise->set_value(Roe<void>());
+        } else {
+          seed_promise->set_value(Roe<void>(Error(dial_result.error().message)));
+        }
       } catch (const std::future_error&) {
       }
     });

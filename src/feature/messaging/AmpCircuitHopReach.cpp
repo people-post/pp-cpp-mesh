@@ -105,7 +105,13 @@ Roe<void> AmpCircuitHopReach::EnsureViaCircuit(const std::string& target_peer_id
       SettledWait<void> nested_wait;
       links_.EstablishNestedOverCarrier(
           target_peer_id, bridged->session, true,
-          [nested_wait](Roe<void> result) { nested_wait.Finish(std::move(result)); });
+          [nested_wait](amp::PeerLinkManager::LinkRoe result) {
+            if (result) {
+              nested_wait.Finish(Roe<void>());
+            } else {
+              nested_wait.Finish(Roe<void>(Error(result.error().message)));
+            }
+          });
       const auto nested_deadline = Clock::now() + std::chrono::milliseconds(10000);
       while (Clock::now() < nested_deadline && !nested_wait.IsSettled()) {
         if (io_pump_) {
