@@ -1,4 +1,4 @@
-#include "base/mesh/tests/support/mesh_test_harness.h"
+#include "lib/amp/tests/support/mesh_test_harness.h"
 
 namespace pbr::test {
 

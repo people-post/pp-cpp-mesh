@@ -6,7 +6,7 @@
 #include "crypto/MlDsa.h"
 #include "lib/amp/link/AdpMultiaddr.h"
 #include "lib/amp/link/MeshRuntime.h"
-#include "base/mesh/tests/support/mesh_harness_support.h"
+#include "lib/amp/tests/support/mesh_harness_support.h"
 
 #include <functional>
 #include <memory>
