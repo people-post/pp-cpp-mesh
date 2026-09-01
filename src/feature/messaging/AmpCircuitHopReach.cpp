@@ -1,6 +1,6 @@
 #include "feature/messaging/AmpCircuitHopReach.h"
 
-#include "base/mesh/link/Types.h"
+#include "lib/amp/link/Types.h"
 #include "base/p2p/ICallMediaTransport.h"
 #include "base/p2p/MediaRelayTypes.h"
 #include "base/p2p/SettledWait.h"
@@ -16,7 +16,7 @@ using Clock = std::chrono::steady_clock;
 } // namespace
 
 AmpCircuitHopReach::AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops,
-                                       amp::PeerLinkManager& links, IoPump io_pump,
+                                       pp::amp::PeerLinkManager& links, IoPump io_pump,
                                        CollectRelays collect_relays)
     : circuit_(circuit), hops_(hops), links_(links), io_pump_(std::move(io_pump)),
       collect_relays_(std::move(collect_relays)) {}
@@ -35,10 +35,10 @@ Roe<void> AmpCircuitHopReach::TryEnsureCallMediaReachable(const std::string& pee
     return {};
   }
   // Protocol-specific: a media-relay hop must not short-circuit call-media reach.
-  if (hops_.Find(peer_key, amp::kAmpCircuitCarrierProtocolId) && links_.IsConnected(peer_key)) {
+  if (hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId) && links_.IsConnected(peer_key)) {
     return {};
   }
-  return EnsureViaCircuit(peer_key, amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
+  return EnsureViaCircuit(peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
                           /*nested_session=*/true);
 }
 
@@ -105,7 +105,7 @@ Roe<void> AmpCircuitHopReach::EnsureViaCircuit(const std::string& target_peer_id
       SettledWait<void> nested_wait;
       links_.EstablishNestedOverCarrier(
           target_peer_id, bridged->session, true,
-          [nested_wait](amp::PeerLinkManager::LinkRoe result) {
+          [nested_wait](pp::amp::PeerLinkManager::LinkRoe result) {
             if (result) {
               nested_wait.Finish(Roe<void>());
             } else {

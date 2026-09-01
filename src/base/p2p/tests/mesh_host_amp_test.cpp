@@ -1,8 +1,8 @@
 #include "lib/amp/L1/Clock.h"
 #include "lib/amp/L1/MemoryDatagramIo.h"
 #include "base/crypto/MlDsa.h"
-#include "base/mesh/link/AdpMultiaddr.h"
-#include "base/mesh/link/AmpStack.h"
+#include "lib/amp/link/AdpMultiaddr.h"
+#include "lib/amp/link/AmpStack.h"
 #include "base/mesh/tests/support/mesh_harness_support.h"
 #include "base/p2p/AmpMediaRelayCoordinator.h"
 #include "base/p2p/CircuitTunnelCoordinator.h"
@@ -15,14 +15,14 @@
 namespace pbr {
 namespace {
 
-std::unique_ptr<amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<adp::Clock>& clock,
-                                                const std::shared_ptr<adp::DatagramIo>& io,
+std::unique_ptr<pp::amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<pp::adp::Clock>& clock,
+                                                const std::shared_ptr<pp::adp::DatagramIo>& io,
                                                 std::string* peer_id_out) {
   auto keys = MlDsa::GenerateKeyPair();
   if (!keys) {
     return nullptr;
   }
-  amp::MshIdentity identity;
+  pp::amp::MshIdentity identity;
   identity.ml_dsa_secret_key = std::move(keys->secret_key);
   identity.ml_dsa_public_key = std::move(keys->public_key);
   auto peer_id = PeerIdFromMlDsaPublicKey(identity.ml_dsa_public_key);
@@ -31,12 +31,12 @@ std::unique_ptr<amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<adp::Clock
   }
   *peer_id_out = *peer_id;
 
-  amp::AmpStack::Config cfg;
+  pp::amp::AmpStack::Config cfg;
   cfg.identity = std::move(identity);
   cfg.local_peer_id = *peer_id;
-  cfg.link_config = test::AmpMeshTestLinkConfig();
+  cfg.link_config = pbr::test::AmpMeshTestLinkConfig();
 
-  auto stack = amp::AmpStack::Create(io, clock, cfg);
+  auto stack = pp::amp::AmpStack::Create(io, clock, cfg);
   if (!stack) {
     return nullptr;
   }
@@ -46,15 +46,15 @@ std::unique_ptr<amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<adp::Clock
 TEST(MeshHostAmpTest, AttachAmpStackParallelNoLibp2p) {
   ASSERT_GE(sodium_init(), 0);
 
-  auto clock = std::make_shared<adp::VirtualClock>(1'000'000);
-  auto hub = adp::MemoryDatagramIo::MakeHub();
-  const auto addr = adp::IpEndpoint::V4(10, 0, 0, 1, 1000);
-  auto io = std::make_shared<adp::MemoryDatagramIo>(hub, addr);
+  auto clock = std::make_shared<pp::adp::VirtualClock>(1'000'000);
+  auto hub = pp::adp::MemoryDatagramIo::MakeHub();
+  const auto addr = pp::adp::IpEndpoint::V4(10, 0, 0, 1, 1000);
+  auto io = std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr);
 
   std::string peer_id;
   auto stack = MakeTestAmpStack(clock, io, &peer_id);
   ASSERT_NE(stack, nullptr);
-  auto ma = amp::FormatAdpMultiaddr(addr, peer_id);
+  auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
   MeshHost host;
@@ -81,15 +81,15 @@ TEST(MeshHostAmpTest, AttachAmpStackParallelNoLibp2p) {
 TEST(MeshHostAmpTest, AmpL4CoordinatorsShareIoTickWithoutOverwrite) {
   ASSERT_GE(sodium_init(), 0);
 
-  auto clock = std::make_shared<adp::VirtualClock>(1'000'000);
-  auto hub = adp::MemoryDatagramIo::MakeHub();
-  const auto addr = adp::IpEndpoint::V4(10, 0, 0, 2, 1001);
-  auto io = std::make_shared<adp::MemoryDatagramIo>(hub, addr);
+  auto clock = std::make_shared<pp::adp::VirtualClock>(1'000'000);
+  auto hub = pp::adp::MemoryDatagramIo::MakeHub();
+  const auto addr = pp::adp::IpEndpoint::V4(10, 0, 0, 2, 1001);
+  auto io = std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr);
 
   std::string peer_id;
   auto stack = MakeTestAmpStack(clock, io, &peer_id);
   ASSERT_NE(stack, nullptr);
-  auto ma = amp::FormatAdpMultiaddr(addr, peer_id);
+  auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
   MeshHost host;

@@ -13,7 +13,7 @@ namespace {
 class AmpMediaRelayCoordinatorTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    auto created = test::AmpMeshHarness::Create();
+    auto created = pbr::test::AmpMeshHarness::Create();
     ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
     harness_ = std::move(*created);
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_a().RegisterEndpoint("hop", harness_->ma_b)));
@@ -49,13 +49,13 @@ protected:
       };
     }
 
-    void PumpUntilDone(test::AmpMeshHarness& harness, const size_t max_rounds = 800) {
+    void PumpUntilDone(pbr::test::AmpMeshHarness& harness, const size_t max_rounds = 800) {
       harness.PumpUntil([this] { return done.load(std::memory_order_acquire); }, max_rounds);
       ASSERT_TRUE(done.load(std::memory_order_acquire)) << "media-relay completion timed out";
     }
   };
 
-  std::unique_ptr<test::AmpMeshHarness> harness_;
+  std::unique_ptr<pbr::test::AmpMeshHarness> harness_;
   std::unique_ptr<AmpMediaRelayCoordinator> hop_;
   std::unique_ptr<AmpMediaRelayCoordinator> client_;
 };

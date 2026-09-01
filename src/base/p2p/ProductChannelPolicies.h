@@ -5,7 +5,7 @@
 
 #include <chrono>
 
-namespace pbr::amp {
+namespace pp::amp {
 
 /** Realtime media frames for `/pp-browser/call-media/1.0.0`. */
 inline ChannelPolicy CallMediaChannelPolicy() {
@@ -81,4 +81,4 @@ inline ChannelPolicy MediaRelayClientChannelPolicy(
   return policy;
 }
 
-} // namespace pbr::amp
+} // namespace pp::amp
