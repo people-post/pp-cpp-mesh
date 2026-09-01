@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lib/amp/link/PeerLinkManager.h"
+#include "amp/link/PeerLinkManager.h"
 #include "base/p2p/DialBackTypes.h"
 #include "common/Error.h"
 #include "common/PbrCompat.h"

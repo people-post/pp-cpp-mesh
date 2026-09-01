@@ -1,12 +1,12 @@
 #pragma once
 
-#include "lib/amp/L1/Clock.h"
-#include "lib/amp/L1/Endpoint.h"
-#include "lib/amp/L1/MemoryDatagramIo.h"
+#include "amp/L1/Clock.h"
+#include "amp/L1/Endpoint.h"
+#include "amp/L1/MemoryDatagramIo.h"
 #include "crypto/MlDsa.h"
-#include "lib/amp/link/AdpMultiaddr.h"
-#include "lib/amp/link/MeshRuntime.h"
-#include "lib/amp/tests/support/mesh_harness_support.h"
+#include "amp/link/AdpMultiaddr.h"
+#include "amp/link/MeshRuntime.h"
+#include "base/p2p/tests/support/mesh_harness_support.h"
 
 #include <functional>
 #include <memory>

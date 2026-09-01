@@ -1,7 +1,7 @@
 #include "base/p2p/CircuitTunnelCoordinator.h"
 
 #include "base/p2p/ProductChannelPolicies.h"
-#include "lib/amp/L3/ChannelSession.h"
+#include "amp/L3/ChannelSession.h"
 #include "base/p2p/tests/support/mesh_triple_harness.h"
 #include "base/people/RelayScope.h"
 
