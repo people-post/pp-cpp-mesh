@@ -7,7 +7,7 @@
 #include "base/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
 #include "base/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 #include "base/mesh/host/MeshHost.h"
-#include "base/mesh/identity/PeerIdUtil.h"
+#include "foundation/identity/PeerIdUtil.h"
 
 #include <gtest/gtest.h>
 #include <sodium.h>

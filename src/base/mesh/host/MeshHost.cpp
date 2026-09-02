@@ -7,7 +7,7 @@
 #include "amp/L1/Types.h"
 #include "amp/L2/Types.h"
 #include "amp/link/AdpMultiaddr.h"
-#include "base/mesh/identity/PeerIdUtil.h"
+#include "foundation/identity/PeerIdUtil.h"
 #include "common/PbrCompat.h"
 
 namespace pbr {

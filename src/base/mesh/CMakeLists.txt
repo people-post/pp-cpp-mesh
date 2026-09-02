@@ -1,23 +1,5 @@
 # Product Amp mesh glue (base layer). Libp2p Host/Yamux/Noise L4 retired from product (A017/D10).
-
-set(PP_BASE_MESH_IDENTITY_SOURCES
-  identity/MlDsaPublicKeyWire.cpp
-  identity/Multihash.cpp
-  identity/Base58.cpp
-  identity/PeerId.cpp
-  identity/PeerIdUtil.cpp
-)
-
-pp_browser_add_base_library(pp_base_mesh_identity
-  SOURCES
-    ${PP_BASE_MESH_IDENTITY_SOURCES}
-  PUBLIC_LIBS
-    pp_foundation_crypto
-    pp_common)
-
-if(TARGET OpenSSL::Crypto)
-  target_link_libraries(pp_base_mesh_identity PUBLIC OpenSSL::Crypto)
-endif()
+# PeerId / identity lives under src/foundation/identity/ (pp_foundation_identity).
 
 set(PP_BASE_MESH_HOST_SOURCES
   host/MeshHost.cpp
@@ -92,7 +74,7 @@ pp_browser_add_base_library(pp_base_mesh
     pp_foundation_crypto
     pp_base_adp
     pp_base_mesh_link
-    pp_base_mesh_identity
+    pp_foundation_identity
     pp_foundation_runtime_core
     pp_common)
 
@@ -106,7 +88,6 @@ if(TARGET miniupnpc-static)
     ${CMAKE_SOURCE_DIR}/third_party/miniupnpc/include
     ${CMAKE_BINARY_DIR}/third_party/miniupnpc)
 endif()
-target_link_libraries(pp_base_mesh PRIVATE pp_domain_net)
 
 if(PP_BROWSER_BUILD_TESTS)
   add_subdirectory(tests)

@@ -1,6 +1,6 @@
 #include "base/mesh/tests/support/mesh_harness_support.h"
 
-#include "base/mesh/identity/PeerIdUtil.h"
+#include "foundation/identity/PeerIdUtil.h"
 
 namespace pbr::test {
 
