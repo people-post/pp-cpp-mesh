@@ -1,7 +1,7 @@
 #pragma once
 
 #include "base/data/Config.h"
-#include "common/RelayScope.h"
+#include "common/directory/RelayScope.h"
 #include "common/Error.h"
 #include "common/PbrCompat.h"
 

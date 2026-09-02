@@ -2,7 +2,7 @@
 
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/MeshRuntime.h"
-#include "common/CallMediaHealth.h"
+#include "common/media/CallMediaHealth.h"
 #include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "base/mesh/l4/media_relay/MediaRelayBundleLogic.h"
 #include "base/mesh/l4/media_relay/MediaRelayTypes.h"

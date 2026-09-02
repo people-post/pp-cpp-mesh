@@ -1,9 +1,9 @@
 #pragma once
 
 #include "base/data/Config.h"
-#include "common/DirectoryTypes.h"
+#include "common/directory/DirectoryTypes.h"
 #include "common/Error.h"
-#include "common/IDirectoryClient.h"
+#include "common/directory/IDirectoryClient.h"
 
 #include <cstdint>
 #include <string>

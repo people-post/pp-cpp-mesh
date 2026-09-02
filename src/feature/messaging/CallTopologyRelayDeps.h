@@ -4,7 +4,7 @@
 #include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "base/mesh/l4/call_media/ICallMediaTransport.h"
 #include "base/mesh/l4/media_relay/MediaRelayTypes.h"
-#include "common/CallMediaHealth.h"
+#include "common/media/CallMediaHealth.h"
 
 #include "common/Error.h"
 

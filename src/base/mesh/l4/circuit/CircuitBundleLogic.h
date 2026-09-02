@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/RelayScope.h"
+#include "common/directory/RelayScope.h"
 
 #include <cstdint>
 #include <string>

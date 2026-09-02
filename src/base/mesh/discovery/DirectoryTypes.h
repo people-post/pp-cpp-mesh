@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/DirectoryTypes.h"
+#include "common/directory/DirectoryTypes.h"
 
 #include <cstdint>
 #include <functional>

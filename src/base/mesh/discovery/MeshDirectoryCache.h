@@ -1,7 +1,7 @@
 #pragma once
 
 #include "base/data/Config.h"
-#include "common/DirectoryTypes.h"
+#include "common/directory/DirectoryTypes.h"
 #include "common/Error.h"
 
 #include <chrono>

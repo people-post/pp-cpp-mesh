@@ -1,7 +1,7 @@
 #pragma once
 
 #include "base/mesh/l4/media_relay/MediaRelayTypes.h"
-#include "common/RelayScope.h"
+#include "common/directory/RelayScope.h"
 
 #include <cstdint>
 #include <string>

@@ -1,7 +1,7 @@
 #include "base/mesh/discovery/MeshDirectoryCache.h"
 #include "base/mesh/discovery/NameDirectory.h"
 
-#include "common/DirectoryTypes.h"
+#include "common/directory/DirectoryTypes.h"
 
 #include <gtest/gtest.h>
 
