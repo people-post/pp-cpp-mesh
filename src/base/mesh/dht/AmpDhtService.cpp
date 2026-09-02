@@ -112,35 +112,77 @@ struct AmpDhtService::Impl {
                         response.set("req_id", req_id);
                         response.set("version", int64_t{kDhtWireVersion});
                         response.set("peer_id", self->config_.local_peer_id);
-                      } else if (op == "find_peer") {
-                        response.set("op", "find_peer_result");
-                        response.set("req_id", req_id);
-                        response.set("version", int64_t{kDhtWireVersion});
-                        const std::string peer_id = root->getString("peer_id").value_or("");
-                        response.set("peer_id", peer_id);
-                        std::vector<PeerRoutingRecord> records;
-                        if (auto local = self->store_.Get(peer_id)) {
-                          records.push_back(*local);
-                        }
-                        response.set("records", RecordsToJsonArray(records));
-                        response.set("closer_peers", makeArray(std::vector<Value>{}));
-                      } else if (op == "store") {
-                        bool ok = false;
-                        if (const Object* record_obj = root->getObject("record")) {
-                          if (auto parsed = PeerRoutingRecordFromObject(*record_obj)) {
-                            if (parsed->peer_id == remote_peer) {
-                              if (auto verified = VerifyPeerRoutingRecord(*parsed, remote_pk)) {
-                                if (*verified) {
-                                  ok = self->store_.Put(*parsed);
+                      } else if (op == "find_peer" || op == "store") {
+                        if (!self->AllowInbound(remote_peer)) {
+                          {
+                            std::lock_guard lock(self->stats_mutex_);
+                            ++self->inbound_rate_limited_;
+                          }
+                          response = MakeErrorResponse(req_id, "rate_limited", "dht rate limited");
+                        } else if (op == "find_peer") {
+                          {
+                            std::lock_guard lock(self->stats_mutex_);
+                            ++self->inbound_find_peer_;
+                          }
+                          response.set("op", "find_peer_result");
+                          response.set("req_id", req_id);
+                          response.set("version", int64_t{kDhtWireVersion});
+                          const std::string peer_id = root->getString("peer_id").value_or("");
+                          response.set("peer_id", peer_id);
+                          std::vector<PeerRoutingRecord> records;
+                          if (auto local = self->store_.Get(peer_id)) {
+                            records.push_back(*local);
+                          }
+                          response.set("records", RecordsToJsonArray(records));
+                          response.set("closer_peers", makeArray(std::vector<Value>{}));
+                        } else {
+                          {
+                            std::lock_guard lock(self->stats_mutex_);
+                            ++self->inbound_store_;
+                          }
+                          std::string reject_code;
+                          bool ok = false;
+                          if (const Object* record_obj = root->getObject("record")) {
+                            if (auto parsed = PeerRoutingRecordFromObject(*record_obj)) {
+                              if (parsed->peer_id != remote_peer) {
+                                reject_code = "not_self";
+                              } else if (PeerRoutingRecordExpired(
+                                             *parsed, static_cast<int64_t>(std::time(nullptr)))) {
+                                reject_code = "expired";
+                              } else {
+                                auto verified = VerifyPeerRoutingRecord(*parsed, remote_pk);
+                                if (!verified) {
+                                  reject_code = "bad_signature";
+                                } else if (!*verified) {
+                                  reject_code = "bad_signature";
+                                } else if (auto existing = self->store_.Get(parsed->peer_id);
+                                           existing && existing->seq > parsed->seq) {
+                                  reject_code = "seq_regression";
+                                } else if (!self->store_.Put(*parsed)) {
+                                  reject_code = "store_failed";
+                                } else {
+                                  ok = true;
                                 }
                               }
+                            } else {
+                              reject_code = "invalid_record";
                             }
+                          } else {
+                            reject_code = "missing_record";
+                          }
+                          if (!ok) {
+                            std::lock_guard lock(self->stats_mutex_);
+                            ++self->store_rejected_;
+                          }
+                          if (!ok && !reject_code.empty()) {
+                            response = MakeErrorResponse(req_id, reject_code, reject_code);
+                          } else {
+                            response.set("op", "store_result");
+                            response.set("req_id", req_id);
+                            response.set("version", int64_t{kDhtWireVersion});
+                            response.set("ok", ok);
                           }
                         }
-                        response.set("op", "store_result");
-                        response.set("req_id", req_id);
-                        response.set("version", int64_t{kDhtWireVersion});
-                        response.set("ok", ok);
                       } else {
                         response = MakeErrorResponse(req_id, "unsupported_op", "unsupported op");
                       }
@@ -242,6 +284,57 @@ AmpDhtService::~AmpDhtService() { Stop(); }
 
 void AmpDhtService::Configure(AmpDhtServiceConfig config) {
   config_ = std::move(config);
+  inbound_limiter_.Configure(config_.tunables.inbound_ops_per_peer_per_window,
+                             config_.tunables.inbound_rate_window_seconds);
+}
+
+bool AmpDhtService::AllowInbound(const std::string& remote_peer) {
+  return inbound_limiter_.Allow(remote_peer);
+}
+
+void AmpDhtService::NoteSoftReputationBad(const std::string& peer_key) {
+  if (peer_key.empty()) {
+    return;
+  }
+  const int threshold = config_.tunables.soft_reputation_penalty_threshold > 0
+                            ? config_.tunables.soft_reputation_penalty_threshold
+                            : 3;
+  const int cooldown_s = config_.tunables.soft_reputation_cooldown_seconds > 0
+                             ? config_.tunables.soft_reputation_cooldown_seconds
+                             : 300;
+  std::lock_guard lock(reputation_mutex_);
+  SoftRep& rep = soft_reputation_[peer_key];
+  ++rep.bad_count;
+  if (rep.bad_count >= threshold) {
+    rep.cooldown_until = Clock::now() + std::chrono::seconds(cooldown_s);
+    rep.bad_count = 0;
+  }
+}
+
+bool AmpDhtService::SoftReputationAllows(const std::string& peer_key) const {
+  if (peer_key.empty()) {
+    return true;
+  }
+  std::lock_guard lock(reputation_mutex_);
+  const auto it = soft_reputation_.find(peer_key);
+  if (it == soft_reputation_.end()) {
+    return true;
+  }
+  return Clock::now() >= it->second.cooldown_until;
+}
+
+std::vector<std::string> AmpDhtService::FilteredQueryPeerKeys() {
+  std::vector<std::string> keys;
+  keys.reserve(config_.query_peer_keys.size());
+  for (const std::string& peer_key : config_.query_peer_keys) {
+    if (SoftReputationAllows(peer_key)) {
+      keys.push_back(peer_key);
+    } else {
+      std::lock_guard lock(stats_mutex_);
+      ++soft_reputation_skips_;
+    }
+  }
+  return keys;
 }
 
 void AmpDhtService::Start() {
@@ -331,9 +424,30 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
     on_done(std::move(result));
     return;
   }
-  if (config_.query_peer_keys.empty()) {
+
+  const int max_inflight =
+      config_.tunables.max_concurrent_lookups > 0 ? config_.tunables.max_concurrent_lookups : 4;
+  int expected = inflight_lookups_.load(std::memory_order_relaxed);
+  while (true) {
+    if (expected >= max_inflight) {
+      on_done(Error("dht find_peer concurrency limit"));
+      return;
+    }
+    if (inflight_lookups_.compare_exchange_weak(expected, expected + 1, std::memory_order_acq_rel)) {
+      break;
+    }
+  }
+
+  const std::vector<std::string> query_keys = FilteredQueryPeerKeys();
+  if (query_keys.empty()) {
+    inflight_lookups_.fetch_sub(1, std::memory_order_acq_rel);
     on_done(Error("no dht query peers configured"));
     return;
+  }
+
+  {
+    std::lock_guard lock(stats_mutex_);
+    ++find_peer_issued_;
   }
 
   struct State {
@@ -341,9 +455,11 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
     std::shared_ptr<std::atomic<size_t>> pending;
     std::optional<PeerRoutingRecord> best;
     std::string last_error;
+    AmpDhtService* self = nullptr;
   };
   auto state = std::make_shared<State>();
-  state->pending = std::make_shared<std::atomic<size_t>>(config_.query_peer_keys.size());
+  state->self = this;
+  state->pending = std::make_shared<std::atomic<size_t>>(query_keys.size());
 
   Object request;
   request.set("op", "find_peer");
@@ -351,45 +467,66 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
   request.set("version", int64_t{kDhtWireVersion});
   request.set("peer_id", target_peer_id);
 
-  for (const std::string& peer_key : config_.query_peer_keys) {
-    impl_->Rpc(peer_key, request, [this, state, target_peer_id, on_done](Roe<Object> resp) mutable {
-      {
-        std::lock_guard lock(state->mutex);
-        if (resp) {
-          if (const Array* records = resp->getArray("records")) {
-            for (const Value& item : records->elements) {
-              const Object* obj = asObject(item);
-              if (!obj) {
-                continue;
-              }
-              if (auto parsed = PeerRoutingRecordFromObject(*obj)) {
-                if (parsed->peer_id != target_peer_id) {
-                  continue;
-                }
-                if (!state->best || parsed->seq > state->best->seq) {
-                  state->best = std::move(*parsed);
-                }
-              }
-            }
-          }
-        } else {
-          state->last_error = resp.error().message;
-        }
-      }
-      if (state->pending->fetch_sub(1, std::memory_order_acq_rel) != 1) {
-        return;
-      }
-      std::lock_guard lock(state->mutex);
-      if (state->best) {
-        store_.Put(*state->best);
-        DhtFindPeerResult result;
-        result.peer_id = target_peer_id;
-        result.record = *state->best;
-        on_done(std::move(result));
-        return;
-      }
-      on_done(Error(state->last_error.empty() ? "find_peer not found" : state->last_error));
-    });
+  auto finish_lookup = [state, on_done](Roe<DhtFindPeerResult> value) {
+    if (state->self) {
+      state->self->inflight_lookups_.fetch_sub(1, std::memory_order_acq_rel);
+    }
+    on_done(std::move(value));
+  };
+
+  for (const std::string& peer_key : query_keys) {
+    impl_->Rpc(peer_key, request,
+               [this, state, target_peer_id, peer_key, finish_lookup](Roe<Object> resp) mutable {
+                 bool saw_bad = false;
+                 {
+                   std::lock_guard lock(state->mutex);
+                   if (resp) {
+                     if (const Array* records = resp->getArray("records")) {
+                       for (const Value& item : records->elements) {
+                         const Object* obj = asObject(item);
+                         if (!obj) {
+                           saw_bad = true;
+                           continue;
+                         }
+                         if (auto parsed = PeerRoutingRecordFromObject(*obj)) {
+                           if (parsed->peer_id != target_peer_id) {
+                             saw_bad = true;
+                             continue;
+                           }
+                           if (PeerRoutingRecordExpired(*parsed,
+                                                       static_cast<int64_t>(std::time(nullptr)))) {
+                             saw_bad = true;
+                             continue;
+                           }
+                           if (!state->best || parsed->seq > state->best->seq) {
+                             state->best = std::move(*parsed);
+                           }
+                         } else {
+                           saw_bad = true;
+                         }
+                       }
+                     }
+                   } else {
+                     state->last_error = resp.error().message;
+                   }
+                 }
+                 if (saw_bad) {
+                   NoteSoftReputationBad(peer_key);
+                 }
+                 if (state->pending->fetch_sub(1, std::memory_order_acq_rel) != 1) {
+                   return;
+                 }
+                 std::lock_guard lock(state->mutex);
+                 if (state->best) {
+                   store_.Put(*state->best);
+                   DhtFindPeerResult result;
+                   result.peer_id = target_peer_id;
+                   result.record = *state->best;
+                   finish_lookup(std::move(result));
+                   return;
+                 }
+                 finish_lookup(Error(state->last_error.empty() ? "find_peer not found" : state->last_error));
+               });
   }
 }
 
@@ -399,6 +536,50 @@ std::optional<PeerRoutingRecord> AmpDhtService::LocalRecord(const std::string& p
 
 std::vector<PeerRoutingRecord> AmpDhtService::SnapshotRecords() const {
   return store_.Snapshot();
+}
+
+DhtOpsStats AmpDhtService::Stats() const {
+  DhtOpsStats stats;
+  stats.started = started_;
+  stats.participate = config_.participate;
+  stats.cached_records = store_.Size();
+  {
+    std::lock_guard lock(stats_mutex_);
+    stats.inbound_find_peer = inbound_find_peer_;
+    stats.inbound_store = inbound_store_;
+    stats.inbound_rate_limited = inbound_rate_limited_;
+    stats.store_rejected = store_rejected_;
+    stats.find_peer_issued = find_peer_issued_;
+    stats.soft_reputation_skips = soft_reputation_skips_;
+  }
+  {
+    std::lock_guard lock(reputation_mutex_);
+    const auto now = Clock::now();
+    for (const auto& [peer, rep] : soft_reputation_) {
+      (void)peer;
+      if (now < rep.cooldown_until) {
+        ++stats.soft_reputation_penalized_peers;
+      }
+    }
+  }
+  return stats;
+}
+
+std::string AmpDhtService::FormatOpsStatusJson() const {
+  const DhtOpsStats stats = Stats();
+  Object object;
+  object.set("started", stats.started);
+  object.set("participate", stats.participate);
+  object.set("cached_records", static_cast<int64_t>(stats.cached_records));
+  object.set("inbound_find_peer", static_cast<int64_t>(stats.inbound_find_peer));
+  object.set("inbound_store", static_cast<int64_t>(stats.inbound_store));
+  object.set("inbound_rate_limited", static_cast<int64_t>(stats.inbound_rate_limited));
+  object.set("store_rejected", static_cast<int64_t>(stats.store_rejected));
+  object.set("find_peer_issued", static_cast<int64_t>(stats.find_peer_issued));
+  object.set("soft_reputation_skips", static_cast<int64_t>(stats.soft_reputation_skips));
+  object.set("soft_reputation_penalized_peers",
+             static_cast<int64_t>(stats.soft_reputation_penalized_peers));
+  return DumpJson(object);
 }
 
 } // namespace pbr

@@ -39,6 +39,7 @@ set(PP_BASE_MESH_DISCOVERY_SOURCES
 set(PP_BASE_MESH_DHT_SOURCES
   dht/DhtRecordCodec.cpp
   dht/DhtRecordStore.cpp
+  dht/DhtRateLimiter.cpp
   dht/AmpDhtService.cpp
 )
 

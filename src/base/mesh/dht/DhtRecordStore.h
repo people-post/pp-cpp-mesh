@@ -15,6 +15,7 @@ public:
   bool Put(PeerRoutingRecord record);
   std::optional<PeerRoutingRecord> Get(const std::string& peer_id) const;
   std::vector<PeerRoutingRecord> Snapshot() const;
+  size_t Size() const;
   void Remove(const std::string& peer_id);
 
 private:

@@ -35,6 +35,20 @@ struct DhtFindPeerResult {
   bool from_cache = false;
 };
 
+/** Ops snapshot for pp-node --status / Me→Network debug (n2-hard). */
+struct DhtOpsStats {
+  bool started = false;
+  bool participate = false;
+  size_t cached_records = 0;
+  uint64_t inbound_find_peer = 0;
+  uint64_t inbound_store = 0;
+  uint64_t inbound_rate_limited = 0;
+  uint64_t store_rejected = 0;
+  uint64_t find_peer_issued = 0;
+  uint64_t soft_reputation_skips = 0;
+  size_t soft_reputation_penalized_peers = 0;
+};
+
 struct AmpDhtServiceConfig {
   std::string local_peer_id;
   std::vector<std::string> listen_multiaddrs;
