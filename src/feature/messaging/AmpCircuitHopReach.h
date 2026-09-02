@@ -1,8 +1,8 @@
 #pragma once
 
-#include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
-#include "base/mesh/l4/circuit/CircuitTunnelCoordinator.h"
-#include "base/mesh/host/MeshPorts.h"
+#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "domain/mesh/host/MeshPorts.h"
 #include "feature/messaging/CallTopologyRelayDeps.h"
 
 #include <functional>
