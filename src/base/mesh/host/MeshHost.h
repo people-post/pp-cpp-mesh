@@ -1,6 +1,6 @@
 #pragma once
 
-#include "base/data/Config.h"
+#include "foundation/data/Config.h"
 #include "amp/link/AmpStack.h"
 #include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "base/mesh/dht/AmpDhtService.h"

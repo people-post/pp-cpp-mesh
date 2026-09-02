@@ -2,7 +2,7 @@
 
 #include "base/crypto/CryptoUtil.h"
 #include "base/crypto/MlDsa.h"
-#include "base/data/MeshRole.h"
+#include "foundation/data/MeshRole.h"
 #include "common/Utilities.h"
 
 #include <cstring>
