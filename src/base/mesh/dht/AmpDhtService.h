@@ -42,6 +42,7 @@ public:
   void FindPeer(const std::string& target_peer_id, std::function<void(Roe<DhtFindPeerResult>)> on_done);
 
   std::optional<PeerRoutingRecord> LocalRecord(const std::string& peer_id) const;
+  std::vector<PeerRoutingRecord> SnapshotRecords() const;
 
 private:
   struct Impl;

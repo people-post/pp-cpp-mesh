@@ -23,6 +23,20 @@ bool DhtRecordStore::Put(PeerRoutingRecord record) {
   return true;
 }
 
+std::vector<PeerRoutingRecord> DhtRecordStore::Snapshot() const {
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));
+  std::lock_guard lock(mutex_);
+  std::vector<PeerRoutingRecord> out;
+  out.reserve(by_peer_id_.size());
+  for (const auto& [peer_id, record] : by_peer_id_) {
+    (void)peer_id;
+    if (!PeerRoutingRecordExpired(record, now)) {
+      out.push_back(record);
+    }
+  }
+  return out;
+}
+
 std::optional<PeerRoutingRecord> DhtRecordStore::Get(const std::string& peer_id) const {
   if (peer_id.empty()) {
     return std::nullopt;

@@ -27,6 +27,8 @@ TEST(AmpDhtServiceTest, FindPeerReturnsBootstrapRecord) {
   seed_cfg.device_signing_secret = harness->bob.ml_dsa_secret_key;
   seed_cfg.device_signing_public = harness->bob.ml_dsa_public_key;
   seed_cfg.participate = true;
+  seed_cfg.publish_media_relay = true;
+  seed_cfg.publish_circuit_relay = true;
   seed.Configure(seed_cfg);
 
   AmpDhtServiceConfig client_cfg;
@@ -50,6 +52,9 @@ TEST(AmpDhtServiceTest, FindPeerReturnsBootstrapRecord) {
   ASSERT_TRUE(static_cast<bool>(found)) << found.error().message;
   EXPECT_EQ(found->peer_id, harness->peer_id_b);
   EXPECT_FALSE(found->record.multiaddrs.empty());
+  ASSERT_TRUE(found->record.capabilities.has_value());
+  EXPECT_TRUE(found->record.capabilities->media_relay);
+  EXPECT_TRUE(found->record.capabilities->circuit_relay);
 
   client.Stop();
   seed.Stop();

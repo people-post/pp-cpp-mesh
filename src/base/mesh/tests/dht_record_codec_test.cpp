@@ -27,6 +27,32 @@ TEST(DhtRecordCodecTest, SignVerifyRoundTrip) {
   EXPECT_TRUE(*verified);
 }
 
+TEST(DhtRecordCodecTest, SignVerifyRoundTripWithCapabilities) {
+  auto keys = MlDsa::GenerateKeyPair();
+  ASSERT_TRUE(static_cast<bool>(keys));
+
+  PeerRoutingRecord record;
+  record.peer_id = "12D3KooWTestPeer";
+  record.seq = 4;
+  record.ttl_seconds = 3600;
+  record.issued_at = 1'700'000'100;
+  record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/1.0.0/p2p/12D3KooWTestPeer"};
+  record.capabilities = PeerRoutingCapabilities{.circuit_relay = true, .media_relay = true};
+
+  auto signed_record = SignPeerRoutingRecord(record, keys->secret_key);
+  ASSERT_TRUE(static_cast<bool>(signed_record));
+
+  auto verified = VerifyPeerRoutingRecord(*signed_record, keys->public_key);
+  ASSERT_TRUE(static_cast<bool>(verified));
+  EXPECT_TRUE(*verified);
+
+  auto parsed = PeerRoutingRecordFromObject(PeerRoutingRecordToObject(*signed_record));
+  ASSERT_TRUE(static_cast<bool>(parsed));
+  ASSERT_TRUE(parsed->capabilities.has_value());
+  EXPECT_TRUE(parsed->capabilities->circuit_relay);
+  EXPECT_TRUE(parsed->capabilities->media_relay);
+}
+
 TEST(DhtRecordCodecTest, RejectsExpiredRecord) {
   PeerRoutingRecord record;
   record.peer_id = "12D3KooWExpired";

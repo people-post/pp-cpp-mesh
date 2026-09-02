@@ -39,6 +39,12 @@ std::vector<uint8_t> BuildPeerRoutingSignBytes(const PeerRoutingRecord& record) 
   for (const std::string& ma : record.multiaddrs) {
     AppendLenPrefixedUtf8(out, ma);
   }
+  const uint8_t caps_present = record.capabilities.has_value() ? 1 : 0;
+  out.push_back(caps_present);
+  if (record.capabilities) {
+    out.push_back(record.capabilities->circuit_relay ? 1 : 0);
+    out.push_back(record.capabilities->media_relay ? 1 : 0);
+  }
   return out;
 }
 
@@ -56,6 +62,12 @@ Object PeerRoutingRecordToObject(const PeerRoutingRecord& record) {
     mas.emplace_back(ma);
   }
   object.set("multiaddrs", makeArray(std::move(mas)));
+  if (record.capabilities) {
+    Object caps;
+    caps.set("circuit_relay", record.capabilities->circuit_relay);
+    caps.set("media_relay", record.capabilities->media_relay);
+    object.set("capabilities", caps);
+  }
   object.set("signature_b64", record.signature_b64);
   object.set("signature_alg", record.signature_alg);
   return object;
@@ -89,6 +101,12 @@ Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const Object& object) {
     if (PeerIdFromMultiaddr(ma) != record.peer_id) {
       return Error("multiaddr peer_id mismatch");
     }
+  }
+  if (const Object* caps = object.getObject("capabilities")) {
+    PeerRoutingCapabilities parsed_caps;
+    parsed_caps.circuit_relay = caps->getIf<bool>("circuit_relay").value_or(false);
+    parsed_caps.media_relay = caps->getIf<bool>("media_relay").value_or(false);
+    record.capabilities = parsed_caps;
   }
   return record;
 }
@@ -132,6 +150,30 @@ bool PeerRoutingRecordExpired(const PeerRoutingRecord& record, const int64_t now
     return true;
   }
   return now_seconds > record.issued_at + record.ttl_seconds + grace_seconds;
+}
+
+MeshDirectoryNode MeshDirectoryNodeFromDhtRecord(const PeerRoutingRecord& record) {
+  MeshDirectoryNode node;
+  node.peer_id = record.peer_id;
+  node.multiaddrs = record.multiaddrs;
+  if (record.capabilities) {
+    node.circuit_relay = record.capabilities->circuit_relay;
+    node.media_relay = record.capabilities->media_relay;
+  }
+  return node;
+}
+
+std::vector<MeshDirectoryNode> MeshDirectoryNodesFromDhtRecords(
+    const std::vector<PeerRoutingRecord>& records) {
+  std::vector<MeshDirectoryNode> nodes;
+  nodes.reserve(records.size());
+  for (const PeerRoutingRecord& record : records) {
+    if (record.peer_id.empty() || record.multiaddrs.empty()) {
+      continue;
+    }
+    nodes.push_back(MeshDirectoryNodeFromDhtRecord(record));
+  }
+  return nodes;
 }
 
 } // namespace pbr

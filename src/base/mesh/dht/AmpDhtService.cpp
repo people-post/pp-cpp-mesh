@@ -288,6 +288,12 @@ void AmpDhtService::Tick() {
   record.ttl_seconds = ttl;
   record.issued_at = static_cast<int64_t>(std::time(nullptr));
   record.multiaddrs = std::move(addrs);
+  if (config_.publish_circuit_relay || config_.publish_media_relay) {
+    PeerRoutingCapabilities caps;
+    caps.circuit_relay = config_.publish_circuit_relay;
+    caps.media_relay = config_.publish_media_relay;
+    record.capabilities = caps;
+  }
   auto signed_record = SignPeerRoutingRecord(record, config_.device_signing_secret);
   if (!signed_record) {
     return;
@@ -346,7 +352,7 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
   request.set("peer_id", target_peer_id);
 
   for (const std::string& peer_key : config_.query_peer_keys) {
-    impl_->Rpc(peer_key, request, [state, target_peer_id, on_done](Roe<Object> resp) mutable {
+    impl_->Rpc(peer_key, request, [this, state, target_peer_id, on_done](Roe<Object> resp) mutable {
       {
         std::lock_guard lock(state->mutex);
         if (resp) {
@@ -375,6 +381,7 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
       }
       std::lock_guard lock(state->mutex);
       if (state->best) {
+        store_.Put(*state->best);
         DhtFindPeerResult result;
         result.peer_id = target_peer_id;
         result.record = *state->best;
@@ -388,6 +395,10 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
 
 std::optional<PeerRoutingRecord> AmpDhtService::LocalRecord(const std::string& peer_id) const {
   return store_.Get(peer_id);
+}
+
+std::vector<PeerRoutingRecord> AmpDhtService::SnapshotRecords() const {
+  return store_.Snapshot();
 }
 
 } // namespace pbr

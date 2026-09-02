@@ -27,4 +27,9 @@ Roe<bool> VerifyPeerRoutingRecord(const PeerRoutingRecord& record,
 bool PeerRoutingRecordExpired(const PeerRoutingRecord& record, int64_t now_seconds,
                               int64_t grace_seconds = 60);
 
+/** Map DHT record → directory-shaped node for hop policy (n2-caps). */
+MeshDirectoryNode MeshDirectoryNodeFromDhtRecord(const PeerRoutingRecord& record);
+std::vector<MeshDirectoryNode> MeshDirectoryNodesFromDhtRecords(
+    const std::vector<PeerRoutingRecord>& records);
+
 } // namespace pbr

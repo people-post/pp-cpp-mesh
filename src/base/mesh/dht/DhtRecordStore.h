@@ -14,6 +14,7 @@ class DhtRecordStore {
 public:
   bool Put(PeerRoutingRecord record);
   std::optional<PeerRoutingRecord> Get(const std::string& peer_id) const;
+  std::vector<PeerRoutingRecord> Snapshot() const;
   void Remove(const std::string& peer_id);
 
 private:
