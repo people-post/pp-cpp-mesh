@@ -26,18 +26,22 @@ MeshPeerLinkPhase ToPhase(pp::amp::PeerLinkPhase phase) {
   return MeshPeerLinkPhase::Unavailable;
 }
 
-Roe<void> ToLinkRoe(const pp::amp::PeerLinkManager::LinkRoe& result) {
+IChatPeerLinks::LinkRoe ToLinkRoe(const pp::amp::PeerLinkManager::LinkRoe& result) {
   if (result) {
     return {};
   }
-  return Error(result.error().message);
+  const auto& amp_failure = result.error();
+  return IChatPeerLinks::LinkRoe::error(IChatPeerLinks::Failure::Of(
+      static_cast<IChatPeerLinks::Err>(static_cast<int32_t>(amp_failure.GetCode())), amp_failure.message));
 }
 
-Roe<uint32_t> ToChannelRoe(const pp::amp::PeerLinkManager::ChannelRoe& result) {
+IChatPeerLinks::ChannelRoe ToChannelRoe(const pp::amp::PeerLinkManager::ChannelRoe& result) {
   if (result) {
     return *result;
   }
-  return Error(result.error().message);
+  const auto& amp_failure = result.error();
+  return IChatPeerLinks::ChannelRoe::error(IChatPeerLinks::Failure::Of(
+      static_cast<IChatPeerLinks::Err>(static_cast<int32_t>(amp_failure.GetCode())), amp_failure.message));
 }
 
 } // namespace

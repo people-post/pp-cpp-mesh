@@ -56,6 +56,33 @@ Value RecordsToJsonArray(const std::vector<PeerRoutingRecord>& records) {
 
 } // namespace
 
+AmpDhtService::Failure AmpDhtService::WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child) {
+  switch (child.GetCode()) {
+    case pp::amp::PeerLinkManager::Err::EndpointNotRegistered:
+      return Failure::Of(Err::EndpointNotRegistered,
+                         detail::AppendFrom("dht: endpoint not registered", "link", child.message));
+    case pp::amp::PeerLinkManager::Err::DialTimeout:
+      return Failure::Of(Err::Timeout, detail::AppendFrom("dht: dial timed out", "link", child.message));
+    case pp::amp::PeerLinkManager::Err::ChannelOpenFailed:
+      return Failure::Of(Err::ChannelFailed,
+                         detail::AppendFrom("dht: channel open failed", "link", child.message));
+    case pp::amp::PeerLinkManager::Err::DialInBackoff:
+    case pp::amp::PeerLinkManager::Err::TooManyConcurrentDials:
+    case pp::amp::PeerLinkManager::Err::MaxLinksReached:
+    case pp::amp::PeerLinkManager::Err::AssociationNotReady:
+    case pp::amp::PeerLinkManager::Err::LinkNotFound:
+    case pp::amp::PeerLinkManager::Err::NestedCarrierIncomplete:
+    case pp::amp::PeerLinkManager::Err::HandshakeFailed:
+    case pp::amp::PeerLinkManager::Err::TransportFailed:
+    case pp::amp::PeerLinkManager::Err::DualDialLost:
+      return Failure::Of(Err::LinkFailed, detail::AppendFrom("dht: link failed", "link", child.message));
+    case pp::amp::PeerLinkManager::Err::Ok:
+    case pp::amp::PeerLinkManager::Err::Generic:
+    default:
+      return Failure::Of(Err::Generic, detail::AppendFrom("dht: link error", "link", child.message));
+  }
+}
+
 struct AmpDhtService::Impl {
   pp::amp::PeerLinkManager* links = nullptr;
   AmpDhtService* self = nullptr;
@@ -196,13 +223,13 @@ struct AmpDhtService::Impl {
                   });
   }
 
-  void Rpc(const std::string& peer_key, Object request, std::function<void(Roe<Object>)> on_response) {
+  void Rpc(const std::string& peer_key, Object request, std::function<void(RpcRoe)> on_response) {
     if (stopped.load(std::memory_order_acquire) || !links) {
-      on_response(Error("dht service stopped"));
+      on_response(RpcRoe::error(Failure::Of(Err::NotStarted, "dht service stopped")));
       return;
     }
     if (!links->GetLinkSnapshot(peer_key).has_endpoint) {
-      on_response(Error("dht peer endpoint not registered"));
+      on_response(RpcRoe::error(Failure::Of(Err::EndpointNotRegistered, "dht peer endpoint not registered")));
       return;
     }
     const auto timeout = ControlTimeout(self->config_.tunables);
@@ -211,7 +238,7 @@ struct AmpDhtService::Impl {
     auto session = std::make_shared<pp::amp::ChannelSession>();
     auto settled = std::make_shared<std::atomic<bool>>(false);
 
-    auto finish = [settled, session, on_response = std::move(on_response)](Roe<Object> value) {
+    auto finish = [settled, session, on_response = std::move(on_response)](RpcRoe value) {
       if (settled->exchange(true, std::memory_order_acq_rel)) {
         return;
       }
@@ -222,14 +249,14 @@ struct AmpDhtService::Impl {
     links->EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session, deadline,
                                         timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
       if (!assoc) {
-        finish(Error(assoc.error().message));
+        finish(RpcRoe::error(WrapLinkFailure(assoc.error())));
         return;
       }
       links->OpenChannel(peer_key, kDhtProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
                          [this, peer_key, request_json, finish, session, deadline,
                           timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
                            if (!channel) {
-                             finish(Error(channel.error().message));
+                             finish(RpcRoe::error(WrapLinkFailure(channel.error())));
                              return;
                            }
                            IoPumpUntil(
@@ -242,25 +269,27 @@ struct AmpDhtService::Impl {
                            auto* link = links->FindLink(peer_key);
                            if (!link || !link->Mux() ||
                                link->Mux()->State(*channel) != pp::amp::ChannelState::Open) {
-                             finish(Error("dht channel open failed"));
+                             finish(RpcRoe::error(Failure::Of(Err::ChannelFailed, "dht channel open failed")));
                              return;
                            }
                            session->Bind(*link->Mux(), *channel, pp::amp::ControlJsonChannelPolicy(timeout),
                                          [finish](Roe<std::vector<uint8_t>> frame) {
                                            if (!frame) {
-                                             finish(Error("dht response read failed"));
+                                             finish(RpcRoe::error(
+                                                 Failure::Of(Err::ProtocolError, "dht response read failed")));
                                              return false;
                                            }
                                            auto root = TryParseObject(std::string(frame->begin(), frame->end()));
                                            if (!root) {
-                                             finish(Error("invalid dht response json"));
+                                             finish(RpcRoe::error(
+                                                 Failure::Of(Err::ProtocolError, "invalid dht response json")));
                                              return false;
                                            }
                                            finish(std::move(*root));
                                            return false;
                                          });
                            if (!session->EnqueueOutbound(JsonToBody(request_json))) {
-                             finish(Error("dht request send failed"));
+                             finish(RpcRoe::error(Failure::Of(Err::ProtocolError, "dht request send failed")));
                              return;
                            }
                            if (io_pump) {
@@ -402,7 +431,7 @@ void AmpDhtService::Tick() {
   store_req.set("version", int64_t{kDhtWireVersion});
   store_req.set("record", PeerRoutingRecordToObject(*signed_record));
   for (const std::string& peer_key : config_.query_peer_keys) {
-    impl_->Rpc(peer_key, store_req, [](Roe<Object>) {});
+    impl_->Rpc(peer_key, store_req, [](AmpDhtService::RpcRoe) {});
   }
 
   // Warm bootstrap/query peers into the local store (lab mutual discovery + dial warm-up).
@@ -414,18 +443,17 @@ void AmpDhtService::Tick() {
     if (auto hit = store_.Get(peer_key); hit && !PeerRoutingRecordExpired(*hit, now_sec)) {
       continue;
     }
-    FindPeer(peer_key, [](Roe<DhtFindPeerResult>) {});
+    FindPeer(peer_key, [](FindPeerRoe) {});
   }
 }
 
-void AmpDhtService::FindPeer(const std::string& target_peer_id,
-                             std::function<void(Roe<DhtFindPeerResult>)> on_done) {
+void AmpDhtService::FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done) {
   if (!started_) {
-    on_done(Error("dht service not started"));
+    on_done(FindPeerRoe::error(Failure::Of(Err::NotStarted, "dht service not started")));
     return;
   }
   if (target_peer_id.empty()) {
-    on_done(Error("missing target peer_id"));
+    on_done(FindPeerRoe::error(Failure::Of(Err::InvalidRequest, "missing target peer_id")));
     return;
   }
   if (auto local = store_.Get(target_peer_id)) {
@@ -442,7 +470,7 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
   int expected = inflight_lookups_.load(std::memory_order_relaxed);
   while (true) {
     if (expected >= max_inflight) {
-      on_done(Error("dht find_peer concurrency limit"));
+      on_done(FindPeerRoe::error(Failure::Of(Err::ConcurrencyLimit, "dht find_peer concurrency limit")));
       return;
     }
     if (inflight_lookups_.compare_exchange_weak(expected, expected + 1, std::memory_order_acq_rel)) {
@@ -453,7 +481,7 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
   const std::vector<std::string> query_keys = FilteredQueryPeerKeys();
   if (query_keys.empty()) {
     inflight_lookups_.fetch_sub(1, std::memory_order_acq_rel);
-    on_done(Error("no dht query peers configured"));
+    on_done(FindPeerRoe::error(Failure::Of(Err::InvalidRequest, "no dht query peers configured")));
     return;
   }
 
@@ -466,7 +494,7 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
     std::mutex mutex;
     std::shared_ptr<std::atomic<size_t>> pending;
     std::optional<PeerRoutingRecord> best;
-    std::string last_error;
+    Failure last_failure = Failure::Of(Err::NotFound, "find_peer not found");
     AmpDhtService* self = nullptr;
   };
   auto state = std::make_shared<State>();
@@ -479,7 +507,7 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
   request.set("version", int64_t{kDhtWireVersion});
   request.set("peer_id", target_peer_id);
 
-  auto finish_lookup = [state, on_done](Roe<DhtFindPeerResult> value) {
+  auto finish_lookup = [state, on_done](FindPeerRoe value) {
     if (state->self) {
       state->self->inflight_lookups_.fetch_sub(1, std::memory_order_acq_rel);
     }
@@ -488,7 +516,7 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
 
   for (const std::string& peer_key : query_keys) {
     impl_->Rpc(peer_key, request,
-               [this, state, target_peer_id, peer_key, finish_lookup](Roe<Object> resp) mutable {
+               [this, state, target_peer_id, peer_key, finish_lookup](RpcRoe resp) mutable {
                  bool saw_bad = false;
                  {
                    std::lock_guard lock(state->mutex);
@@ -519,7 +547,7 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
                        }
                      }
                    } else {
-                     state->last_error = resp.error().message;
+                     state->last_failure = resp.error();
                    }
                  }
                  if (saw_bad) {
@@ -537,7 +565,7 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id,
                    finish_lookup(std::move(result));
                    return;
                  }
-                 finish_lookup(Error(state->last_error.empty() ? "find_peer not found" : state->last_error));
+                 finish_lookup(FindPeerRoe::error(state->last_failure));
                });
   }
 }

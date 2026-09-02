@@ -4,6 +4,7 @@
 #include "base/mesh/l4/call_media/ICallMediaTransport.h"
 #include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "base/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "common/CodedFailure.h"
 #include "common/Error.h"
 #include "common/PbrCompat.h"
 
@@ -75,11 +76,23 @@ public:
     Generic,
   };
 
-  using LinkRoe = Roe<void>;
-  using ChannelRoe = Roe<uint32_t>;
+  using Failure = CodedFailure<Err>;
+  using LinkRoe = CodedRoe<void, Err>;
+  using ChannelRoe = CodedRoe<uint32_t, Err>;
   using LinkCb = std::function<void(LinkRoe)>;
   using ChannelCb = std::function<void(ChannelRoe)>;
   using ProtocolHandler = std::function<void(pp::amp::PeerLink& link, uint32_t channel_id)>;
+
+  /** Stable codes mirror `PeerLinkManager::Err` — see docs/contracts/AMP-LINK-ERRORS.md. */
+  static bool IsAssociationNotReady(const Failure& failure) {
+    return failure.GetCode() == Err::AssociationNotReady;
+  }
+
+  static bool IsDialInBackoff(const Failure& failure) { return failure.GetCode() == Err::DialInBackoff; }
+
+  static bool IsEndpointNotRegistered(const Failure& failure) {
+    return failure.GetCode() == Err::EndpointNotRegistered;
+  }
 
   virtual ~IChatPeerLinks() = default;
 

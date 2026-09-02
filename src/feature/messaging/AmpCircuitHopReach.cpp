@@ -3,7 +3,7 @@
 #include "amp/link/PeerLink.h"
 #include "base/mesh/l4/call_media/ICallMediaTransport.h"
 #include "base/mesh/l4/media_relay/MediaRelayTypes.h"
-#include "base/mesh/l4/shared/SettledWait.h"
+#include "common/SettledWait.h"
 
 #include <chrono>
 #include <thread>
