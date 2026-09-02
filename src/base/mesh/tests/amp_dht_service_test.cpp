@@ -1,6 +1,6 @@
 #include "base/mesh/dht/AmpDhtService.h"
 
-#include "base/mesh/l4/shared/SettledWait.h"
+#include "common/SettledWait.h"
 #include "base/mesh/tests/support/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
