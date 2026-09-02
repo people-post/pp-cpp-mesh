@@ -72,8 +72,8 @@ pp_browser_add_domain_library(pp_domain_mesh
   PUBLIC_LIBS
     pp_foundation_data
     pp_foundation_crypto
-    pp_base_adp
-    pp_base_mesh_link
+    pp_amp_l1
+    pp_amp_link
     pp_foundation_identity
     pp_foundation_runtime_core
     pp_common)
