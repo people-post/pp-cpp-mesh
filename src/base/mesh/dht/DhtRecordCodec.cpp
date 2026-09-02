@@ -1,7 +1,7 @@
 #include "base/mesh/dht/DhtRecordCodec.h"
 
-#include "base/crypto/CryptoUtil.h"
-#include "base/crypto/MlDsa.h"
+#include "foundation/crypto/CryptoUtil.h"
+#include "foundation/crypto/MlDsa.h"
 #include "foundation/data/MeshRole.h"
 #include "common/Utilities.h"
 

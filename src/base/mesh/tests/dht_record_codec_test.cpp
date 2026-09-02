@@ -1,6 +1,6 @@
 #include "base/mesh/dht/DhtRecordCodec.h"
 
-#include "base/crypto/MlDsa.h"
+#include "foundation/crypto/MlDsa.h"
 #include "base/mesh/tests/support/mesh_test_harness.h"
 
 #include <gtest/gtest.h>

@@ -1,6 +1,6 @@
 #include "amp/L1/Clock.h"
 #include "amp/L1/MemoryDatagramIo.h"
-#include "base/crypto/MlDsa.h"
+#include "foundation/crypto/MlDsa.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/AmpStack.h"
 #include "base/mesh/tests/support/mesh_harness_support.h"
