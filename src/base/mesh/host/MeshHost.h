@@ -3,6 +3,7 @@
 #include "base/data/Config.h"
 #include "amp/link/AmpStack.h"
 #include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "base/mesh/dht/AmpDhtService.h"
 #include "base/mesh/reachability/AmpDialBackService.h"
 #include "base/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
 #include "base/mesh/l4/circuit/CircuitTunnelCoordinator.h"
@@ -33,6 +34,8 @@ struct MeshHostConfig {
   bool host_circuit_relay = false;
   /** Start inbound media_relay hosting (Node with media_relay capability). */
   bool host_media_relay = false;
+  /** Participate in mesh DHT (Node with dht capability). */
+  bool host_dht = false;
   MediaRelayBudgetConfig media_relay_budget{};
   RelayPricingConfig media_relay_pricing{};
   /** Fire an Amp dial-back reachability probe after start (Node / pp-node). */
@@ -88,6 +91,12 @@ public:
   AmpCircuitHopRegistry* AmpCircuitHops();
   /** Amp dial-back for reachability chrome (D8); null when Amp is down. */
   AmpDialBackService* AmpDialBack();
+  /** Amp mesh DHT (n2); null when Amp is down. */
+  AmpDhtService* AmpDht();
+
+  void ConfigureAmpDht(AmpDhtServiceConfig config);
+  /** Hot refresh: advertisement + participate flag without restart. */
+  void RefreshAmpDhtHosting(bool host_dht);
 
   Roe<void> AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr = {});
 
@@ -104,7 +113,7 @@ private:
   void StopAmp();
   void ApplyAmpAdvertisement(const MeshHostConfig& config);
   void EnsureAmpL4Coordinators();
-  void StartAmpL4Hosting(bool host_circuit, bool host_media);
+  void StartAmpL4Hosting(bool host_circuit, bool host_media, bool host_dht);
   AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
 
   std::unique_ptr<ReachabilityService> reachability_;
@@ -113,6 +122,8 @@ private:
   std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
   std::unique_ptr<AmpMediaRelayCoordinator> amp_media_relay_;
   std::unique_ptr<AmpDialBackService> amp_dial_back_;
+  std::unique_ptr<AmpDhtService> amp_dht_;
+  bool host_dht_ = false;
   std::unique_ptr<IChatPeerLinks> chat_links_;
   std::shared_ptr<pp::adp::Clock> amp_clock_;
   std::string amp_listen_multiaddr_;
