@@ -112,7 +112,8 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   chat_links_ = NewAmpChatPeerLinks(amp_->Links());
   ApplyAmpAdvertisement(config);
   EnsureAmpL4Coordinators();
-  StartAmpL4Hosting(config.host_circuit_relay, config.host_media_relay);
+  host_dht_ = config.host_dht;
+  StartAmpL4Hosting(config.host_circuit_relay, config.host_media_relay, config.host_dht);
   return Roe<void>();
 }
 
@@ -134,10 +135,15 @@ void MeshHost::EnsureAmpL4Coordinators() {
     AmpDialBackService::IoPump pump = [this]() { Tick(); };
     amp_dial_back_ = std::make_unique<AmpDialBackService>(amp_->Links(), std::move(pump));
   }
+  if (!amp_dht_) {
+    AmpDhtService::IoPump pump = [this]() { Tick(); };
+    amp_dht_ = std::make_unique<AmpDhtService>(amp_->Links(), std::move(pump));
+  }
 }
 
-void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media) {
+void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media, const bool host_dht) {
   EnsureAmpL4Coordinators();
+  host_dht_ = host_dht;
   // Always accept nested Session carriers so NAT call-media (A024) works without hosting circuit.
   if (amp_) {
     amp_->Links().EnableNestedCarrierAccept(true);
@@ -152,12 +158,17 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media)
   if (amp_dial_back_ && !amp_dial_back_->IsStarted()) {
     amp_dial_back_->Start();
   }
+  if (amp_dht_ && !amp_dht_->IsStarted()) {
+    amp_dht_->Start();
+  }
   if (amp_circuit_) {
     amp_circuit_->SetServeInbound(host_circuit);
   }
   if (amp_media_relay_) {
     amp_media_relay_->SetServeInbound(host_media);
   }
+  ApplyAmpAdvertisement(MeshHostConfig{.host_circuit_relay = host_circuit, .host_media_relay = host_media,
+                                       .host_dht = host_dht});
 }
 
 void MeshHost::StopAmp() {
@@ -167,6 +178,10 @@ void MeshHost::StopAmp() {
   if (amp_dial_back_) {
     amp_dial_back_->Stop();
     amp_dial_back_.reset();
+  }
+  if (amp_dht_) {
+    amp_dht_->Stop();
+    amp_dht_.reset();
   }
   if (amp_media_relay_) {
     amp_media_relay_->Stop();
@@ -204,7 +219,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   chat_links_ = NewAmpChatPeerLinks(amp_->Links());
   EnsureAmpL4Coordinators();
   // Tests / AttachAmpStack: start outbound-capable L4 without inbound hosting unless configured.
-  StartAmpL4Hosting(false, false);
+  StartAmpL4Hosting(false, false, false);
   return Roe<void>();
 }
 
@@ -220,6 +235,9 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
   }
   if (config.host_media_relay) {
     protocols.push_back("/pp-browser/media-relay/1.0.0");
+  }
+  if (config.host_dht) {
+    protocols.push_back(kDhtProtocolId);
   }
   amp_->Links().SetAdvertisedProtocols(std::move(protocols));
 }
@@ -242,11 +260,38 @@ void MeshHost::Tick() {
     // Single locked Drive: Connect waiters (worker) and TickMesh (coordinator) both call Tick.
     amp_->Runtime().Drive();
   }
+  if (amp_dht_) {
+    amp_dht_->Tick();
+  }
 }
 
 bool MeshHost::IsRunning() const { return static_cast<bool>(amp_); }
 
 AmpDialBackService* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
+
+AmpDhtService* MeshHost::AmpDht() { return amp_dht_.get(); }
+
+void MeshHost::ConfigureAmpDht(AmpDhtServiceConfig config) {
+  if (!amp_dht_) {
+    return;
+  }
+  amp_dht_->Configure(std::move(config));
+}
+
+void MeshHost::RefreshAmpDhtHosting(const bool host_dht) {
+  host_dht_ = host_dht;
+  if (!amp_) {
+    return;
+  }
+  MeshHostConfig ad_cfg;
+  ad_cfg.host_circuit_relay = amp_circuit_ && amp_circuit_->ServeInbound();
+  ad_cfg.host_media_relay = amp_media_relay_ && amp_media_relay_->ServeInbound();
+  ad_cfg.host_dht = host_dht_;
+  ApplyAmpAdvertisement(ad_cfg);
+  if (amp_dht_ && host_dht) {
+    amp_dht_->Tick();
+  }
+}
 
 AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) const {
   AmpReachabilityProbeDeps deps;
