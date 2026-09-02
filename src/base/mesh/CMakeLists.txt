@@ -36,6 +36,12 @@ set(PP_BASE_MESH_DISCOVERY_SOURCES
   discovery/MeshDirectoryCache.cpp
 )
 
+set(PP_BASE_MESH_DHT_SOURCES
+  dht/DhtRecordCodec.cpp
+  dht/DhtRecordStore.cpp
+  dht/AmpDhtService.cpp
+)
+
 set(PP_BASE_MESH_L4_SHARED_SOURCES
   l4/shared/LengthPrefixedCodec.cpp
 )
@@ -77,6 +83,7 @@ pp_browser_add_base_library(pp_base_mesh
     ${PP_BASE_MESH_HOST_SOURCES}
     ${PP_BASE_MESH_REACHABILITY_SOURCES}
     ${PP_BASE_MESH_DISCOVERY_SOURCES}
+    ${PP_BASE_MESH_DHT_SOURCES}
     ${PP_BASE_MESH_L4_SHARED_SOURCES}
     ${PP_BASE_MESH_L4_CIRCUIT_SOURCES}
     ${PP_BASE_MESH_L4_MEDIA_RELAY_SOURCES}
