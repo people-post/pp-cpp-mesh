@@ -260,6 +260,9 @@ void MeshHost::Tick() {
     // Single locked Drive: Connect waiters (worker) and TickMesh (coordinator) both call Tick.
     amp_->Runtime().Drive();
   }
+  if (amp_dht_) {
+    amp_dht_->Tick();
+  }
 }
 
 bool MeshHost::IsRunning() const { return static_cast<bool>(amp_); }

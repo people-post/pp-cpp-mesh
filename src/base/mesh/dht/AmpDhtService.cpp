@@ -404,6 +404,18 @@ void AmpDhtService::Tick() {
   for (const std::string& peer_key : config_.query_peer_keys) {
     impl_->Rpc(peer_key, store_req, [](Roe<Object>) {});
   }
+
+  // Warm bootstrap/query peers into the local store (lab mutual discovery + dial warm-up).
+  const int64_t now_sec = static_cast<int64_t>(std::time(nullptr));
+  for (const std::string& peer_key : FilteredQueryPeerKeys()) {
+    if (peer_key.empty() || peer_key == config_.local_peer_id) {
+      continue;
+    }
+    if (auto hit = store_.Get(peer_key); hit && !PeerRoutingRecordExpired(*hit, now_sec)) {
+      continue;
+    }
+    FindPeer(peer_key, [](Roe<DhtFindPeerResult>) {});
+  }
 }
 
 void AmpDhtService::FindPeer(const std::string& target_peer_id,
@@ -579,6 +591,25 @@ std::string AmpDhtService::FormatOpsStatusJson() const {
   object.set("soft_reputation_skips", static_cast<int64_t>(stats.soft_reputation_skips));
   object.set("soft_reputation_penalized_peers",
              static_cast<int64_t>(stats.soft_reputation_penalized_peers));
+  std::vector<Value> record_rows;
+  for (const PeerRoutingRecord& record : SnapshotRecords()) {
+    Object row;
+    row.set("peer_id", record.peer_id);
+    row.set("seq", record.seq);
+    std::vector<Value> addrs;
+    for (const std::string& ma : record.multiaddrs) {
+      addrs.emplace_back(ma);
+    }
+    row.set("multiaddrs", makeArray(std::move(addrs)));
+    if (record.capabilities) {
+      Object caps;
+      caps.set("circuit_relay", record.capabilities->circuit_relay);
+      caps.set("media_relay", record.capabilities->media_relay);
+      row.set("capabilities", std::move(caps));
+    }
+    record_rows.emplace_back(std::make_shared<Object>(std::move(row)));
+  }
+  object.set("records", makeArray(std::move(record_rows)));
   return DumpJson(object);
 }
 

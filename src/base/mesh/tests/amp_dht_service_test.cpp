@@ -60,5 +60,62 @@ TEST(AmpDhtServiceTest, FindPeerReturnsBootstrapRecord) {
   seed.Stop();
 }
 
+/** Lab acceptance: two participating Nodes discover each other's ADP addrs (no Brief HTTP). */
+TEST(AmpDhtServiceTest, MutualDiscoverViaStoreAndWarmFindPeer) {
+  auto created = pbr::test::AmpMeshHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint(harness->peer_id_b, harness->ma_b)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint(harness->peer_id_a, harness->ma_a)));
+
+  auto pump = [&]() { harness->PumpBoth(); };
+
+  AmpDhtService node_a(harness->mgr_a(), pump, {});
+  AmpDhtService node_b(harness->mgr_b(), pump, {});
+
+  AmpDhtServiceConfig cfg_a;
+  cfg_a.local_peer_id = harness->peer_id_a;
+  cfg_a.listen_multiaddrs = {harness->ma_a};
+  cfg_a.device_signing_secret = harness->alice.ml_dsa_secret_key;
+  cfg_a.device_signing_public = harness->alice.ml_dsa_public_key;
+  cfg_a.query_peer_keys = {harness->peer_id_b};
+  cfg_a.participate = true;
+  node_a.Configure(cfg_a);
+
+  AmpDhtServiceConfig cfg_b;
+  cfg_b.local_peer_id = harness->peer_id_b;
+  cfg_b.listen_multiaddrs = {harness->ma_b};
+  cfg_b.device_signing_secret = harness->bob.ml_dsa_secret_key;
+  cfg_b.device_signing_public = harness->bob.ml_dsa_public_key;
+  cfg_b.query_peer_keys = {harness->peer_id_a};
+  cfg_b.participate = true;
+  node_b.Configure(cfg_b);
+
+  node_a.Start();
+  node_b.Start();
+  node_a.Tick();
+  node_b.Tick();
+
+  harness->PumpUntil(
+      [&]() {
+        return node_a.LocalRecord(harness->peer_id_b).has_value() &&
+               node_b.LocalRecord(harness->peer_id_a).has_value();
+      },
+      2000);
+
+  auto a_has_b = node_a.LocalRecord(harness->peer_id_b);
+  auto b_has_a = node_b.LocalRecord(harness->peer_id_a);
+  ASSERT_TRUE(a_has_b.has_value()) << "node A missing B's DHT record";
+  ASSERT_TRUE(b_has_a.has_value()) << "node B missing A's DHT record";
+  EXPECT_FALSE(a_has_b->multiaddrs.empty());
+  EXPECT_FALSE(b_has_a->multiaddrs.empty());
+  EXPECT_NE(a_has_b->multiaddrs.front().find("/adp/"), std::string::npos);
+  EXPECT_NE(b_has_a->multiaddrs.front().find("/adp/"), std::string::npos);
+
+  node_a.Stop();
+  node_b.Stop();
+}
+
 } // namespace
 } // namespace pbr
