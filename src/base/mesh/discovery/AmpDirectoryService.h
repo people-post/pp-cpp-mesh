@@ -2,6 +2,7 @@
 
 #include "base/mesh/dht/DhtRateLimiter.h"
 #include "base/mesh/discovery/DirectoryTypes.h"
+#include "common/IDirectoryClient.h"
 #include "amp/link/PeerLinkManager.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
