@@ -44,11 +44,13 @@ TEST(AmpDhtServiceTest, FindPeerReturnsBootstrapRecord) {
   client.Start();
   seed.Tick();
 
-  SettledWait<DhtFindPeerResult> wait;
-  client.FindPeer(harness->peer_id_b, [&wait](Roe<DhtFindPeerResult> result) { wait.Finish(std::move(result)); });
+  SettledWait<DhtFindPeerResult, AmpDhtService::Failure> wait;
+  client.FindPeer(harness->peer_id_b,
+                  [&wait](AmpDhtService::FindPeerRoe result) { wait.Finish(std::move(result)); });
   harness->PumpUntil([&]() { return wait.IsSettled(); }, 1000);
 
-  auto found = wait.Wait(std::chrono::seconds(5), Error("find_peer timed out"));
+  auto found =
+      wait.Wait(std::chrono::seconds(5), AmpDhtService::Failure::Of(AmpDhtService::Err::Timeout, "find_peer timed out"));
   ASSERT_TRUE(static_cast<bool>(found)) << found.error().message;
   EXPECT_EQ(found->peer_id, harness->peer_id_b);
   EXPECT_FALSE(found->record.multiaddrs.empty());
@@ -115,6 +117,18 @@ TEST(AmpDhtServiceTest, MutualDiscoverViaStoreAndWarmFindPeer) {
 
   node_a.Stop();
   node_b.Stop();
+}
+
+TEST(AmpDhtServiceTest, WrapLinkFailureMapsCodes) {
+  using Mgr = pp::amp::PeerLinkManager;
+  EXPECT_EQ(AmpDhtService::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::DialTimeout, "slow")).GetCode(),
+            AmpDhtService::Err::Timeout);
+  EXPECT_EQ(AmpDhtService::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux")).GetCode(),
+            AmpDhtService::Err::ChannelFailed);
+  const auto wrapped =
+      AmpDhtService::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::AssociationNotReady, "not ready"));
+  EXPECT_EQ(wrapped.GetCode(), AmpDhtService::Err::LinkFailed);
+  EXPECT_NE(wrapped.message.find("[link:"), std::string::npos);
 }
 
 } // namespace

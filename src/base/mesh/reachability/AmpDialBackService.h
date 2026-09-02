@@ -2,6 +2,7 @@
 
 #include "amp/link/PeerLinkManager.h"
 #include "base/mesh/reachability/DialBackTypes.h"
+#include "common/CodedFailure.h"
 #include "common/Error.h"
 #include "common/PbrCompat.h"
 
@@ -15,9 +16,29 @@ namespace pbr {
 /**
  * Amp L4 dial-back (`/pp-browser/dial-back/1.0.0`) for reachability chrome (D8).
  * Client asks a seed to dial advertised ADP listen multiaddrs; seed replies with ok/dialed/error.
+ *
+ * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
  */
 class AmpDialBackService {
 public:
+  enum class Err : int32_t {
+    Ok = 0,
+    NotStarted,
+    EndpointNotRegistered,
+    InvalidRequest,
+    LinkFailed,
+    Timeout,
+    ChannelFailed,
+    ProtocolError,
+    Generic,
+  };
+
+  using Failure = CodedFailure<Err>;
+  using ProbeRoe = CodedRoe<DialBackProbeResult, Err>;
+
+  /** Map immediate link-manager failure → dial-back Err (never inspect ADP/PeerLink codes). */
+  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
+
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
 
@@ -35,9 +56,8 @@ public:
    * Ask `seed_peer_key` (must have a registered ADP endpoint) to dial `target_multiaddrs`.
    * Blocks with IoPump until response or timeout.
    */
-  Roe<DialBackProbeResult> Probe(const std::string& seed_peer_key,
-                                 const std::vector<std::string>& target_multiaddrs,
-                                 int timeout_ms = 8000);
+  ProbeRoe Probe(const std::string& seed_peer_key, const std::vector<std::string>& target_multiaddrs,
+                 int timeout_ms = 8000);
 
 private:
   struct Impl;

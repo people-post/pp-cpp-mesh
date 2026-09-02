@@ -5,6 +5,7 @@
 #include "base/mesh/dht/DhtTypes.h"
 
 #include "amp/link/PeerLinkManager.h"
+#include "common/CodedFailure.h"
 #include "common/Error.h"
 
 #include <atomic>
@@ -22,9 +23,32 @@ namespace pbr {
 /**
  * Amp L4 mesh DHT (`/pp-mesh/dht/1.0.0`) — FIND_PEER + self STORE.
  * Thin bootstrap fan-out with n2-hard rate limits + soft reputation.
+ *
+ * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
  */
 class AmpDhtService {
 public:
+  enum class Err : int32_t {
+    Ok = 0,
+    NotStarted,
+    EndpointNotRegistered,
+    InvalidRequest,
+    LinkFailed,
+    Timeout,
+    ChannelFailed,
+    ProtocolError,
+    ConcurrencyLimit,
+    NotFound,
+    Generic,
+  };
+
+  using Failure = CodedFailure<Err>;
+  using FindPeerRoe = CodedRoe<DhtFindPeerResult, Err>;
+  using RpcRoe = CodedRoe<Object, Err>;
+
+  /** Map immediate link-manager failure → DHT Err (never inspect ADP/PeerLink codes). */
+  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
+
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
 
@@ -42,7 +66,7 @@ public:
   /** Periodic: refresh self record + push to bootstrap peers. */
   void Tick();
 
-  void FindPeer(const std::string& target_peer_id, std::function<void(Roe<DhtFindPeerResult>)> on_done);
+  void FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done);
 
   std::optional<PeerRoutingRecord> LocalRecord(const std::string& peer_id) const;
   std::vector<PeerRoutingRecord> SnapshotRecords() const;
