@@ -2,16 +2,18 @@
 
 #include "base/data/Config.h"
 #include "amp/link/AmpStack.h"
-#include "base/mesh/AmpCircuitHopRegistry.h"
-#include "base/mesh/AmpDialBackService.h"
-#include "base/mesh/AmpMediaRelayCoordinator.h"
-#include "base/mesh/CircuitTunnelCoordinator.h"
-#include "base/mesh/MeshIdentityConfig.h"
-#include "base/mesh/ReachabilityService.h"
+#include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "base/mesh/reachability/AmpDialBackService.h"
+#include "base/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
+#include "base/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "base/mesh/host/MeshIdentityConfig.h"
+#include "base/mesh/host/MeshPorts.h"
+#include "base/mesh/reachability/ReachabilityService.h"
 #include "common/Error.h"
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include "common/PbrCompat.h"
@@ -66,7 +68,15 @@ public:
 
   ReachabilityService& Reachability();
 
-  /** Amp stack when `mesh_enabled` or `AttachAmpStack` (may be null). */
+  /** Feature-layer chat port bundle (null when Amp is down). */
+  std::optional<MeshChatDeps> ChatDeps();
+  /** Circuit + hop registry + links for feature reach helpers. */
+  std::optional<MeshCircuitDeps> CircuitDeps();
+
+  /**
+   * Low-level Amp access — mesh tests and AttachAmpStack only.
+   * Feature code must use ChatDeps() / CircuitDeps() instead.
+   */
   pp::amp::AmpStack* Amp();
   const pp::amp::AmpStack* Amp() const;
   const std::string& AmpListenMultiaddr() const { return amp_listen_multiaddr_; }
@@ -103,6 +113,7 @@ private:
   std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
   std::unique_ptr<AmpMediaRelayCoordinator> amp_media_relay_;
   std::unique_ptr<AmpDialBackService> amp_dial_back_;
+  std::unique_ptr<IChatPeerLinks> chat_links_;
   std::shared_ptr<pp::adp::Clock> amp_clock_;
   std::string amp_listen_multiaddr_;
   std::string amp_last_error_;

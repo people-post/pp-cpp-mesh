@@ -1,4 +1,4 @@
-#include "base/mesh/CircuitBundleLogic.h"
+#include "base/mesh/l4/circuit/CircuitBundleLogic.h"
 
 #include <gtest/gtest.h>
 

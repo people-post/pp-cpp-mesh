@@ -1,9 +1,9 @@
 #include "feature/messaging/AmpCircuitHopReach.h"
 
-#include "amp/link/Types.h"
-#include "base/mesh/ICallMediaTransport.h"
-#include "base/mesh/MediaRelayTypes.h"
-#include "base/mesh/SettledWait.h"
+#include "amp/link/PeerLink.h"
+#include "base/mesh/l4/call_media/ICallMediaTransport.h"
+#include "base/mesh/l4/media_relay/MediaRelayTypes.h"
+#include "base/mesh/l4/shared/SettledWait.h"
 
 #include <chrono>
 #include <thread>
@@ -16,7 +16,7 @@ using Clock = std::chrono::steady_clock;
 } // namespace
 
 AmpCircuitHopReach::AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops,
-                                       pp::amp::PeerLinkManager& links, IoPump io_pump,
+                                       IChatPeerLinks& links, IoPump io_pump,
                                        CollectRelays collect_relays)
     : circuit_(circuit), hops_(hops), links_(links), io_pump_(std::move(io_pump)),
       collect_relays_(std::move(collect_relays)) {}
@@ -105,7 +105,7 @@ Roe<void> AmpCircuitHopReach::EnsureViaCircuit(const std::string& target_peer_id
       SettledWait<void> nested_wait;
       links_.EstablishNestedOverCarrier(
           target_peer_id, bridged->session, true,
-          [nested_wait](pp::amp::PeerLinkManager::LinkRoe result) {
+          [nested_wait](IChatPeerLinks::LinkRoe result) {
             if (result) {
               nested_wait.Finish(Roe<void>());
             } else {

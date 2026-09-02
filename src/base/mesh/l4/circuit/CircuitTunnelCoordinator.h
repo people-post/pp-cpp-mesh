@@ -2,9 +2,9 @@
 
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/MeshRuntime.h"
-#include "base/mesh/CircuitBridgeTarget.h"
-#include "base/mesh/CircuitBundleLogic.h"
-#include "base/mesh/CircuitRelayTypes.h"
+#include "base/mesh/l4/circuit/CircuitBridgeTarget.h"
+#include "base/mesh/l4/circuit/CircuitBundleLogic.h"
+#include "base/mesh/l4/circuit/CircuitRelayTypes.h"
 
 #include "common/Error.h"
 #include "common/PbrCompat.h"

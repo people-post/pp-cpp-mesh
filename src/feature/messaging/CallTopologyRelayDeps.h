@@ -1,10 +1,9 @@
 #pragma once
 
-#include "amp/link/AdpMultiaddr.h"
-#include "amp/link/PeerLinkManager.h"
-#include "base/mesh/AmpCircuitHopRegistry.h"
-#include "base/mesh/ICallMediaTransport.h"
-#include "base/mesh/MediaRelayTypes.h"
+#include "base/mesh/host/MeshPorts.h"
+#include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "base/mesh/l4/call_media/ICallMediaTransport.h"
+#include "base/mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include "common/Error.h"
 
@@ -79,15 +78,15 @@ class PeerSessionDialRegistry final : public IDialRegistry {
 public:
   PeerSessionDialRegistry() = default;
 
-  void SetAmpLinks(pp::amp::PeerLinkManager* amp_links) { amp_links_ = amp_links; }
+  void SetAmpLinks(IChatPeerLinks* amp_links) { amp_links_ = amp_links; }
   void SetAmpCircuitHops(AmpCircuitHopRegistry* hops) { amp_hops_ = hops; }
 
   Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) override {
     if (amp_links_) {
-      if (auto parsed = pp::amp::ParseAdpMultiaddr(multiaddr)) {
+      if (IsAdpMultiaddr(multiaddr)) {
         (void)amp_links_->RegisterEndpoint(peer_key, multiaddr);
-        if (!parsed->peer_id.empty() && parsed->peer_id != peer_key) {
-          (void)amp_links_->RegisterEndpoint(parsed->peer_id, multiaddr);
+        if (auto peer_id = PeerIdFromAdpMultiaddr(multiaddr); peer_id && *peer_id != peer_key) {
+          (void)amp_links_->RegisterEndpoint(*peer_id, multiaddr);
         }
         return {};
       }
@@ -125,7 +124,7 @@ public:
   }
 
 private:
-  pp::amp::PeerLinkManager* amp_links_ = nullptr;
+  IChatPeerLinks* amp_links_ = nullptr;
   AmpCircuitHopRegistry* amp_hops_ = nullptr;
 };
 

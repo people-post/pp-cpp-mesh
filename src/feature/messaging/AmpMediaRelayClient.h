@@ -1,6 +1,6 @@
 #pragma once
 
-#include "base/mesh/AmpMediaRelayCoordinator.h"
+#include "base/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
 #include "feature/messaging/CallTopologyRelayDeps.h"
 
 #include <functional>

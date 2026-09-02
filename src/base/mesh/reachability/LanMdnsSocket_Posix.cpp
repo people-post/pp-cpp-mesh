@@ -1,6 +1,6 @@
 #if !defined(_WIN32)
 
-#include "base/mesh/LanMdnsSocket.h"
+#include "base/mesh/reachability/LanMdnsSocket.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>

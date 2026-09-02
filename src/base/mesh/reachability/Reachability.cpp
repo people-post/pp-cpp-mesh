@@ -1,5 +1,5 @@
-#include "base/mesh/Reachability.h"
-#include "base/mesh/ReachabilityNetIf.h"
+#include "base/mesh/reachability/Reachability.h"
+#include "base/mesh/reachability/ReachabilityNetIf.h"
 #include "amp/link/AdpMultiaddr.h"
 
 #include <algorithm>

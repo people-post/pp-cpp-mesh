@@ -1,11 +1,13 @@
-#include "base/mesh/MeshHost.h"
+#include "base/mesh/host/MeshHost.h"
+
+#include "base/mesh/host/MeshPorts.h"
 
 #include "amp/L1/Clock.h"
 #include "amp/L1/OsUdpDatagramIo.h"
 #include "amp/L1/Types.h"
 #include "amp/L2/Types.h"
 #include "amp/link/AdpMultiaddr.h"
-#include "base/mesh/PeerIdUtil.h"
+#include "base/mesh/identity/PeerIdUtil.h"
 #include "common/PbrCompat.h"
 
 namespace pbr {
@@ -107,6 +109,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   amp_listen_multiaddr_ = *listen;
   (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   amp_ = std::move(*stack);
+  chat_links_ = NewAmpChatPeerLinks(amp_->Links());
   ApplyAmpAdvertisement(config);
   EnsureAmpL4Coordinators();
   StartAmpL4Hosting(config.host_circuit_relay, config.host_media_relay);
@@ -181,6 +184,7 @@ void MeshHost::StopAmp() {
     amp_->Stop();
     amp_.reset();
   }
+  chat_links_.reset();
   amp_clock_.reset();
   amp_listen_multiaddr_.clear();
   amp_last_error_.clear();
@@ -197,6 +201,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   if (!amp_listen_multiaddr_.empty()) {
     amp_->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   }
+  chat_links_ = NewAmpChatPeerLinks(amp_->Links());
   EnsureAmpL4Coordinators();
   // Tests / AttachAmpStack: start outbound-capable L4 without inbound hosting unless configured.
   StartAmpL4Hosting(false, false);
@@ -273,6 +278,24 @@ void MeshHost::RunReachabilityProbeBlocking(bool try_upnp_first) {
 }
 
 ReachabilityService& MeshHost::Reachability() { return *reachability_; }
+
+std::optional<MeshChatDeps> MeshHost::ChatDeps() {
+  if (!amp_ || !chat_links_) {
+    return std::nullopt;
+  }
+  MeshIoContext io;
+  io.io_pump = [this]() { Tick(); };
+  io.local_peer_id = amp_->LocalPeerId();
+  io.listen_multiaddr = amp_listen_multiaddr_;
+  return MeshChatDeps{std::move(io), *chat_links_};
+}
+
+std::optional<MeshCircuitDeps> MeshHost::CircuitDeps() {
+  if (!amp_ || !chat_links_ || !amp_circuit_ || !amp_circuit_hops_) {
+    return std::nullopt;
+  }
+  return MeshCircuitDeps{*amp_circuit_, *amp_circuit_hops_, *chat_links_};
+}
 
 pp::amp::AmpStack* MeshHost::Amp() { return amp_.get(); }
 

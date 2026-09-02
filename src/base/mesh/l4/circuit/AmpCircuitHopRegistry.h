@@ -1,7 +1,7 @@
 #pragma once
 
 #include "amp/L3/ChannelSession.h"
-#include "base/mesh/CircuitBundleLogic.h"
+#include "base/mesh/l4/circuit/CircuitBundleLogic.h"
 
 #include "common/Error.h"
 #include "common/PbrCompat.h"

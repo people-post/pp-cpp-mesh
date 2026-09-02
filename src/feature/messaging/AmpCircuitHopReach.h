@@ -1,8 +1,8 @@
 #pragma once
 
-#include "base/mesh/AmpCircuitHopRegistry.h"
-#include "base/mesh/CircuitTunnelCoordinator.h"
-#include "amp/link/PeerLinkManager.h"
+#include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "base/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "base/mesh/host/MeshPorts.h"
 #include "feature/messaging/CallTopologyRelayDeps.h"
 
 #include <functional>
@@ -20,8 +20,8 @@ public:
   using IoPump = std::function<void()>;
   using CollectRelays = std::function<std::vector<std::string>(const std::string& exclude_peer_id)>;
 
-  AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops,
-                     pp::amp::PeerLinkManager& links, IoPump io_pump, CollectRelays collect_relays);
+  AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops, IChatPeerLinks& links,
+                     IoPump io_pump, CollectRelays collect_relays);
 
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override;
   Roe<void> TryEnsureCallMediaReachable(const std::string& peer_key) override;
@@ -32,7 +32,7 @@ private:
 
   CircuitTunnelCoordinator& circuit_;
   AmpCircuitHopRegistry& hops_;
-  pp::amp::PeerLinkManager& links_;
+  IChatPeerLinks& links_;
   IoPump io_pump_;
   CollectRelays collect_relays_;
 };

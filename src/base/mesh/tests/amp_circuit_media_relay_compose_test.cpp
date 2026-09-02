@@ -1,6 +1,6 @@
-#include "base/mesh/AmpCircuitHopRegistry.h"
-#include "base/mesh/AmpMediaRelayCoordinator.h"
-#include "base/mesh/CircuitTunnelCoordinator.h"
+#include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "base/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
+#include "base/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 
 #include "base/mesh/tests/support/mesh_triple_harness.h"
 

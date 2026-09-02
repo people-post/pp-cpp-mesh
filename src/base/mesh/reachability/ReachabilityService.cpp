@@ -1,8 +1,8 @@
-#include "base/mesh/ReachabilityService.h"
+#include "base/mesh/reachability/ReachabilityService.h"
 
 #include "amp/link/AdpMultiaddr.h"
-#include "base/mesh/AmpDialBackService.h"
-#include "base/mesh/NatTraversal.h"
+#include "base/mesh/reachability/AmpDialBackService.h"
+#include "base/mesh/reachability/NatTraversal.h"
 #include "common/ValueJson.h"
 
 #include <chrono>

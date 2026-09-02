@@ -1,6 +1,6 @@
-#include "base/mesh/MediaRelayBundleLogic.h"
+#include "base/mesh/l4/media_relay/MediaRelayBundleLogic.h"
 
-#include "base/mesh/MediaRelayLogic.h"
+#include "base/mesh/l4/media_relay/MediaRelayLogic.h"
 
 #include <algorithm>
 #include <atomic>

@@ -6,6 +6,7 @@
 #include "crypto/MlDsa.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/MeshRuntime.h"
+#include "base/mesh/host/MeshPorts.h"
 #include "base/mesh/tests/support/mesh_harness_support.h"
 
 #include <functional>
@@ -32,9 +33,13 @@ struct AmpMeshHarness {
   std::string peer_id_b;
   std::string ma_a;
   std::string ma_b;
+  std::unique_ptr<pbr::IChatPeerLinks> chat_links_a;
+  std::unique_ptr<pbr::IChatPeerLinks> chat_links_b;
 
   pp::amp::PeerLinkManager& mgr_a() { return runtime_a->Links(); }
   pp::amp::PeerLinkManager& mgr_b() { return runtime_b->Links(); }
+  pbr::IChatPeerLinks& chat_a() { return *chat_links_a; }
+  pbr::IChatPeerLinks& chat_b() { return *chat_links_b; }
 
   static pp::Roe<std::unique_ptr<AmpMeshHarness>> Create();
 

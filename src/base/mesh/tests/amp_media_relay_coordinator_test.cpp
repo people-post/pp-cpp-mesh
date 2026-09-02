@@ -1,4 +1,4 @@
-#include "base/mesh/AmpMediaRelayCoordinator.h"
+#include "base/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
 #include "base/mesh/tests/support/mesh_test_harness.h"
 #include "base/people/RelayScope.h"
 
