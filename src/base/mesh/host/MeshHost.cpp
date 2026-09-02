@@ -113,7 +113,9 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   ApplyAmpAdvertisement(config);
   EnsureAmpL4Coordinators();
   host_dht_ = config.host_dht;
-  StartAmpL4Hosting(config.host_circuit_relay, config.host_media_relay, config.host_dht);
+  host_directory_ = config.host_directory;
+  StartAmpL4Hosting(config.host_circuit_relay, config.host_media_relay, config.host_dht,
+                    config.host_directory);
   return Roe<void>();
 }
 
@@ -139,11 +141,17 @@ void MeshHost::EnsureAmpL4Coordinators() {
     AmpDhtService::IoPump pump = [this]() { Tick(); };
     amp_dht_ = std::make_unique<AmpDhtService>(amp_->Links(), std::move(pump));
   }
+  if (!amp_directory_) {
+    AmpDirectoryService::IoPump pump = [this]() { Tick(); };
+    amp_directory_ = std::make_unique<AmpDirectoryService>(amp_->Links(), std::move(pump));
+  }
 }
 
-void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media, const bool host_dht) {
+void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media, const bool host_dht,
+                                 const bool host_directory) {
   EnsureAmpL4Coordinators();
   host_dht_ = host_dht;
+  host_directory_ = host_directory;
   // Always accept nested Session carriers so NAT call-media (A024) works without hosting circuit.
   if (amp_) {
     amp_->Links().EnableNestedCarrierAccept(true);
@@ -161,14 +169,19 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media,
   if (amp_dht_ && !amp_dht_->IsStarted()) {
     amp_dht_->Start();
   }
+  if (amp_directory_ && !amp_directory_->IsStarted()) {
+    amp_directory_->Start();
+  }
   if (amp_circuit_) {
     amp_circuit_->SetServeInbound(host_circuit);
   }
   if (amp_media_relay_) {
     amp_media_relay_->SetServeInbound(host_media);
   }
-  ApplyAmpAdvertisement(MeshHostConfig{.host_circuit_relay = host_circuit, .host_media_relay = host_media,
-                                       .host_dht = host_dht});
+  ApplyAmpAdvertisement(MeshHostConfig{.host_circuit_relay = host_circuit,
+                                       .host_media_relay = host_media,
+                                       .host_dht = host_dht,
+                                       .host_directory = host_directory});
 }
 
 void MeshHost::StopAmp() {
@@ -178,6 +191,10 @@ void MeshHost::StopAmp() {
   if (amp_dial_back_) {
     amp_dial_back_->Stop();
     amp_dial_back_.reset();
+  }
+  if (amp_directory_) {
+    amp_directory_->Stop();
+    amp_directory_.reset();
   }
   if (amp_dht_) {
     amp_dht_->Stop();
@@ -219,7 +236,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   chat_links_ = NewAmpChatPeerLinks(amp_->Links());
   EnsureAmpL4Coordinators();
   // Tests / AttachAmpStack: start outbound-capable L4 without inbound hosting unless configured.
-  StartAmpL4Hosting(false, false, false);
+  StartAmpL4Hosting(false, false, false, false);
   return Roe<void>();
 }
 
@@ -238,6 +255,9 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
   }
   if (config.host_dht) {
     protocols.push_back(kDhtProtocolId);
+  }
+  if (config.host_directory) {
+    protocols.push_back(kDirectoryProtocolId);
   }
   amp_->Links().SetAdvertisedProtocols(std::move(protocols));
 }
@@ -271,6 +291,8 @@ AmpDialBackService* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
 
 AmpDhtService* MeshHost::AmpDht() { return amp_dht_.get(); }
 
+AmpDirectoryService* MeshHost::AmpDirectory() { return amp_directory_.get(); }
+
 void MeshHost::ConfigureAmpDht(AmpDhtServiceConfig config) {
   if (!amp_dht_) {
     return;
@@ -287,10 +309,31 @@ void MeshHost::RefreshAmpDhtHosting(const bool host_dht) {
   ad_cfg.host_circuit_relay = amp_circuit_ && amp_circuit_->ServeInbound();
   ad_cfg.host_media_relay = amp_media_relay_ && amp_media_relay_->ServeInbound();
   ad_cfg.host_dht = host_dht_;
+  ad_cfg.host_directory = host_directory_;
   ApplyAmpAdvertisement(ad_cfg);
   if (amp_dht_ && host_dht) {
     amp_dht_->Tick();
   }
+}
+
+void MeshHost::ConfigureAmpDirectory(AmpDirectoryServiceConfig config) {
+  if (!amp_directory_) {
+    return;
+  }
+  amp_directory_->Configure(std::move(config));
+}
+
+void MeshHost::RefreshAmpDirectoryHosting(const bool host_directory) {
+  host_directory_ = host_directory;
+  if (!amp_) {
+    return;
+  }
+  MeshHostConfig ad_cfg;
+  ad_cfg.host_circuit_relay = amp_circuit_ && amp_circuit_->ServeInbound();
+  ad_cfg.host_media_relay = amp_media_relay_ && amp_media_relay_->ServeInbound();
+  ad_cfg.host_dht = host_dht_;
+  ad_cfg.host_directory = host_directory_;
+  ApplyAmpAdvertisement(ad_cfg);
 }
 
 AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) const {

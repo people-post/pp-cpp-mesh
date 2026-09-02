@@ -4,6 +4,7 @@
 #include "amp/link/AmpStack.h"
 #include "base/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "base/mesh/dht/AmpDhtService.h"
+#include "base/mesh/discovery/AmpDirectoryService.h"
 #include "base/mesh/reachability/AmpDialBackService.h"
 #include "base/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
 #include "base/mesh/l4/circuit/CircuitTunnelCoordinator.h"
@@ -36,6 +37,8 @@ struct MeshHostConfig {
   bool host_media_relay = false;
   /** Participate in mesh DHT (Node with dht capability). */
   bool host_dht = false;
+  /** Serve Amp directory twin (pp-node / org seed; N029 nd4). */
+  bool host_directory = false;
   MediaRelayBudgetConfig media_relay_budget{};
   RelayPricingConfig media_relay_pricing{};
   /** Fire an Amp dial-back reachability probe after start (Node / pp-node). */
@@ -93,10 +96,16 @@ public:
   AmpDialBackService* AmpDialBack();
   /** Amp mesh DHT (n2); null when Amp is down. */
   AmpDhtService* AmpDht();
+  /** Amp directory twin (N029 nd4); null when Amp is down. */
+  AmpDirectoryService* AmpDirectory();
 
   void ConfigureAmpDht(AmpDhtServiceConfig config);
   /** Hot refresh: advertisement + participate flag without restart. */
   void RefreshAmpDhtHosting(bool host_dht);
+
+  void ConfigureAmpDirectory(AmpDirectoryServiceConfig config);
+  /** Hot refresh: advertise `/pp-mesh/directory/1.0.0` when serving. */
+  void RefreshAmpDirectoryHosting(bool host_directory);
 
   Roe<void> AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr = {});
 
@@ -113,7 +122,7 @@ private:
   void StopAmp();
   void ApplyAmpAdvertisement(const MeshHostConfig& config);
   void EnsureAmpL4Coordinators();
-  void StartAmpL4Hosting(bool host_circuit, bool host_media, bool host_dht);
+  void StartAmpL4Hosting(bool host_circuit, bool host_media, bool host_dht, bool host_directory);
   AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
 
   std::unique_ptr<ReachabilityService> reachability_;
@@ -123,7 +132,9 @@ private:
   std::unique_ptr<AmpMediaRelayCoordinator> amp_media_relay_;
   std::unique_ptr<AmpDialBackService> amp_dial_back_;
   std::unique_ptr<AmpDhtService> amp_dht_;
+  std::unique_ptr<AmpDirectoryService> amp_directory_;
   bool host_dht_ = false;
+  bool host_directory_ = false;
   std::unique_ptr<IChatPeerLinks> chat_links_;
   std::shared_ptr<pp::adp::Clock> amp_clock_;
   std::string amp_listen_multiaddr_;
