@@ -12,7 +12,7 @@ pp_browser_add_base_library(pp_base_mesh_identity
   SOURCES
     ${PP_BASE_MESH_IDENTITY_SOURCES}
   PUBLIC_LIBS
-    pp_base_crypto
+    pp_foundation_crypto
     pp_common)
 
 if(TARGET OpenSSL::Crypto)
@@ -88,12 +88,12 @@ pp_browser_add_base_library(pp_base_mesh
     ${PP_BASE_MESH_L4_MEDIA_RELAY_SOURCES}
     ${PP_BASE_MESH_L4_CALL_MEDIA_SOURCES}
   PUBLIC_LIBS
-    pp_base_data
-    pp_base_crypto
+    pp_foundation_data
+    pp_foundation_crypto
     pp_base_adp
     pp_base_mesh_link
     pp_base_mesh_identity
-    pp_base_runtime_core
+    pp_foundation_runtime_core
     pp_common)
 
 if(WIN32)
