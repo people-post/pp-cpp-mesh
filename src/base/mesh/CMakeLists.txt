@@ -106,7 +106,7 @@ if(TARGET miniupnpc-static)
     ${CMAKE_SOURCE_DIR}/third_party/miniupnpc/include
     ${CMAKE_BINARY_DIR}/third_party/miniupnpc)
 endif()
-target_link_libraries(pp_base_mesh PRIVATE pp_base_net)
+target_link_libraries(pp_base_mesh PRIVATE pp_domain_net)
 
 if(PP_BROWSER_BUILD_TESTS)
   add_subdirectory(tests)

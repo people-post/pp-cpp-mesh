@@ -1,5 +1,5 @@
 #include "base/mesh/discovery/AmpDirectoryService.h"
-#include "base/net/ServiceClientsImpl.h"
+#include "domain/net/ServiceClientsImpl.h"
 
 #include "common/SettledWait.h"
 #include "base/mesh/tests/support/mesh_test_harness.h"
