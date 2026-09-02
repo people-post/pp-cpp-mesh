@@ -2,7 +2,7 @@
 
 #include "base/data/Config.h"
 #include "base/media/CallMediaHealth.h"
-#include "base/people/RelayScope.h"
+#include "common/RelayScope.h"
 #include "common/Error.h"
 #include "common/PbrCompat.h"
 

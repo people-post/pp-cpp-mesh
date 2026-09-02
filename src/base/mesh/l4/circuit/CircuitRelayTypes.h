@@ -1,6 +1,6 @@
 #pragma once
 
-#include "base/people/RelayScope.h"
+#include "common/RelayScope.h"
 #include "common/PbrCompat.h"
 
 #include <memory>
