@@ -34,6 +34,9 @@ set(PP_BASE_MESH_REACHABILITY_SOURCES
 
 set(PP_BASE_MESH_DISCOVERY_SOURCES
   discovery/MeshDirectoryCache.cpp
+  discovery/NameDirectory.cpp
+  discovery/MeshNodeHitCodec.cpp
+  discovery/AmpDirectoryService.cpp
 )
 
 set(PP_BASE_MESH_DHT_SOURCES

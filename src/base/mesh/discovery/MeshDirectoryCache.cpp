@@ -1,5 +1,6 @@
 #include "base/mesh/discovery/MeshDirectoryCache.h"
 
+#include "base/mesh/discovery/NameDirectory.h"
 #include "base/net/ServiceClients.h"
 #include "base/runtime/AppRuntime.h"
 
@@ -73,21 +74,7 @@ void MeshDirectoryCache::RequestRefresh() {
 }
 
 std::vector<MeshDirectoryNode> MeshDirectoryNodesFromHits(const std::vector<MeshNodeHit>& hits) {
-  std::vector<MeshDirectoryNode> out;
-  for (const MeshNodeHit& hit : hits) {
-    for (const DirectoryEndpoint& ep : hit.endpoints) {
-      if (ep.peer_id.empty()) {
-        continue;
-      }
-      MeshDirectoryNode node;
-      node.peer_id = ep.peer_id;
-      node.multiaddrs = ep.multiaddrs;
-      node.circuit_relay = hit.capabilities.circuit_relay;
-      node.media_relay = hit.capabilities.media_relay;
-      out.push_back(std::move(node));
-    }
-  }
-  return out;
+  return MeshDirectoryNodesFromNameRecords(NameRecordsFromMeshNodeHits(hits));
 }
 
 } // namespace pbr
