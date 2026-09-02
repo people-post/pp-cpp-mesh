@@ -198,6 +198,16 @@ struct DirectoryHit {
   /** Initiation floor in pp_credit minor units; missing on wire → 0 (P001). */
   int64_t initiation_floor = 0;
   std::optional<ProfileIconRef> icon;
+  /** person | mesh_node; empty → treat as person for people search (N029). */
+  std::string entity_kind;
+  int64_t seq = 0;
+  std::string expires_at;
+  /** Optional capability ads when provider includes them (N029). */
+  bool has_capabilities = false;
+  bool circuit_relay = false;
+  bool media_relay = false;
+  bool dht = false;
+  bool ledger_gateway = false;
 };
 
 } // namespace pbr
