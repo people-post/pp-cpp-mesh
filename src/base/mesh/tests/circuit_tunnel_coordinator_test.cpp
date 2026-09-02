@@ -1,6 +1,6 @@
-#include "base/mesh/CircuitTunnelCoordinator.h"
+#include "base/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 
-#include "base/mesh/ProductChannelPolicies.h"
+#include "base/mesh/l4/shared/ProductChannelPolicies.h"
 #include "amp/L3/ChannelSession.h"
 #include "base/mesh/tests/support/mesh_triple_harness.h"
 #include "base/people/RelayScope.h"

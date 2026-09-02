@@ -1,6 +1,6 @@
 #pragma once
 
-#include "base/mesh/Reachability.h"
+#include "base/mesh/reachability/Reachability.h"
 
 #include <atomic>
 #include <functional>

@@ -1,4 +1,4 @@
-#include "base/mesh/MediaRelayTypes.h"
+#include "base/mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include <gtest/gtest.h>
 

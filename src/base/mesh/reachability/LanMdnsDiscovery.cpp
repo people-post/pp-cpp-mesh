@@ -1,5 +1,5 @@
-#include "base/mesh/LanMdnsDiscovery.h"
-#include "base/mesh/LanMdnsSocket.h"
+#include "base/mesh/reachability/LanMdnsDiscovery.h"
+#include "base/mesh/reachability/LanMdnsSocket.h"
 
 #include <algorithm>
 #include <cctype>

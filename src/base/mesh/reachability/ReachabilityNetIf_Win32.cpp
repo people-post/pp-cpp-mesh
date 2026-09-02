@@ -7,7 +7,7 @@
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
 
-#include "base/mesh/ReachabilityNetIf.h"
+#include "base/mesh/reachability/ReachabilityNetIf.h"
 
 #include <cstdint>
 #include <vector>

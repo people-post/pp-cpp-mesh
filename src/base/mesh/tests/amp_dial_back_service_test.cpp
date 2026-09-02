@@ -1,7 +1,7 @@
-#include "base/mesh/AmpDialBackService.h"
+#include "base/mesh/reachability/AmpDialBackService.h"
 
 #include "base/mesh/tests/support/mesh_test_harness.h"
-#include "base/mesh/DialBackTypes.h"
+#include "base/mesh/reachability/DialBackTypes.h"
 
 #include <gtest/gtest.h>
 

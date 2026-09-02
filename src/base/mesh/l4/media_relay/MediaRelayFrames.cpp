@@ -1,5 +1,5 @@
-#include "base/mesh/MediaRelayFrames.h"
-#include "base/mesh/MediaRelayTypes.h"
+#include "base/mesh/l4/media_relay/MediaRelayFrames.h"
+#include "base/mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include <cstring>
 #include "common/PbrCompat.h"

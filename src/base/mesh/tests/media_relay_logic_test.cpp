@@ -1,6 +1,6 @@
-#include "base/mesh/MediaRelayAttachSm.h"
-#include "base/mesh/MediaRelayLogic.h"
-#include "base/mesh/MediaRelayTypes.h"
+#include "base/mesh/l4/media_relay/MediaRelayAttachSm.h"
+#include "base/mesh/l4/media_relay/MediaRelayLogic.h"
+#include "base/mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include <gtest/gtest.h>
 

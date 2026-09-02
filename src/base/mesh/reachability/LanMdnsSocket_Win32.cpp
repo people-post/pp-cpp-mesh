@@ -1,6 +1,6 @@
 #if defined(_WIN32)
 
-#include "base/mesh/LanMdnsSocket.h"
+#include "base/mesh/reachability/LanMdnsSocket.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN

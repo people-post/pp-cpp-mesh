@@ -1,7 +1,7 @@
 #pragma once
 
 #include "amp/link/PeerLinkManager.h"
-#include "base/mesh/DialBackTypes.h"
+#include "base/mesh/reachability/DialBackTypes.h"
 #include "common/Error.h"
 #include "common/PbrCompat.h"
 
