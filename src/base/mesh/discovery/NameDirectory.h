@@ -2,7 +2,7 @@
 
 #include "base/data/Config.h"
 #include "base/net/ServiceClients.h"
-#include "base/people/ContactTypes.h"
+#include "common/DirectoryTypes.h"
 #include "common/Error.h"
 
 #include <cstdint>
