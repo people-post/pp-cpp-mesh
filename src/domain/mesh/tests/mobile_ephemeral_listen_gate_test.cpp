@@ -1,4 +1,4 @@
-#include "feature/messaging/MobileEphemeralListenGate.h"
+#include "domain/mesh/reachability/MobileEphemeralListenGate.h"
 
 #include <gtest/gtest.h>
 
