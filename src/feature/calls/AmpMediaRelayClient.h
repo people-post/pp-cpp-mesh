@@ -1,7 +1,7 @@
 #pragma once
 
 #include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
-#include "feature/conversations/calls/CallTopologyRelayDeps.h"
+#include "feature/calls/CallTopologyRelayDeps.h"
 
 #include <functional>
 #include <string>

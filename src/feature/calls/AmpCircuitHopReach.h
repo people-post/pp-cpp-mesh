@@ -3,7 +3,7 @@
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 #include "domain/mesh/host/MeshPorts.h"
-#include "feature/conversations/calls/CallTopologyRelayDeps.h"
+#include "feature/calls/CallTopologyRelayDeps.h"
 
 #include <functional>
 #include <string>
