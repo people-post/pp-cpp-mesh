@@ -129,7 +129,7 @@ private:
   AmpCircuitHopRegistry* amp_hops_ = nullptr;
 };
 
-/** Forwards to MessagingHub / CallStack wiring. */
+/** Forwards to ConversationsHub / CallStack wiring. */
 class CircuitHopReachClient final : public ICircuitHopReach {
 public:
   CircuitHopReachClient(std::function<Roe<void>(const std::string&)> try_media_hop_reach,
