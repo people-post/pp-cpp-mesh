@@ -14,9 +14,9 @@
 namespace pbr {
 
 /**
- * Amp Coordinated Punch L4 (`/pp-browser/amp-punch/1.0.0`) — H009 / L3.25a.
+ * Amp Coordinated Punch L4 (`/pp-browser/amp-punch/1.0.0`) — H009 / L3.25a–c.
  *
- * L3.25a: seed-introducer cold punch — connect/offer/candidates/sync + simultaneous burst dial.
+ * L3.25a–c: cold/upgrade punch — connect/offer/candidates/sync + burst; upgrade uses circuit R1 as introducer.
  * Dual-dial election is PeerLinkManager A026; loser teardown is parent-owned A027.
  */
 class AmpPunchCoordinator {
@@ -58,7 +58,13 @@ public:
   PunchRoe TryColdPunch(const std::string& introducer_peer_key, const std::string& target_peer_id,
                         const std::vector<std::string>& my_addrs, int window_ms = 2000);
 
+  /** L3.25c: same wire as cold punch with reason=upgrade (R1 / circuit relay as introducer). */
+  PunchRoe TryUpgradePunch(const std::string& introducer_peer_key, const std::string& target_peer_id,
+                           const std::vector<std::string>& my_addrs, int window_ms = 2000);
+
 private:
+  PunchRoe RunPunch(const std::string& introducer_peer_key, const std::string& target_peer_id,
+                    const std::vector<std::string>& my_addrs, int window_ms, const std::string& reason);
   struct Impl;
   std::unique_ptr<Impl> impl_;
   pp::amp::PeerLinkManager& links_;
