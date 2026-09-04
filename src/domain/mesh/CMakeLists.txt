@@ -12,6 +12,9 @@ set(PP_DOMAIN_MESH_REACHABILITY_SOURCES
   reachability/NatTraversal.cpp
   reachability/LanMdnsDiscovery.cpp
   reachability/AmpDialBackService.cpp
+  reachability/AmpObservedAddrs.cpp
+  reachability/PunchLogic.cpp
+  reachability/AmpPunchCoordinator.cpp
   reachability/MobileEphemeralListenGate.cpp
 )
 
