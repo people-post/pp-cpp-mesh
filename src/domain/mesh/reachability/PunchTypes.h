@@ -32,6 +32,14 @@ struct PunchConnectRequest {
   std::string reason = "cold";
 };
 
+/** Introducer → target: initiator identity + observed addrs + epoch. */
+struct PunchOffer {
+  std::string initiator_peer_id;
+  std::vector<std::string> addrs;
+  std::string epoch_id;
+  int window_ms = 2000;
+};
+
 struct PunchCandidates {
   std::string peer_id;
   std::vector<std::string> addrs;

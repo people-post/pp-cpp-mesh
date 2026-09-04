@@ -65,6 +65,9 @@ pp::Roe<std::unique_ptr<AmpMeshTripleHarness>> AmpMeshTripleHarness::Create() {
 }
 
 void AmpMeshTripleHarness::PumpAll() {
+  // Advance virtual time so ADP Connection::Open mint_id values stay unique when a
+  // peer opens a second association (e.g. introducer Session then punch burst).
+  clock->Advance(1);
   runtime_a->Pump();
   runtime_r->Pump();
   runtime_b->Pump();

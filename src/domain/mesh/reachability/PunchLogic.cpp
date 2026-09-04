@@ -40,6 +40,17 @@ std::string EncodePunchConnect(const PunchConnectRequest& req) {
   return DumpJson(o);
 }
 
+std::string EncodePunchOffer(const PunchOffer& msg) {
+  Object o;
+  o.set("v", int64_t{1});
+  o.set("op", "offer");
+  o.set("initiator_peer_id", msg.initiator_peer_id);
+  o.set("addrs", AddrsArray(msg.addrs));
+  o.set("epoch_id", msg.epoch_id);
+  o.set("window_ms", int64_t{msg.window_ms > 0 ? msg.window_ms : 2000});
+  return DumpJson(o);
+}
+
 std::string EncodePunchCandidates(const PunchCandidates& msg) {
   Object o;
   o.set("v", int64_t{1});
@@ -86,6 +97,21 @@ std::optional<PunchConnectRequest> DecodePunchConnect(const Object& root) {
     return std::nullopt;
   }
   return req;
+}
+
+std::optional<PunchOffer> DecodePunchOffer(const Object& root) {
+  if (root.getString("op").value_or("") != "offer") {
+    return std::nullopt;
+  }
+  PunchOffer msg;
+  msg.initiator_peer_id = root.getString("initiator_peer_id").value_or("");
+  msg.addrs = SanitizePunchAddrs(ReadAddrs(root, "addrs"));
+  msg.epoch_id = root.getString("epoch_id").value_or("");
+  msg.window_ms = static_cast<int>(root.getNonNegInt("window_ms").value_or(2000));
+  if (msg.initiator_peer_id.empty() || msg.epoch_id.empty()) {
+    return std::nullopt;
+  }
+  return msg;
 }
 
 std::optional<PunchCandidates> DecodePunchCandidates(const Object& root) {

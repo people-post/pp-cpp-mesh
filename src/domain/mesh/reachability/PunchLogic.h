@@ -11,6 +11,7 @@ namespace pbr {
 
 /** Encode/decode Amp Coordinated Punch JSON frames (`v` + `op`). */
 std::string EncodePunchConnect(const PunchConnectRequest& req);
+std::string EncodePunchOffer(const PunchOffer& msg);
 std::string EncodePunchCandidates(const PunchCandidates& msg);
 std::string EncodePunchSync(const PunchSync& msg);
 std::string EncodePunchResult(const PunchResult& msg);
@@ -18,6 +19,7 @@ std::string EncodePunchResult(const PunchResult& msg);
 std::optional<std::string> PunchOp(const Object& root);
 
 std::optional<PunchConnectRequest> DecodePunchConnect(const Object& root);
+std::optional<PunchOffer> DecodePunchOffer(const Object& root);
 std::optional<PunchCandidates> DecodePunchCandidates(const Object& root);
 std::optional<PunchSync> DecodePunchSync(const Object& root);
 std::optional<PunchResult> DecodePunchResult(const Object& root);

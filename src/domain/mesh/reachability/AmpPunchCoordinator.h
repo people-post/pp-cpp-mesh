@@ -16,8 +16,8 @@ namespace pbr {
 /**
  * Amp Coordinated Punch L4 (`/pp-browser/amp-punch/1.0.0`) — H009 / L3.25a.
  *
- * L3.25a scaffolding: protocol registration, candidate codec, coded TryColdPunch gate.
- * Introducer orchestration + simultaneous dial complete the L3.25a checklist next.
+ * L3.25a: seed-introducer cold punch — connect/offer/candidates/sync + simultaneous burst dial.
+ * Dual-dial election is PeerLinkManager A026; loser teardown is parent-owned A027.
  */
 class AmpPunchCoordinator {
 public:

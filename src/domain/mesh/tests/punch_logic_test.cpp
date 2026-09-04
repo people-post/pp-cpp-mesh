@@ -47,6 +47,21 @@ TEST(PunchLogicTest, WindowOpenBounds) {
   EXPECT_FALSE(PunchWindowOpen(1000, 0, 1000));
 }
 
+TEST(PunchLogicTest, OfferRoundTrip) {
+  PunchOffer offer;
+  offer.initiator_peer_id = "12D3KooWInitiator";
+  offer.addrs = {"/ip4/10.0.0.1/udp/9/adp/1.0.0/p2p/12D3KooWInitiator"};
+  offer.epoch_id = "ep-offer";
+  offer.window_ms = 1500;
+  auto root = TryParseObject(EncodePunchOffer(offer));
+  ASSERT_TRUE(root);
+  auto decoded = DecodePunchOffer(*root);
+  ASSERT_TRUE(decoded);
+  EXPECT_EQ(decoded->initiator_peer_id, offer.initiator_peer_id);
+  EXPECT_EQ(decoded->epoch_id, "ep-offer");
+  EXPECT_EQ(decoded->window_ms, 1500);
+}
+
 TEST(PunchLogicTest, SyncAndResultRoundTrip) {
   PunchSync sync;
   sync.epoch_id = "ep-1";
