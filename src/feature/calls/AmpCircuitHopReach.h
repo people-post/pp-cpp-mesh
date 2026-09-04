@@ -19,9 +19,11 @@ class AmpCircuitHopReach final : public ICircuitHopReach {
 public:
   using IoPump = std::function<void()>;
   using CollectRelays = std::function<std::vector<std::string>(const std::string& exclude_peer_id)>;
+  /** Optional L3.25b: try Amp punch before circuit (H002). SoftMigrate still only consumes dialability. */
+  using TryPunch = std::function<Roe<void>(const std::string& target_peer_id)>;
 
   AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops, IChatPeerLinks& links,
-                     IoPump io_pump, CollectRelays collect_relays);
+                     IoPump io_pump, CollectRelays collect_relays, TryPunch try_punch = {});
 
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override;
   Roe<void> TryEnsureCallMediaReachable(const std::string& peer_key) override;
@@ -35,6 +37,7 @@ private:
   IChatPeerLinks& links_;
   IoPump io_pump_;
   CollectRelays collect_relays_;
+  TryPunch try_punch_;
 };
 
 } // namespace pbr

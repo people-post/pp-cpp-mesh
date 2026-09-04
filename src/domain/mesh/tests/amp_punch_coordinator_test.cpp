@@ -1,4 +1,5 @@
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
+#include "domain/mesh/reachability/PunchLogic.h"
 
 #include "domain/mesh/tests/support/mesh_test_harness.h"
 #include "domain/mesh/tests/support/mesh_triple_harness.h"
@@ -97,6 +98,69 @@ TEST(AmpPunchCoordinatorTest, SeedIntroducerColdPunchConnectsAToB) {
   EXPECT_NE(harness->mgr_b().FindLinkByPeerId(harness->peer_id_a), nullptr);
   EXPECT_EQ(harness->mgr_a().CountConnectedLinksForPeerId(harness->peer_id_b), 1u);
   EXPECT_EQ(harness->mgr_b().CountConnectedLinksForPeerId(harness->peer_id_a), 1u);
+  // L3.25b: initiator address-book upsert — SoftMigrate IsDialable(peer_id) on the dialer.
+  EXPECT_TRUE(harness->mgr_a().GetLinkSnapshot(harness->peer_id_b).has_endpoint);
+  // Target may already be Connected via inbound A026; book upsert is best-effort there.
+  if (harness->mgr_b().GetLinkSnapshot(harness->peer_id_a).has_endpoint) {
+    EXPECT_TRUE(harness->mgr_b().PreferredMultiaddr(harness->peer_id_a).has_value());
+  }
+
+  punch_a.Stop();
+  punch_i.Stop();
+  punch_b.Stop();
+}
+
+
+TEST(AmpPunchCoordinatorTest, ContactIntroducerColdPunchConnectsAToB) {
+  auto created = pbr::test::AmpMeshTripleHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+
+  harness->ep_a->SetAcceptEnabled(true);
+  harness->ep_b->SetAcceptEnabled(true);
+
+  // Contact-style introducer: register I under its PeerId (not a seed alias).
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint(harness->peer_id_r, harness->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint(harness->peer_id_r, harness->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_a, harness->ma_a)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_b, harness->ma_b)));
+
+  auto pump = [&]() { harness->PumpAll(); };
+  AmpPunchCoordinator punch_a(harness->mgr_a(), pump, {});
+  AmpPunchCoordinator punch_i(harness->mgr_r(), pump, {});
+  AmpPunchCoordinator punch_b(harness->mgr_b(), pump, {});
+  punch_a.SetLocalCandidateAddrs({harness->ma_a});
+  punch_i.SetLocalCandidateAddrs({harness->ma_r});
+  punch_b.SetLocalCandidateAddrs({harness->ma_b});
+  punch_a.Start();
+  punch_i.Start();
+  punch_b.Start();
+
+  bool a_ready = false;
+  bool b_ready = false;
+  harness->mgr_a().EnsureAssociation(harness->peer_id_r, [&](pp::amp::PeerLinkManager::LinkRoe r) {
+    a_ready = static_cast<bool>(r);
+  });
+  harness->mgr_b().EnsureAssociation(harness->peer_id_r, [&](pp::amp::PeerLinkManager::LinkRoe r) {
+    b_ready = static_cast<bool>(r);
+  });
+  harness->PumpUntil([&] { return a_ready && b_ready; }, 2000);
+  ASSERT_TRUE(a_ready);
+  ASSERT_TRUE(b_ready);
+
+  const auto contact_ids = std::vector<std::string>{harness->peer_id_r};
+  const auto seed_ids = std::vector<std::string>{};
+  auto intro = PickPunchIntroducer(
+      contact_ids, seed_ids, harness->peer_id_b,
+      [&](const std::string& id) { return harness->mgr_a().GetLinkSnapshot(id).has_endpoint; },
+      [&](const std::string& id) { return harness->mgr_a().IsConnected(id); });
+  ASSERT_TRUE(intro.has_value());
+  EXPECT_EQ(*intro, harness->peer_id_r);
+
+  auto punched = punch_a.TryColdPunch(*intro, harness->peer_id_b, {harness->ma_a}, 3000);
+  ASSERT_TRUE(static_cast<bool>(punched)) << punched.error().message;
+  EXPECT_TRUE(punched->ok) << punched->error;
+  EXPECT_TRUE(harness->mgr_a().GetLinkSnapshot(harness->peer_id_b).has_endpoint);
 
   punch_a.Stop();
   punch_i.Stop();
@@ -104,4 +168,17 @@ TEST(AmpPunchCoordinatorTest, SeedIntroducerColdPunchConnectsAToB) {
 }
 
 } // namespace
+
+TEST(AmpPunchCoordinatorTest, PublishPunchWinnerAddrsUpsertsPeerIdEndpoint) {
+  auto created = pbr::test::AmpMeshHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+
+  EXPECT_FALSE(harness->mgr_a().GetLinkSnapshot(harness->peer_id_b).has_endpoint);
+  PublishPunchWinnerAddrs(harness->mgr_a(), harness->peer_id_b, harness->ma_b);
+  EXPECT_TRUE(harness->mgr_a().GetLinkSnapshot(harness->peer_id_b).has_endpoint);
+  ASSERT_TRUE(harness->mgr_a().PreferredMultiaddr(harness->peer_id_b).has_value());
+  EXPECT_EQ(*harness->mgr_a().PreferredMultiaddr(harness->peer_id_b), harness->ma_b);
+}
+
 } // namespace pbr

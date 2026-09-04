@@ -182,4 +182,59 @@ bool PunchWindowOpen(int64_t start_ms, int window_ms, int64_t now_ms) {
   return now_ms >= start_ms && (now_ms - start_ms) <= static_cast<int64_t>(window_ms);
 }
 
+void PublishPunchWinnerAddrs(pp::amp::PeerLinkManager& links, const std::string& known_peer_id,
+                             const std::string& winner_multiaddr) {
+  if (winner_multiaddr.empty()) {
+    return;
+  }
+  std::string ma_peer_id;
+  if (auto parsed = pp::amp::ParseAdpMultiaddr(winner_multiaddr)) {
+    ma_peer_id = parsed->peer_id;
+  }
+  // Always upsert under known PeerId first — SoftMigrate IsDialable reads endpoints_ by PeerId key.
+  if (!known_peer_id.empty()) {
+    (void)links.RegisterEndpoint(known_peer_id, winner_multiaddr);
+  }
+  if (!ma_peer_id.empty() && ma_peer_id != known_peer_id) {
+    (void)links.RegisterEndpoint(ma_peer_id, winner_multiaddr);
+  }
+  // If the authenticated link already sits under PeerId (A026), mirror its preferred addr too.
+  if (!known_peer_id.empty()) {
+    if (auto preferred = links.PreferredMultiaddr(known_peer_id)) {
+      (void)links.RegisterEndpoint(known_peer_id, *preferred);
+    }
+  }
+}
+
+std::optional<std::string> PickPunchIntroducer(
+    const std::vector<std::string>& contact_peer_ids, const std::vector<std::string>& seed_peer_ids,
+    const std::string& exclude_peer_id, const std::function<bool(const std::string&)>& has_endpoint,
+    const std::function<bool(const std::string&)>& is_connected) {
+  auto pick = [&](const std::vector<std::string>& ids, bool require_connected) -> std::optional<std::string> {
+    for (const std::string& id : ids) {
+      if (id.empty() || id == exclude_peer_id) {
+        continue;
+      }
+      if (!has_endpoint(id)) {
+        continue;
+      }
+      if (require_connected && !is_connected(id)) {
+        continue;
+      }
+      return id;
+    }
+    return std::nullopt;
+  };
+  if (auto id = pick(contact_peer_ids, true)) {
+    return id;
+  }
+  if (auto id = pick(contact_peer_ids, false)) {
+    return id;
+  }
+  if (auto id = pick(seed_peer_ids, true)) {
+    return id;
+  }
+  return pick(seed_peer_ids, false);
+}
+
 } // namespace pbr

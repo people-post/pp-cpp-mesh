@@ -17,11 +17,27 @@ using Clock = std::chrono::steady_clock;
 
 AmpCircuitHopReach::AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops,
                                        IChatPeerLinks& links, IoPump io_pump,
-                                       CollectRelays collect_relays)
+                                       CollectRelays collect_relays, TryPunch try_punch)
     : circuit_(circuit), hops_(hops), links_(links), io_pump_(std::move(io_pump)),
-      collect_relays_(std::move(collect_relays)) {}
+      collect_relays_(std::move(collect_relays)), try_punch_(std::move(try_punch)) {}
 
 Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
+  if (hop_peer_id.empty()) {
+    return Error("missing hop peer");
+  }
+  if (hops_.Find(hop_peer_id, kMediaRelayProtocolId)) {
+    return {};
+  }
+  if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint) {
+    return {};
+  }
+  if (try_punch_) {
+    if (auto punched = try_punch_(hop_peer_id); punched) {
+      if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint || links_.IsConnected(hop_peer_id)) {
+        return {};
+      }
+    }
+  }
   return EnsureViaCircuit(hop_peer_id, kMediaRelayProtocolId, /*register_endpoint=*/true,
                           /*nested_session=*/false);
 }
@@ -37,6 +53,13 @@ Roe<void> AmpCircuitHopReach::TryEnsureCallMediaReachable(const std::string& pee
   // Protocol-specific: a media-relay hop must not short-circuit call-media reach.
   if (hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId) && links_.IsConnected(peer_key)) {
     return {};
+  }
+  if (try_punch_) {
+    if (auto punched = try_punch_(peer_key); punched) {
+      if (links_.IsConnected(peer_key) || links_.GetLinkSnapshot(peer_key).has_endpoint) {
+        return {};
+      }
+    }
   }
   return EnsureViaCircuit(peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
                           /*nested_session=*/true);

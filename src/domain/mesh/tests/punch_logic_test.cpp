@@ -85,5 +85,34 @@ TEST(PunchLogicTest, SyncAndResultRoundTrip) {
   EXPECT_EQ(result_decoded->winner_multiaddr, result.winner_multiaddr);
 }
 
+TEST(PunchLogicTest, PickPunchIntroducerPrefersConnectedContact) {
+  const std::vector<std::string> contacts = {"contact-a", "contact-b"};
+  const std::vector<std::string> seeds = {"seed-1"};
+  auto has_endpoint = [](const std::string& id) { return id == "contact-b" || id == "seed-1"; };
+  auto is_connected = [](const std::string& id) { return id == "contact-b"; };
+  auto picked = PickPunchIntroducer(contacts, seeds, "target", has_endpoint, is_connected);
+  ASSERT_TRUE(picked.has_value());
+  EXPECT_EQ(*picked, "contact-b");
+}
+
+TEST(PunchLogicTest, PickPunchIntroducerFallsBackToSeed) {
+  const std::vector<std::string> contacts = {"contact-a"};
+  const std::vector<std::string> seeds = {"seed-1"};
+  auto has_endpoint = [](const std::string& id) { return id == "seed-1"; };
+  auto is_connected = [](const std::string& id) { return id == "seed-1"; };
+  auto picked = PickPunchIntroducer(contacts, seeds, "target", has_endpoint, is_connected);
+  ASSERT_TRUE(picked.has_value());
+  EXPECT_EQ(*picked, "seed-1");
+}
+
+TEST(PunchLogicTest, PickPunchIntroducerSkipsExcludedPeer) {
+  const std::vector<std::string> contacts = {"peer-x"};
+  const std::vector<std::string> seeds = {};
+  auto has_endpoint = [](const std::string&) { return true; };
+  auto is_connected = [](const std::string&) { return true; };
+  auto picked = PickPunchIntroducer(contacts, seeds, "peer-x", has_endpoint, is_connected);
+  EXPECT_FALSE(picked.has_value());
+}
+
 } // namespace
 } // namespace pbr
