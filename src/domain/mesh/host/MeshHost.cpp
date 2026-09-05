@@ -160,7 +160,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
 }
 
 void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media, const bool host_dht,
-                                 const bool host_directory) {
+                                 const bool host_directory, const bool refresh_listen_addrs) {
   EnsureAmpL4Coordinators();
   host_dht_ = host_dht;
   host_directory_ = host_directory;
@@ -181,7 +181,9 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media,
   if (amp_punch_ && !amp_punch_->IsStarted()) {
     amp_punch_->Start();
   }
-  RefreshAdvertisedListenAddrs();
+  if (refresh_listen_addrs) {
+    RefreshAdvertisedListenAddrs();
+  }
   if (amp_dht_ && !amp_dht_->IsStarted()) {
     amp_dht_->Start();
   }
@@ -256,7 +258,9 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   chat_links_ = NewAmpChatPeerLinks(amp_->Links());
   EnsureAmpL4Coordinators();
   // Tests / AttachAmpStack: start outbound-capable L4 without inbound hosting unless configured.
-  StartAmpL4Hosting(false, false, false, false);
+  // Keep the caller-supplied listen multiaddr — LAN refresh would replace MemoryDatagramIo
+  // synthetic addrs (e.g. 10.0.0.1) with real NIC IPs.
+  StartAmpL4Hosting(false, false, false, false, /*refresh_listen_addrs=*/false);
   return Roe<void>();
 }
 
