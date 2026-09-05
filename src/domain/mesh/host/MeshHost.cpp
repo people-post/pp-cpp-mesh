@@ -1,5 +1,12 @@
 #include "domain/mesh/reachability/AmpObservedAddrs.h"
 #include "domain/mesh/host/MeshHost.h"
+#include "domain/mesh/reachability/DialBackTypes.h"
+#include "domain/mesh/reachability/PunchTypes.h"
+#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
+#include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
+#include "domain/mesh/l4/call_media/ICallMediaTransport.h"
+#include "domain/net/ServiceClients.h"
+#include "common/chat/IDirectMessageClient.h"
 
 #include "domain/mesh/host/MeshPorts.h"
 
@@ -257,14 +264,13 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
   if (!amp_) {
     return;
   }
-  std::vector<std::string> protocols = {"/pp-browser/chat/1.0.0", "/pp-browser/chat-history/1.0.0",
-                                        "/pp-browser/chat-blob/1.0.0", "/pp-browser/call-media/1.0.0",
-                                        "/pp-browser/dial-back/1.0.0", kAmpPunchProtocolId};
+  std::vector<std::string> protocols = {kDirectChatProtocolId, kChatBlobProtocolId, kCallMediaDirectProtocolId,
+                                        kDialBackProtocolId, kAmpPunchProtocolId};
   if (config.host_circuit_relay) {
-    protocols.push_back("/pp-browser/circuit-relay/1.0.0");
+    protocols.push_back(kCircuitRelayProtocolId);
   }
   if (config.host_media_relay) {
-    protocols.push_back("/pp-browser/media-relay/1.0.0");
+    protocols.push_back(kMediaRelayProtocolId);
   }
   if (config.host_dht) {
     protocols.push_back(kDhtProtocolId);

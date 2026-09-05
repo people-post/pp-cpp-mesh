@@ -6,7 +6,8 @@
 
 namespace pbr {
 
-inline constexpr const char* kAmpPunchProtocolId = "/pp-browser/amp-punch/1.0.0";
+/** Reach-kind punch SM — distinct id from dial-back (`kReachProtocolId`). */
+inline constexpr const char* kAmpPunchProtocolId = "/pp-browser/reach/punch/1.0.0";
 
 enum class PunchRole {
   Unknown,

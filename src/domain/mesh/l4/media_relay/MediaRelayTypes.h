@@ -12,7 +12,8 @@
 
 namespace pbr {
 
-inline constexpr const char* kMediaRelayProtocolId = "/pp-browser/media-relay/1.0.0";
+inline constexpr const char* kDatagramRelayProtocolId = "/pp-browser/datagram-relay/1.0.0";
+inline constexpr const char* kMediaRelayProtocolId = kDatagramRelayProtocolId;
 
 /** V032 host load limits (also documented in HOST_RECEIVE_POLICY). */
 inline constexpr size_t kMediaRelayMaxHostSessions = 4;

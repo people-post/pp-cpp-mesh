@@ -6,7 +6,11 @@
 #include "common/Error.h"
 #include "common/PbrCompat.h"
 
+#include "amp/L3/ChannelSession.h"
+
+#include <cstdint>
 #include <functional>
+#include <vector>
 #include <memory>
 #include <string>
 #include <vector>
@@ -14,7 +18,7 @@
 namespace pbr {
 
 /**
- * Amp L4 dial-back (`/pp-browser/dial-back/1.0.0`) for reachability chrome (D8).
+ * Amp L4 dial-back (`/pp-browser/reach/1.0.0`) for reachability chrome (D8).
  * Client asks a seed to dial advertised ADP listen multiaddrs; seed replies with ok/dialed/error.
  *
  * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
@@ -48,7 +52,9 @@ public:
   AmpDialBackService(const AmpDialBackService&) = delete;
   AmpDialBackService& operator=(const AmpDialBackService&) = delete;
 
-  void Start();
+  void Start(bool register_handler = true);
+  /** Shared `/pp-browser/reach/1.0.0` demux — already-bound session + first DATA. */
+  void ServeInbound(std::shared_ptr<pp::amp::ChannelSession> session, std::vector<uint8_t> body);
   void Stop();
   bool IsStarted() const { return started_; }
 
