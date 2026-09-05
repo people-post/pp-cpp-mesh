@@ -6,6 +6,7 @@
 #include "common/SettledWait.h"
 
 #include <chrono>
+#include <optional>
 #include <thread>
 
 namespace pbr {
@@ -17,11 +18,29 @@ using Clock = std::chrono::steady_clock;
 
 AmpCircuitHopReach::AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops,
                                        IChatPeerLinks& links, IoPump io_pump,
-                                       CollectRelays collect_relays)
+                                       CollectRelays collect_relays, TryPunch try_punch,
+                                       TryPunchViaIntroducer try_punch_via_introducer)
     : circuit_(circuit), hops_(hops), links_(links), io_pump_(std::move(io_pump)),
-      collect_relays_(std::move(collect_relays)) {}
+      collect_relays_(std::move(collect_relays)), try_punch_(std::move(try_punch)),
+      try_punch_via_introducer_(std::move(try_punch_via_introducer)) {}
 
 Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
+  if (hop_peer_id.empty()) {
+    return Error("missing hop peer");
+  }
+  if (hops_.Find(hop_peer_id, kMediaRelayProtocolId)) {
+    return {};
+  }
+  if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint) {
+    return {};
+  }
+  if (try_punch_) {
+    if (auto punched = try_punch_(hop_peer_id); punched) {
+      if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint || links_.IsConnected(hop_peer_id)) {
+        return {};
+      }
+    }
+  }
   return EnsureViaCircuit(hop_peer_id, kMediaRelayProtocolId, /*register_endpoint=*/true,
                           /*nested_session=*/false);
 }
@@ -37,6 +56,13 @@ Roe<void> AmpCircuitHopReach::TryEnsureCallMediaReachable(const std::string& pee
   // Protocol-specific: a media-relay hop must not short-circuit call-media reach.
   if (hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId) && links_.IsConnected(peer_key)) {
     return {};
+  }
+  if (try_punch_) {
+    if (auto punched = try_punch_(peer_key); punched) {
+      if (links_.IsConnected(peer_key) || links_.GetLinkSnapshot(peer_key).has_endpoint) {
+        return {};
+      }
+    }
   }
   return EnsureViaCircuit(peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
                           /*nested_session=*/true);
@@ -140,5 +166,53 @@ Roe<void> AmpCircuitHopReach::EnsureViaCircuit(const std::string& target_peer_id
   }
   return Error("circuit hop reach failed");
 }
+
+Roe<void> AmpCircuitHopReach::TryUpgradeToDirect(const std::string& peer_key) {
+  if (peer_key.empty()) {
+    return Error("missing upgrade peer");
+  }
+  if (!try_punch_via_introducer_) {
+    return Error("circuit upgrade punch unavailable");
+  }
+
+  std::optional<AmpCircuitHopRegistry::Hop> hop = hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId);
+  std::string protocol = pp::amp::kAmpCircuitCarrierProtocolId;
+  if (!hop) {
+    hop = hops_.Find(peer_key, kMediaRelayProtocolId);
+    protocol = kMediaRelayProtocolId;
+  }
+  if (!hop) {
+    return Error("no circuit hop to upgrade");
+  }
+
+  const std::string relay_key = hop->relay_peer_key;
+  const CircuitTunnelId tunnel_id = hop->tunnel_id;
+
+  if (auto punched = try_punch_via_introducer_(relay_key, peer_key); !punched) {
+    return punched;
+  }
+
+  // Require PeerId address-book upsert (direct dialable) before demoting the circuit.
+  // IsConnected alone may still be the nested/carrier path.
+  if (!links_.GetLinkSnapshot(peer_key).has_endpoint) {
+    return Error("upgrade punch did not yield a direct path");
+  }
+
+  return DemoteCircuitHop(peer_key, protocol, tunnel_id);
+}
+
+Roe<void> AmpCircuitHopReach::DemoteCircuitHop(const std::string& peer_key, const std::string& target_protocol,
+                                               CircuitTunnelId tunnel_id) {
+  if (tunnel_id) {
+    circuit_.CancelTunnel(tunnel_id);
+  }
+  hops_.Clear(peer_key, target_protocol);
+  // If other protocols remain for this peer, leave them; Clear(peer) only when none left.
+  if (!hops_.HasAny(peer_key)) {
+    hops_.Clear(peer_key);
+  }
+  return {};
+}
+
 
 } // namespace pbr

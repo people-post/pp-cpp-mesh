@@ -53,6 +53,8 @@ pp::Roe<std::unique_ptr<AmpMeshHarness>> AmpMeshHarness::Create() {
 }
 
 void AmpMeshHarness::PumpBoth() {
+  // Advance virtual time so ADP mint_id assoc ids stay unique across multiple Opens.
+  clock->Advance(1);
   runtime_a->Pump();
   runtime_b->Pump();
   runtime_a->Tick();
