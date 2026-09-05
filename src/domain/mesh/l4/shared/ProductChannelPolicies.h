@@ -37,7 +37,8 @@ inline ChannelPolicy CallMediaControlChannelPolicy() {
  */
 inline ChannelPolicy BulkChannelPolicy(bool read_once) {
   // Call MakeBulkChannelPolicy (not BulkChannelPolicy()) to avoid overload recursion
-  // with this (bool) product wrapper.
+  // with this (bool) product wrapper. Amp v0.1.6+ names the core factory
+  // MakeBulkChannelPolicy (ChatBlobChannelPolicy was removed).
   ChannelPolicy policy = MakeBulkChannelPolicy();
   policy.read_once = read_once;
   policy.read_timeout = std::chrono::milliseconds{8000};
