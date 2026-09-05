@@ -7,7 +7,7 @@
 
 namespace pp::amp {
 
-/** Realtime media frames for `/pp-browser/call-media/1.0.0`. */
+/** Realtime media frames for `/pp-browser/realtime/1.0.0`. */
 inline ChannelPolicy CallMediaChannelPolicy() {
   ChannelPolicy policy;
   policy.cls = ChannelClass::Realtime;
@@ -18,7 +18,7 @@ inline ChannelPolicy CallMediaChannelPolicy() {
   return policy;
 }
 
-/** Reliable hello/teardown leg for `/pp-browser/call-media/1.0.0` (AMP-CHANNEL). */
+/** Reliable hello/teardown leg for `/pp-browser/realtime/1.0.0` (AMP-CHANNEL). */
 inline ChannelPolicy CallMediaControlChannelPolicy() {
   ChannelPolicy policy;
   policy.cls = ChannelClass::RealtimeControl;
@@ -42,7 +42,7 @@ inline ChannelPolicy ChatBlobChannelPolicy(bool read_once = false) {
 }
 
 /**
- * `/pp-browser/circuit-relay/1.0.0` tunnel: JSON bridge handshake then opaque DATA splice.
+ * `/pp-browser/circuit/1.0.0` tunnel: JSON bridge handshake then opaque DATA splice.
  * Reliable; not read_once (stays open for forward).
  */
 inline ChannelPolicy CircuitTunnelChannelPolicy(

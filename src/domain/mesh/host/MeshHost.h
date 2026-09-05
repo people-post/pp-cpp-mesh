@@ -126,7 +126,10 @@ private:
   void ApplyAmpAdvertisement(const MeshHostConfig& config);
   void EnsureAmpL4Coordinators();
   void RefreshAdvertisedListenAddrs();
-  void StartAmpL4Hosting(bool host_circuit, bool host_media, bool host_dht, bool host_directory);
+  /** When `refresh_listen_addrs` is false, keep caller-supplied listen multiaddrs (AttachAmpStack /
+   * MemoryDatagramIo tests) instead of expanding from real LAN NICs. */
+  void StartAmpL4Hosting(bool host_circuit, bool host_media, bool host_dht, bool host_directory,
+                         bool refresh_listen_addrs = true);
   AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
 
   std::unique_ptr<ReachabilityService> reachability_;
