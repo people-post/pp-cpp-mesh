@@ -23,7 +23,7 @@ TEST_F(MeshPortsTest, ChatPortPreservesEndpointNotRegisteredCode) {
   bool called = false;
   IChatPeerLinks::Err code = IChatPeerLinks::Err::Ok;
   harness_->chat_a().OpenChannel(
-      "missing-peer", "/pp-browser/rpc/1.0.0", pp::amp::ControlJsonChannelPolicy(),
+      "missing-peer", "/pp-browser/rpc/chat/1.0.0", pp::amp::ControlJsonChannelPolicy(),
       [&](IChatPeerLinks::ChannelRoe result) {
         called = true;
         ASSERT_FALSE(static_cast<bool>(result));
