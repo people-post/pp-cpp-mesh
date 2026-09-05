@@ -16,6 +16,9 @@ namespace pbr {
 inline constexpr const char* kCircuitProtocolId = "/pp-browser/circuit/1.0.0";
 inline constexpr const char* kCircuitRelayProtocolId = kCircuitProtocolId;
 
+/** Product wire id for nested Session over circuit (Amp plumbing; configured into PeerLinkManager). */
+inline constexpr const char* kCircuitCarrierProtocolId = "/pp-browser/circuit-carrier/1.0.0";
+
 /** Provider admission (nf / N023): scope mask + contact PeerIds. */
 struct CircuitRelayAdmissionPolicy {
   /** When true and contact_peer_ids non-empty, refuse non-contact dialers (legacy; see serve_scope_mask). */
