@@ -166,7 +166,7 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media,
   host_directory_ = host_directory;
   // Always accept nested Session carriers so NAT call-media (A024) works without hosting circuit.
   if (amp_) {
-    amp_->Links().EnableNestedCarrierAccept(true, kCircuitCarrierProtocolId);
+    amp_->Links().EnableNestedCarrierAccept(true);
   }
   // Always Start so SoftMigrate guests / circuit clients can dial; inbound hosting is gated.
   if (amp_circuit_ && !amp_circuit_->IsStarted()) {

@@ -1,4 +1,5 @@
 #include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
+#include "amp/link/Types.h"
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
@@ -37,8 +38,8 @@ protected:
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_r().RegisterEndpoint("a", harness_->ma_a)));
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_r().RegisterEndpoint("b", harness_->ma_b)));
 
-    harness_->mgr_a().EnableNestedCarrierAccept(true, kCircuitCarrierProtocolId);
-    harness_->mgr_b().EnableNestedCarrierAccept(true, kCircuitCarrierProtocolId);
+    harness_->mgr_a().EnableNestedCarrierAccept(true);
+    harness_->mgr_b().EnableNestedCarrierAccept(true);
 
     hops_ = std::make_unique<AmpCircuitHopRegistry>();
     circuit_r_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_r);
@@ -118,7 +119,7 @@ protected:
     CircuitBridgeTarget target;
     target.target_peer_id = harness_->peer_id_b;
     target.target_multiaddr = harness_->ma_b;
-    target.target_protocol = kCircuitCarrierProtocolId;
+    target.target_protocol = pp::amp::kAmpCircuitCarrierProtocolId;
 
     Wait<CircuitTunnelBridgeResult> bridge_wait;
     auto tunnel_id = circuit_a_->StartBridge("relay", target, {}, {}, bridge_wait.Fn(), 8000);
@@ -140,7 +141,7 @@ protected:
     if (!nested_wait.result) {
       return Error(nested_wait.result.error().message);
     }
-    (void)hops_->Install(harness_->peer_id_b, "relay", kCircuitCarrierProtocolId,
+    (void)hops_->Install(harness_->peer_id_b, "relay", pp::amp::kAmpCircuitCarrierProtocolId,
                          bridge_wait.result->session, tunnel_id);
     return Roe<CircuitTunnelId>{tunnel_id};
   }
@@ -169,7 +170,7 @@ TEST_F(AmpPunchCircuitUpgradeTest, UpgradeViaRelayIntroducerThenDemoteCircuit) {
 
   auto tunnel = EstablishCircuitHop();
   ASSERT_TRUE(static_cast<bool>(tunnel)) << tunnel.error().message;
-  ASSERT_TRUE(hops_->Find(harness_->peer_id_b, kCircuitCarrierProtocolId).has_value());
+  ASSERT_TRUE(hops_->Find(harness_->peer_id_b, pp::amp::kAmpCircuitCarrierProtocolId).has_value());
   ASSERT_TRUE(harness_->mgr_a().IsConnected(harness_->peer_id_b));
 
   auto* nested = harness_->mgr_a().FindLinkByPeerId(harness_->peer_id_b);
@@ -194,8 +195,8 @@ TEST_F(AmpPunchCircuitUpgradeTest, UpgradeViaRelayIntroducerThenDemoteCircuit) {
   EXPECT_TRUE(harness_->mgr_a().GetLinkSnapshot(harness_->peer_id_b).has_endpoint);
 
   circuit_a_->CancelTunnel(*tunnel);
-  hops_->Clear(harness_->peer_id_b, kCircuitCarrierProtocolId);
-  EXPECT_FALSE(hops_->Find(harness_->peer_id_b, kCircuitCarrierProtocolId).has_value());
+  hops_->Clear(harness_->peer_id_b, pp::amp::kAmpCircuitCarrierProtocolId);
+  EXPECT_FALSE(hops_->Find(harness_->peer_id_b, pp::amp::kAmpCircuitCarrierProtocolId).has_value());
 
   direct = harness_->mgr_a().FindLinkByPeerId(harness_->peer_id_b);
   ASSERT_NE(direct, nullptr);

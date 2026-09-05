@@ -2,6 +2,7 @@
 #include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
 
 #include "amp/link/PeerLink.h"
+#include "amp/link/Types.h"
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "common/SettledWait.h"
@@ -55,7 +56,7 @@ Roe<void> AmpCircuitHopReach::TryEnsureCallMediaReachable(const std::string& pee
     return {};
   }
   // Protocol-specific: a media-relay hop must not short-circuit call-media reach.
-  if (hops_.Find(peer_key, kCircuitCarrierProtocolId) && links_.IsConnected(peer_key)) {
+  if (hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId) && links_.IsConnected(peer_key)) {
     return {};
   }
   if (try_punch_) {
@@ -65,7 +66,7 @@ Roe<void> AmpCircuitHopReach::TryEnsureCallMediaReachable(const std::string& pee
       }
     }
   }
-  return EnsureViaCircuit(peer_key, kCircuitCarrierProtocolId, /*register_endpoint=*/false,
+  return EnsureViaCircuit(peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
                           /*nested_session=*/true);
 }
 
@@ -176,8 +177,8 @@ Roe<void> AmpCircuitHopReach::TryUpgradeToDirect(const std::string& peer_key) {
     return Error("circuit upgrade punch unavailable");
   }
 
-  std::optional<AmpCircuitHopRegistry::Hop> hop = hops_.Find(peer_key, kCircuitCarrierProtocolId);
-  std::string protocol = kCircuitCarrierProtocolId;
+  std::optional<AmpCircuitHopRegistry::Hop> hop = hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId);
+  std::string protocol = pp::amp::kAmpCircuitCarrierProtocolId;
   if (!hop) {
     hop = hops_.Find(peer_key, kMediaRelayProtocolId);
     protocol = kMediaRelayProtocolId;
