@@ -24,7 +24,7 @@ struct CircuitTunnelBridgeResult {
 };
 
 /**
- * Non-blocking `/pp-browser/circuit-relay/1.0.0` tunnels on MeshRuntime ([A022]).
+ * Non-blocking `/pp-browser/circuit/1.0.0` tunnels on MeshRuntime ([A022]).
  * MeshHost always Starts the coordinator when Amp is up (outbound client). Inbound hosting
  * is gated by SetServeInbound. SoftMigrate NAT adopts the bridged ChannelSession via
  * AmpCircuitHopRegistry ([A020] / D9 step 5c).

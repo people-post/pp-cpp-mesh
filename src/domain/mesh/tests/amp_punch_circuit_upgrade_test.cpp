@@ -1,3 +1,5 @@
+#include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
+#include "amp/link/Types.h"
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"

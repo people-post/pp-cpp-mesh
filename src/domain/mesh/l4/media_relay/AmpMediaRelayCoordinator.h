@@ -17,7 +17,7 @@
 namespace pbr {
 
 /**
- * Non-blocking `/pp-browser/media-relay/1.0.0` on MeshRuntime ([A022]).
+ * Non-blocking `/pp-browser/datagram-relay/1.0.0` on MeshRuntime ([A022]).
  * MeshHost owns an instance when Amp is up. SoftMigrate uses AmpMediaRelayClient ([A020]).
  * Circuit-backed hops adopt sessions from AmpCircuitHopRegistry (D9 step 5c).
  */

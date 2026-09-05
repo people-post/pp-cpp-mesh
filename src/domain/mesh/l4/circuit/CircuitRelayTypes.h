@@ -13,7 +13,8 @@ class Stream;
 
 namespace pbr {
 
-inline constexpr const char* kCircuitRelayProtocolId = "/pp-browser/circuit-relay/1.0.0";
+inline constexpr const char* kCircuitProtocolId = "/pp-browser/circuit/1.0.0";
+inline constexpr const char* kCircuitRelayProtocolId = kCircuitProtocolId;
 
 /** Provider admission (nf / N023): scope mask + contact PeerIds. */
 struct CircuitRelayAdmissionPolicy {

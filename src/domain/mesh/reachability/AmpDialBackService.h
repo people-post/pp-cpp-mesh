@@ -6,6 +6,7 @@
 #include "common/Error.h"
 #include "common/PbrCompat.h"
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -14,7 +15,7 @@
 namespace pbr {
 
 /**
- * Amp L4 dial-back (`/pp-browser/dial-back/1.0.0`) for reachability chrome (D8).
+ * Amp L4 dial-back (`/pp-browser/reach/1.0.0`) for reachability chrome (D8).
  * Client asks a seed to dial advertised ADP listen multiaddrs; seed replies with ok/dialed/error.
  *
  * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.

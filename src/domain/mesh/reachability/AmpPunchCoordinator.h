@@ -6,7 +6,11 @@
 #include "common/Error.h"
 #include "common/PbrCompat.h"
 
+#include "amp/L3/ChannelSession.h"
+
+#include <cstdint>
 #include <functional>
+#include <vector>
 #include <memory>
 #include <string>
 #include <vector>
@@ -14,7 +18,7 @@
 namespace pbr {
 
 /**
- * Amp Coordinated Punch L4 (`/pp-browser/amp-punch/1.0.0`) — H009 / L3.25a–c.
+ * Amp Coordinated Punch L4 (`/pp-browser/reach/1.0.0`) — H009 / L3.25a–c.
  *
  * L3.25a–c: cold/upgrade punch — connect/offer/candidates/sync + burst; upgrade uses circuit R1 as introducer.
  * Dual-dial election is PeerLinkManager A026; loser teardown is parent-owned A027.
@@ -49,6 +53,10 @@ public:
   AmpPunchCoordinator& operator=(const AmpPunchCoordinator&) = delete;
 
   void Start();
+
+  using ProbeInbound = std::function<void(std::shared_ptr<pp::amp::ChannelSession>,
+                                        std::vector<uint8_t>)>;
+  void SetProbeInbound(ProbeInbound handler);
   void Stop();
   bool IsStarted() const { return started_; }
 

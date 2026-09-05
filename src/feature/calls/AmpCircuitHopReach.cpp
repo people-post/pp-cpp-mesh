@@ -1,6 +1,8 @@
 #include "feature/calls/AmpCircuitHopReach.h"
+#include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
 
 #include "amp/link/PeerLink.h"
+#include "amp/link/Types.h"
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "common/SettledWait.h"
