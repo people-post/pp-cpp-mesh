@@ -32,13 +32,14 @@ inline ChannelPolicy CallMediaControlChannelPolicy() {
 
 /**
  * Product Bulk OPEN for `/pp-browser/blob/1.0.0`.
- * Wraps Amp `ChatBlobChannelPolicy()` (class + size) and adds read_once / timeout.
+ * Wraps Amp `MakeBulkChannelPolicy()` (class + size) and adds read_once / timeout.
  * Do not re-copy Bulk defaults here — see pp-cpp-amp docs/OWNERSHIP.md.
  */
 inline ChannelPolicy BulkChannelPolicy(bool read_once) {
-  // Call ChatBlobChannelPolicy (not BulkChannelPolicy()) to avoid overload recursion
-  // with this (bool) product wrapper.
-  ChannelPolicy policy = ChatBlobChannelPolicy();
+  // Call MakeBulkChannelPolicy (not BulkChannelPolicy()) to avoid overload recursion
+  // with this (bool) product wrapper. Amp v0.1.6+ names the core factory
+  // MakeBulkChannelPolicy (ChatBlobChannelPolicy was removed).
+  ChannelPolicy policy = MakeBulkChannelPolicy();
   policy.read_once = read_once;
   policy.read_timeout = std::chrono::milliseconds{8000};
   return policy;
