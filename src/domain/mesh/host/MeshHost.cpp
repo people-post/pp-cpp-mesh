@@ -5,8 +5,8 @@
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"
-#include "domain/net/ServiceClients.h"
 #include "common/chat/IDirectMessageClient.h"
+#include "common/thread/ChatBlobTypes.h"
 
 #include "domain/mesh/host/MeshPorts.h"
 
