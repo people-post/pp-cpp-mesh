@@ -30,15 +30,23 @@ inline ChannelPolicy CallMediaControlChannelPolicy() {
   return policy;
 }
 
-inline ChannelPolicy ChatBlobChannelPolicy(bool read_once = false) {
-  ChannelPolicy policy;
-  policy.cls = ChannelClass::Bulk;
-  policy.drop = ChannelDropPolicy::Never;
-  policy.max_outbound_frames = AmpChannelLimits::kMaxControlOutboundFrames;
+/**
+ * Product Bulk OPEN for `/pp-browser/blob/1.0.0`.
+ * Wraps Amp's zero-arg Bulk/ChatBlob factory (class + size) and adds read_once / timeout.
+ * Do not re-copy Bulk defaults here — see pp-cpp-amp docs/OWNERSHIP.md.
+ */
+inline ChannelPolicy BulkChannelPolicy(bool read_once) {
+  // Amp zero-arg ChatBlobChannelPolicy remains an alias of BulkChannelPolicy on new Amp;
+  // calling the zero-arg form avoids overload recursion with this (bool) wrapper.
+  ChannelPolicy policy = ChatBlobChannelPolicy();
   policy.read_once = read_once;
-  policy.max_message_bytes = AmpChannelLimits::kMaxChatBlobFrameBytes;
   policy.read_timeout = std::chrono::milliseconds{8000};
   return policy;
+}
+
+/** @deprecated Prefer BulkChannelPolicy(bool). */
+inline ChannelPolicy ChatBlobChannelPolicy(bool read_once) {
+  return BulkChannelPolicy(read_once);
 }
 
 /**
