@@ -26,7 +26,7 @@ namespace pbr {
  *
  * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
  */
-class AmpDhtService {
+class AmpDhtProtocol {
 public:
   enum class Err : int32_t {
     Ok = 0,
@@ -52,13 +52,13 @@ public:
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
 
-  AmpDhtService(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {});
-  ~AmpDhtService();
+  AmpDhtProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {});
+  ~AmpDhtProtocol();
 
-  AmpDhtService(const AmpDhtService&) = delete;
-  AmpDhtService& operator=(const AmpDhtService&) = delete;
+  AmpDhtProtocol(const AmpDhtProtocol&) = delete;
+  AmpDhtProtocol& operator=(const AmpDhtProtocol&) = delete;
 
-  void Configure(AmpDhtServiceConfig config);
+  void Configure(AmpDhtProtocolConfig config);
   void Start();
   void Stop();
   bool IsStarted() const { return started_; }
@@ -82,7 +82,7 @@ private:
   WorkerPost post_worker_;
   DhtRecordStore store_;
   DhtRateLimiter inbound_limiter_;
-  AmpDhtServiceConfig config_;
+  AmpDhtProtocolConfig config_;
   bool started_ = false;
   int64_t self_seq_ = 0;
   std::chrono::steady_clock::time_point next_self_publish_{};

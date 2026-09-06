@@ -1,4 +1,4 @@
-#include "domain/mesh/discovery/AmpDirectoryService.h"
+#include "domain/mesh/discovery/AmpDirectoryProtocol.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
@@ -21,7 +21,7 @@ std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
   return std::vector<uint8_t>(json_utf8.begin(), json_utf8.end());
 }
 
-void RunWorker(const AmpDirectoryService::WorkerPost& post_worker, std::function<void()> task) {
+void RunWorker(const AmpDirectoryProtocol::WorkerPost& post_worker, std::function<void()> task) {
   if (post_worker) {
     post_worker(std::move(task));
   } else {
@@ -29,7 +29,7 @@ void RunWorker(const AmpDirectoryService::WorkerPost& post_worker, std::function
   }
 }
 
-std::chrono::milliseconds ControlTimeout(const AmpDirectoryServiceConfig& config) {
+std::chrono::milliseconds ControlTimeout(const AmpDirectoryProtocolConfig& config) {
   const int ms = config.rpc_timeout_ms > 0 ? config.rpc_timeout_ms : 5000;
   return std::chrono::milliseconds(ms);
 }
@@ -46,7 +46,7 @@ Object MakeErrorResponse(const std::string& req_id, const std::string& code, con
 
 } // namespace
 
-AmpDirectoryService::Failure AmpDirectoryService::WrapLinkFailure(
+AmpDirectoryProtocol::Failure AmpDirectoryProtocol::WrapLinkFailure(
     const pp::amp::PeerLinkManager::Failure& child) {
   switch (child.GetCode()) {
     case pp::amp::PeerLinkManager::Err::EndpointNotRegistered:
@@ -74,9 +74,9 @@ AmpDirectoryService::Failure AmpDirectoryService::WrapLinkFailure(
   }
 }
 
-struct AmpDirectoryService::Impl {
+struct AmpDirectoryProtocol::Impl {
   pp::amp::PeerLinkManager* links = nullptr;
-  AmpDirectoryService* self = nullptr;
+  AmpDirectoryProtocol* self = nullptr;
   IoPump io_pump;
   WorkerPost post_worker;
   std::atomic<bool> stopped{false};
@@ -233,7 +233,7 @@ struct AmpDirectoryService::Impl {
   }
 };
 
-AmpDirectoryService::AmpDirectoryService(pp::amp::PeerLinkManager& links, IoPump io_pump,
+AmpDirectoryProtocol::AmpDirectoryProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump,
                                          WorkerPost post_worker)
     : impl_(std::make_unique<Impl>()), links_(links), io_pump_(std::move(io_pump)),
       post_worker_(std::move(post_worker)) {
@@ -243,9 +243,9 @@ AmpDirectoryService::AmpDirectoryService(pp::amp::PeerLinkManager& links, IoPump
   impl_->self = this;
 }
 
-AmpDirectoryService::~AmpDirectoryService() { Stop(); }
+AmpDirectoryProtocol::~AmpDirectoryProtocol() { Stop(); }
 
-void AmpDirectoryService::Configure(AmpDirectoryServiceConfig config) {
+void AmpDirectoryProtocol::Configure(AmpDirectoryProtocolConfig config) {
   config_ = std::move(config);
   inbound_limiter_.Configure(config_.inbound_ops_per_peer_per_window > 0
                                  ? config_.inbound_ops_per_peer_per_window
@@ -254,17 +254,17 @@ void AmpDirectoryService::Configure(AmpDirectoryServiceConfig config) {
                                                                     : 10);
 }
 
-void AmpDirectoryService::SetNodesProvider(AmpDirectoryNodesProvider provider) {
+void AmpDirectoryProtocol::SetNodesProvider(AmpDirectoryNodesProvider provider) {
   std::lock_guard lock(nodes_mutex_);
   nodes_provider_ = std::move(provider);
 }
 
-void AmpDirectoryService::SetNodesSnapshot(std::vector<MeshNodeHit> nodes) {
+void AmpDirectoryProtocol::SetNodesSnapshot(std::vector<MeshNodeHit> nodes) {
   std::lock_guard lock(nodes_mutex_);
   nodes_snapshot_ = std::move(nodes);
 }
 
-std::vector<MeshNodeHit> AmpDirectoryService::LocalNodes() const {
+std::vector<MeshNodeHit> AmpDirectoryProtocol::LocalNodes() const {
   std::lock_guard lock(nodes_mutex_);
   if (nodes_provider_) {
     return nodes_provider_();
@@ -272,11 +272,11 @@ std::vector<MeshNodeHit> AmpDirectoryService::LocalNodes() const {
   return nodes_snapshot_;
 }
 
-bool AmpDirectoryService::AllowInbound(const std::string& remote_peer) {
+bool AmpDirectoryProtocol::AllowInbound(const std::string& remote_peer) {
   return inbound_limiter_.Allow(remote_peer);
 }
 
-void AmpDirectoryService::Start() {
+void AmpDirectoryProtocol::Start() {
   if (started_) {
     return;
   }
@@ -288,7 +288,7 @@ void AmpDirectoryService::Start() {
                             });
 }
 
-void AmpDirectoryService::Stop() {
+void AmpDirectoryProtocol::Stop() {
   if (!started_) {
     return;
   }
@@ -297,7 +297,7 @@ void AmpDirectoryService::Stop() {
   links_.RemoveProtocolHandler(kDirectoryProtocolId);
 }
 
-void AmpDirectoryService::ListMeshNodesAsync(std::function<void(ListRoe)> on_done) {
+void AmpDirectoryProtocol::ListMeshNodesAsync(std::function<void(ListRoe)> on_done) {
   if (!started_) {
     on_done(ListRoe::error(Failure::Of(Err::NotStarted, "directory service not started")));
     return;
@@ -371,7 +371,7 @@ void AmpDirectoryService::ListMeshNodesAsync(std::function<void(ListRoe)> on_don
   }
 }
 
-AmpDirectoryService::ListRoe AmpDirectoryService::ListMeshNodes() {
+AmpDirectoryProtocol::ListRoe AmpDirectoryProtocol::ListMeshNodes() {
   if (!started_) {
     return ListRoe::error(Failure::Of(Err::NotStarted, "directory service not started"));
   }
@@ -412,7 +412,7 @@ AmpDirectoryService::ListRoe AmpDirectoryService::ListMeshNodes() {
   return ListRoe::error(Failure::Of(Err::Timeout, "directory list timed out"));
 }
 
-AmpDirectoryClient::AmpDirectoryClient(AmpDirectoryService& service) : service_(service) {}
+AmpDirectoryClient::AmpDirectoryClient(AmpDirectoryProtocol& service) : service_(service) {}
 
 Roe<std::vector<DirectoryHit>> AmpDirectoryClient::SearchPeople(const std::string& /*query*/) {
   return Error("Amp directory does not support person search (use HTTP failover)");

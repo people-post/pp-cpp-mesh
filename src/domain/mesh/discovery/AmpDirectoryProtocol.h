@@ -23,7 +23,7 @@ namespace pbr {
  *
  * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
  */
-class AmpDirectoryService {
+class AmpDirectoryProtocol {
 public:
   enum class Err : int32_t {
     Ok = 0,
@@ -47,13 +47,13 @@ public:
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
 
-  AmpDirectoryService(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {});
-  ~AmpDirectoryService();
+  AmpDirectoryProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {});
+  ~AmpDirectoryProtocol();
 
-  AmpDirectoryService(const AmpDirectoryService&) = delete;
-  AmpDirectoryService& operator=(const AmpDirectoryService&) = delete;
+  AmpDirectoryProtocol(const AmpDirectoryProtocol&) = delete;
+  AmpDirectoryProtocol& operator=(const AmpDirectoryProtocol&) = delete;
 
-  void Configure(AmpDirectoryServiceConfig config);
+  void Configure(AmpDirectoryProtocolConfig config);
   void SetNodesProvider(AmpDirectoryNodesProvider provider);
   void SetNodesSnapshot(std::vector<MeshNodeHit> nodes);
 
@@ -73,7 +73,7 @@ private:
   pp::amp::PeerLinkManager& links_;
   IoPump io_pump_;
   WorkerPost post_worker_;
-  AmpDirectoryServiceConfig config_;
+  AmpDirectoryProtocolConfig config_;
   AmpDirectoryNodesProvider nodes_provider_;
   std::vector<MeshNodeHit> nodes_snapshot_;
   mutable std::mutex nodes_mutex_;
@@ -85,12 +85,12 @@ private:
 };
 
 /**
- * IDirectoryClient adapter over AmpDirectoryService (N029 nd4).
+ * IDirectoryClient adapter over AmpDirectoryProtocol (N029 nd4).
  * Person lookups fail so FailoverDirectoryClient can fall through to HTTP.
  */
 class AmpDirectoryClient : public IDirectoryClient {
 public:
-  explicit AmpDirectoryClient(AmpDirectoryService& service);
+  explicit AmpDirectoryClient(AmpDirectoryProtocol& service);
 
   Roe<std::vector<DirectoryHit>> SearchPeople(const std::string& query) override;
   Roe<DirectoryHit> LookupRelayUser(const std::string& relay_user_id) override;
@@ -98,7 +98,7 @@ public:
   Roe<std::vector<MeshNodeHit>> ListMeshNodes() override;
 
 private:
-  AmpDirectoryService& service_;
+  AmpDirectoryProtocol& service_;
 };
 
 } // namespace pbr

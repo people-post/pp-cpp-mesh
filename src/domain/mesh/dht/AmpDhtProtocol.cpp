@@ -1,4 +1,4 @@
-#include "domain/mesh/dht/AmpDhtService.h"
+#include "domain/mesh/dht/AmpDhtProtocol.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
@@ -22,7 +22,7 @@ std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
   return std::vector<uint8_t>(json_utf8.begin(), json_utf8.end());
 }
 
-void RunWorker(const AmpDhtService::WorkerPost& post_worker, std::function<void()> task) {
+void RunWorker(const AmpDhtProtocol::WorkerPost& post_worker, std::function<void()> task) {
   if (post_worker) {
     post_worker(std::move(task));
   } else {
@@ -56,7 +56,7 @@ Value RecordsToJsonArray(const std::vector<PeerRoutingRecord>& records) {
 
 } // namespace
 
-AmpDhtService::Failure AmpDhtService::WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child) {
+AmpDhtProtocol::Failure AmpDhtProtocol::WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child) {
   switch (child.GetCode()) {
     case pp::amp::PeerLinkManager::Err::EndpointNotRegistered:
       return Failure::Of(Err::EndpointNotRegistered,
@@ -83,9 +83,9 @@ AmpDhtService::Failure AmpDhtService::WrapLinkFailure(const pp::amp::PeerLinkMan
   }
 }
 
-struct AmpDhtService::Impl {
+struct AmpDhtProtocol::Impl {
   pp::amp::PeerLinkManager* links = nullptr;
-  AmpDhtService* self = nullptr;
+  AmpDhtProtocol* self = nullptr;
   IoPump io_pump;
   WorkerPost post_worker;
   std::atomic<bool> stopped{false};
@@ -300,7 +300,7 @@ struct AmpDhtService::Impl {
   }
 };
 
-AmpDhtService::AmpDhtService(pp::amp::PeerLinkManager& links, IoPump io_pump, WorkerPost post_worker)
+AmpDhtProtocol::AmpDhtProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump, WorkerPost post_worker)
     : impl_(std::make_unique<Impl>()), links_(links), io_pump_(std::move(io_pump)),
       post_worker_(std::move(post_worker)) {
   impl_->links = &links_;
@@ -309,19 +309,19 @@ AmpDhtService::AmpDhtService(pp::amp::PeerLinkManager& links, IoPump io_pump, Wo
   impl_->self = this;
 }
 
-AmpDhtService::~AmpDhtService() { Stop(); }
+AmpDhtProtocol::~AmpDhtProtocol() { Stop(); }
 
-void AmpDhtService::Configure(AmpDhtServiceConfig config) {
+void AmpDhtProtocol::Configure(AmpDhtProtocolConfig config) {
   config_ = std::move(config);
   inbound_limiter_.Configure(config_.tunables.inbound_ops_per_peer_per_window,
                              config_.tunables.inbound_rate_window_seconds);
 }
 
-bool AmpDhtService::AllowInbound(const std::string& remote_peer) {
+bool AmpDhtProtocol::AllowInbound(const std::string& remote_peer) {
   return inbound_limiter_.Allow(remote_peer);
 }
 
-void AmpDhtService::NoteSoftReputationBad(const std::string& peer_key) {
+void AmpDhtProtocol::NoteSoftReputationBad(const std::string& peer_key) {
   if (peer_key.empty()) {
     return;
   }
@@ -340,7 +340,7 @@ void AmpDhtService::NoteSoftReputationBad(const std::string& peer_key) {
   }
 }
 
-bool AmpDhtService::SoftReputationAllows(const std::string& peer_key) const {
+bool AmpDhtProtocol::SoftReputationAllows(const std::string& peer_key) const {
   if (peer_key.empty()) {
     return true;
   }
@@ -352,7 +352,7 @@ bool AmpDhtService::SoftReputationAllows(const std::string& peer_key) const {
   return Clock::now() >= it->second.cooldown_until;
 }
 
-std::vector<std::string> AmpDhtService::FilteredQueryPeerKeys() {
+std::vector<std::string> AmpDhtProtocol::FilteredQueryPeerKeys() {
   std::vector<std::string> keys;
   keys.reserve(config_.query_peer_keys.size());
   for (const std::string& peer_key : config_.query_peer_keys) {
@@ -366,7 +366,7 @@ std::vector<std::string> AmpDhtService::FilteredQueryPeerKeys() {
   return keys;
 }
 
-void AmpDhtService::Start() {
+void AmpDhtProtocol::Start() {
   if (started_) {
     return;
   }
@@ -380,7 +380,7 @@ void AmpDhtService::Start() {
   }
 }
 
-void AmpDhtService::Stop() {
+void AmpDhtProtocol::Stop() {
   if (!started_) {
     return;
   }
@@ -389,7 +389,7 @@ void AmpDhtService::Stop() {
   links_.RemoveProtocolHandler(kDhtProtocolId);
 }
 
-void AmpDhtService::Tick() {
+void AmpDhtProtocol::Tick() {
   if (!started_ || !config_.participate || config_.local_peer_id.empty()) {
     return;
   }
@@ -431,7 +431,7 @@ void AmpDhtService::Tick() {
   store_req.set("version", int64_t{kDhtWireVersion});
   store_req.set("record", PeerRoutingRecordToObject(*signed_record));
   for (const std::string& peer_key : config_.query_peer_keys) {
-    impl_->Rpc(peer_key, store_req, [](AmpDhtService::RpcRoe) {});
+    impl_->Rpc(peer_key, store_req, [](AmpDhtProtocol::RpcRoe) {});
   }
 
   // Warm bootstrap/query peers into the local store (lab mutual discovery + dial warm-up).
@@ -447,7 +447,7 @@ void AmpDhtService::Tick() {
   }
 }
 
-void AmpDhtService::FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done) {
+void AmpDhtProtocol::FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done) {
   if (!started_) {
     on_done(FindPeerRoe::error(Failure::Of(Err::NotStarted, "dht service not started")));
     return;
@@ -495,7 +495,7 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id, std::function<vo
     std::shared_ptr<std::atomic<size_t>> pending;
     std::optional<PeerRoutingRecord> best;
     Failure last_failure = Failure::Of(Err::NotFound, "find_peer not found");
-    AmpDhtService* self = nullptr;
+    AmpDhtProtocol* self = nullptr;
   };
   auto state = std::make_shared<State>();
   state->self = this;
@@ -570,15 +570,15 @@ void AmpDhtService::FindPeer(const std::string& target_peer_id, std::function<vo
   }
 }
 
-std::optional<PeerRoutingRecord> AmpDhtService::LocalRecord(const std::string& peer_id) const {
+std::optional<PeerRoutingRecord> AmpDhtProtocol::LocalRecord(const std::string& peer_id) const {
   return store_.Get(peer_id);
 }
 
-std::vector<PeerRoutingRecord> AmpDhtService::SnapshotRecords() const {
+std::vector<PeerRoutingRecord> AmpDhtProtocol::SnapshotRecords() const {
   return store_.Snapshot();
 }
 
-DhtOpsStats AmpDhtService::Stats() const {
+DhtOpsStats AmpDhtProtocol::Stats() const {
   DhtOpsStats stats;
   stats.started = started_;
   stats.participate = config_.participate;
@@ -605,7 +605,7 @@ DhtOpsStats AmpDhtService::Stats() const {
   return stats;
 }
 
-std::string AmpDhtService::FormatOpsStatusJson() const {
+std::string AmpDhtProtocol::FormatOpsStatusJson() const {
   const DhtOpsStats stats = Stats();
   Object object;
   object.set("started", stats.started);

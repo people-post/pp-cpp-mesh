@@ -20,7 +20,7 @@ namespace pbr {
  *
  * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
  */
-class AmpDialBackService {
+class AmpDialBackProtocol {
 public:
   enum class Err : int32_t {
     Ok = 0,
@@ -43,11 +43,11 @@ public:
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
 
-  AmpDialBackService(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {});
-  ~AmpDialBackService();
+  AmpDialBackProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {});
+  ~AmpDialBackProtocol();
 
-  AmpDialBackService(const AmpDialBackService&) = delete;
-  AmpDialBackService& operator=(const AmpDialBackService&) = delete;
+  AmpDialBackProtocol(const AmpDialBackProtocol&) = delete;
+  AmpDialBackProtocol& operator=(const AmpDialBackProtocol&) = delete;
 
   void Start();
   void Stop();
