@@ -36,7 +36,7 @@ pp::amp::PeerLinkConfig MakeAmpLinkConfig() {
 
 } // namespace
 
-MeshHost::MeshHost() : reachability_(std::make_unique<ReachabilityService>()) {}
+MeshHost::MeshHost() : reachability_(std::make_unique<ReachabilityEngine>()) {}
 
 MeshHost::~MeshHost() { Stop(); }
 
@@ -47,7 +47,7 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
 
   // D10/A017: Amp is the only product underlay. mesh_enabled=false leaves mesh off.
   if (!config.mesh_enabled) {
-    reachability_ = std::make_unique<ReachabilityService>();
+    reachability_ = std::make_unique<ReachabilityEngine>();
     if (config.on_reachability_updated) {
       reachability_->SetOnUpdated(config.on_reachability_updated);
     }
@@ -62,7 +62,7 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   }
 
   bootstrap_peers_ = config.bootstrap_peers;
-  reachability_ = std::make_unique<ReachabilityService>();
+  reachability_ = std::make_unique<ReachabilityEngine>();
   if (config.on_reachability_updated) {
     reachability_->SetOnUpdated(config.on_reachability_updated);
   }
@@ -142,20 +142,20 @@ void MeshHost::EnsureAmpL4Coordinators() {
   }
   amp_media_relay_->SetCircuitHopRegistry(amp_circuit_hops_.get());
   if (!amp_dial_back_) {
-    AmpDialBackService::IoPump pump = [this]() { Tick(); };
-    amp_dial_back_ = std::make_unique<AmpDialBackService>(amp_->Links(), std::move(pump));
+    AmpDialBackProtocol::IoPump pump = [this]() { Tick(); };
+    amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Links(), std::move(pump));
   }
   if (!amp_punch_) {
     AmpPunchCoordinator::IoPump pump = [this]() { Tick(); };
     amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Links(), std::move(pump));
   }
   if (!amp_dht_) {
-    AmpDhtService::IoPump pump = [this]() { Tick(); };
-    amp_dht_ = std::make_unique<AmpDhtService>(amp_->Links(), std::move(pump));
+    AmpDhtProtocol::IoPump pump = [this]() { Tick(); };
+    amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Links(), std::move(pump));
   }
   if (!amp_directory_) {
-    AmpDirectoryService::IoPump pump = [this]() { Tick(); };
-    amp_directory_ = std::make_unique<AmpDirectoryService>(amp_->Links(), std::move(pump));
+    AmpDirectoryProtocol::IoPump pump = [this]() { Tick(); };
+    amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Links(), std::move(pump));
   }
 }
 
@@ -296,8 +296,8 @@ void MeshHost::Stop() {
   }
   StopAmp();
   bootstrap_peers_.clear();
-  // Keep a fresh, valid ReachabilityService so Reachability() references stay safe.
-  reachability_ = std::make_unique<ReachabilityService>();
+  // Keep a fresh, valid ReachabilityEngine so Reachability() references stay safe.
+  reachability_ = std::make_unique<ReachabilityEngine>();
 }
 
 void MeshHost::Tick() {
@@ -329,15 +329,15 @@ void MeshHost::RefreshAdvertisedListenAddrs() {
   }
 }
 
-AmpDialBackService* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
+AmpDialBackProtocol* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
 
 AmpPunchCoordinator* MeshHost::AmpPunch() { return amp_punch_.get(); }
 
-AmpDhtService* MeshHost::AmpDht() { return amp_dht_.get(); }
+AmpDhtProtocol* MeshHost::AmpDht() { return amp_dht_.get(); }
 
-AmpDirectoryService* MeshHost::AmpDirectory() { return amp_directory_.get(); }
+AmpDirectoryProtocol* MeshHost::AmpDirectory() { return amp_directory_.get(); }
 
-void MeshHost::ConfigureAmpDht(AmpDhtServiceConfig config) {
+void MeshHost::ConfigureAmpDht(AmpDhtProtocolConfig config) {
   if (!amp_dht_) {
     return;
   }
@@ -360,7 +360,7 @@ void MeshHost::RefreshAmpDhtHosting(const bool host_dht) {
   }
 }
 
-void MeshHost::ConfigureAmpDirectory(AmpDirectoryServiceConfig config) {
+void MeshHost::ConfigureAmpDirectory(AmpDirectoryProtocolConfig config) {
   if (!amp_directory_) {
     return;
   }
@@ -409,7 +409,7 @@ void MeshHost::RunReachabilityProbeBlocking(bool try_upnp_first) {
   reachability_->RunProbeBlocking(MakeReachabilityDeps(try_upnp_first));
 }
 
-ReachabilityService& MeshHost::Reachability() { return *reachability_; }
+ReachabilityEngine& MeshHost::Reachability() { return *reachability_; }
 
 std::optional<MeshChatDeps> MeshHost::ChatDeps() {
   if (!amp_ || !chat_links_) {

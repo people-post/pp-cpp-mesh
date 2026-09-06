@@ -3,15 +3,15 @@
 #include "foundation/data/Config.h"
 #include "amp/link/AmpStack.h"
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
-#include "domain/mesh/dht/AmpDhtService.h"
-#include "domain/mesh/discovery/AmpDirectoryService.h"
-#include "domain/mesh/reachability/AmpDialBackService.h"
+#include "domain/mesh/dht/AmpDhtProtocol.h"
+#include "domain/mesh/discovery/AmpDirectoryProtocol.h"
+#include "domain/mesh/reachability/AmpDialBackProtocol.h"
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 #include "domain/mesh/host/MeshIdentityConfig.h"
 #include "domain/mesh/host/MeshPorts.h"
-#include "domain/mesh/reachability/ReachabilityService.h"
+#include "domain/mesh/reachability/ReachabilityEngine.h"
 #include "common/Error.h"
 
 #include <functional>
@@ -73,7 +73,7 @@ public:
   void Tick();
   bool IsRunning() const;
 
-  ReachabilityService& Reachability();
+  ReachabilityEngine& Reachability();
 
   /** Feature-layer chat port bundle (null when Amp is down). */
   std::optional<MeshChatDeps> ChatDeps();
@@ -94,19 +94,19 @@ public:
   AmpMediaRelayCoordinator* AmpMediaRelayCoord();
   AmpCircuitHopRegistry* AmpCircuitHops();
   /** Amp dial-back for reachability chrome (D8); null when Amp is down. */
-  AmpDialBackService* AmpDialBack();
+  AmpDialBackProtocol* AmpDialBack();
   /** Amp coordinated punch (H009 / L3.25a); null when Amp is down. */
   AmpPunchCoordinator* AmpPunch();
   /** Amp mesh DHT (n2); null when Amp is down. */
-  AmpDhtService* AmpDht();
+  AmpDhtProtocol* AmpDht();
   /** Amp directory twin (N029 nd4); null when Amp is down. */
-  AmpDirectoryService* AmpDirectory();
+  AmpDirectoryProtocol* AmpDirectory();
 
-  void ConfigureAmpDht(AmpDhtServiceConfig config);
+  void ConfigureAmpDht(AmpDhtProtocolConfig config);
   /** Hot refresh: advertisement + participate flag without restart. */
   void RefreshAmpDhtHosting(bool host_dht);
 
-  void ConfigureAmpDirectory(AmpDirectoryServiceConfig config);
+  void ConfigureAmpDirectory(AmpDirectoryProtocolConfig config);
   /** Hot refresh: advertise `/pp-mesh/directory/1.0.0` when serving. */
   void RefreshAmpDirectoryHosting(bool host_directory);
 
@@ -132,15 +132,15 @@ private:
                          bool refresh_listen_addrs = true);
   AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
 
-  std::unique_ptr<ReachabilityService> reachability_;
+  std::unique_ptr<ReachabilityEngine> reachability_;
   std::unique_ptr<pp::amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
   std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
   std::unique_ptr<AmpMediaRelayCoordinator> amp_media_relay_;
-  std::unique_ptr<AmpDialBackService> amp_dial_back_;
+  std::unique_ptr<AmpDialBackProtocol> amp_dial_back_;
   std::unique_ptr<AmpPunchCoordinator> amp_punch_;
-  std::unique_ptr<AmpDhtService> amp_dht_;
-  std::unique_ptr<AmpDirectoryService> amp_directory_;
+  std::unique_ptr<AmpDhtProtocol> amp_dht_;
+  std::unique_ptr<AmpDirectoryProtocol> amp_directory_;
   bool host_dht_ = false;
   bool host_directory_ = false;
   std::unique_ptr<IChatPeerLinks> chat_links_;

@@ -1,5 +1,5 @@
-#include "domain/mesh/discovery/AmpDirectoryService.h"
-#include "domain/net/ServiceClientsImpl.h"
+#include "domain/mesh/discovery/AmpDirectoryProtocol.h"
+#include "domain/net/OrgBackendClientsImpl.h"
 
 #include "common/SettledWait.h"
 #include "domain/mesh/tests/support/mesh_test_harness.h"
@@ -9,7 +9,7 @@
 namespace pbr {
 namespace {
 
-TEST(AmpDirectoryServiceTest, ListMeshNodesReturnsSeedSnapshot) {
+TEST(AmpDirectoryProtocolTest, ListMeshNodesReturnsSeedSnapshot) {
   auto created = pbr::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
@@ -19,10 +19,10 @@ TEST(AmpDirectoryServiceTest, ListMeshNodesReturnsSeedSnapshot) {
 
   auto pump = [&]() { harness->PumpBoth(); };
 
-  AmpDirectoryService seed(harness->mgr_b(), pump, {});
-  AmpDirectoryService client(harness->mgr_a(), pump, {});
+  AmpDirectoryProtocol seed(harness->mgr_b(), pump, {});
+  AmpDirectoryProtocol client(harness->mgr_a(), pump, {});
 
-  AmpDirectoryServiceConfig seed_cfg;
+  AmpDirectoryProtocolConfig seed_cfg;
   seed_cfg.local_peer_id = harness->peer_id_b;
   seed.Configure(seed_cfg);
 
@@ -42,7 +42,7 @@ TEST(AmpDirectoryServiceTest, ListMeshNodesReturnsSeedSnapshot) {
   published.endpoints.push_back(std::move(ep));
   seed.SetNodesSnapshot({published});
 
-  AmpDirectoryServiceConfig client_cfg;
+  AmpDirectoryProtocolConfig client_cfg;
   client_cfg.local_peer_id = harness->peer_id_a;
   client_cfg.query_peer_keys = {"seed"};
   client.Configure(client_cfg);
@@ -70,16 +70,16 @@ TEST(AmpDirectoryServiceTest, ListMeshNodesReturnsSeedSnapshot) {
   seed.Stop();
 }
 
-TEST(AmpDirectoryServiceTest, WrapLinkFailureMapsCodes) {
+TEST(AmpDirectoryProtocolTest, WrapLinkFailureMapsCodes) {
   using Mgr = pp::amp::PeerLinkManager;
-  EXPECT_EQ(AmpDirectoryService::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::DialTimeout, "slow")).GetCode(),
-            AmpDirectoryService::Err::Timeout);
+  EXPECT_EQ(AmpDirectoryProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::DialTimeout, "slow")).GetCode(),
+            AmpDirectoryProtocol::Err::Timeout);
   EXPECT_EQ(
-      AmpDirectoryService::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux")).GetCode(),
-      AmpDirectoryService::Err::ChannelFailed);
+      AmpDirectoryProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux")).GetCode(),
+      AmpDirectoryProtocol::Err::ChannelFailed);
 }
 
-TEST(AmpDirectoryServiceTest, FailoverDirectoryFallsBackWhenAmpFails) {
+TEST(AmpDirectoryProtocolTest, FailoverDirectoryFallsBackWhenAmpFails) {
   class FakeHttpDirectory : public IDirectoryClient {
   public:
     Roe<std::vector<DirectoryHit>> SearchPeople(const std::string&) override {

@@ -1,7 +1,7 @@
-#include "domain/mesh/reachability/ReachabilityService.h"
+#include "domain/mesh/reachability/ReachabilityEngine.h"
 
 #include "amp/link/AdpMultiaddr.h"
-#include "domain/mesh/reachability/AmpDialBackService.h"
+#include "domain/mesh/reachability/AmpDialBackProtocol.h"
 #include "domain/mesh/reachability/NatTraversal.h"
 #include "common/ValueJson.h"
 
@@ -43,17 +43,17 @@ std::optional<std::string> FirstAdpBootstrap(const std::vector<std::string>& boo
 
 } // namespace
 
-ReachabilitySnapshot ReachabilityService::Snapshot() const {
+ReachabilitySnapshot ReachabilityEngine::Snapshot() const {
   std::lock_guard lock(mutex_);
   return snapshot_;
 }
 
-void ReachabilityService::SetOnUpdated(std::function<void()> callback) {
+void ReachabilityEngine::SetOnUpdated(std::function<void()> callback) {
   std::lock_guard lock(mutex_);
   on_updated_ = std::move(callback);
 }
 
-void ReachabilityService::Publish(ReachabilitySnapshot snapshot) {
+void ReachabilityEngine::Publish(ReachabilitySnapshot snapshot) {
   std::function<void()> callback;
   {
     std::lock_guard lock(mutex_);
@@ -65,7 +65,7 @@ void ReachabilityService::Publish(ReachabilitySnapshot snapshot) {
   }
 }
 
-void ReachabilityService::StartProbe(AmpReachabilityProbeDeps deps) {
+void ReachabilityEngine::StartProbe(AmpReachabilityProbeDeps deps) {
   if (probing_.exchange(true)) {
     return;
   }
@@ -85,14 +85,14 @@ void ReachabilityService::StartProbe(AmpReachabilityProbeDeps deps) {
   }
 }
 
-void ReachabilityService::RunProbeBlocking(AmpReachabilityProbeDeps deps) {
+void ReachabilityEngine::RunProbeBlocking(AmpReachabilityProbeDeps deps) {
   StartProbe(std::move(deps));
   while (probing_.load()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 }
 
-void ReachabilityService::RunProbe(AmpReachabilityProbeDeps deps) {
+void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
   ReachabilitySnapshot result;
   result.measured_at = Clock::now();
 
@@ -189,7 +189,7 @@ void ReachabilityService::RunProbe(AmpReachabilityProbeDeps deps) {
   Publish(result);
 }
 
-std::string ReachabilityService::FormatOpsStatusJson() const {
+std::string ReachabilityEngine::FormatOpsStatusJson() const {
   const ReachabilitySnapshot snap = Snapshot();
   Object j;
   j.set("status", ReachabilityStatusKey(snap.status));

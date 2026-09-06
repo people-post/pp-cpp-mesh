@@ -12,7 +12,7 @@ namespace pbr {
 inline constexpr const char* kDirectoryProtocolId = "/pp-mesh/directory/1.0.0";
 inline constexpr int kDirectoryWireVersion = 1;
 
-struct AmpDirectoryServiceConfig {
+struct AmpDirectoryProtocolConfig {
   std::string local_peer_id;
   /** PeerLinkManager endpoint keys to query for list_mesh_nodes. */
   std::vector<std::string> query_peer_keys;

@@ -8,10 +8,10 @@ set(PP_DOMAIN_MESH_HOST_SOURCES
 
 set(PP_DOMAIN_MESH_REACHABILITY_SOURCES
   reachability/Reachability.cpp
-  reachability/ReachabilityService.cpp
+  reachability/ReachabilityEngine.cpp
   reachability/NatTraversal.cpp
   reachability/LanMdnsDiscovery.cpp
-  reachability/AmpDialBackService.cpp
+  reachability/AmpDialBackProtocol.cpp
   reachability/AmpObservedAddrs.cpp
   reachability/PunchLogic.cpp
   reachability/AmpPunchCoordinator.cpp
@@ -22,14 +22,14 @@ set(PP_DOMAIN_MESH_DISCOVERY_SOURCES
   discovery/MeshDirectoryCache.cpp
   discovery/NameDirectory.cpp
   discovery/MeshNodeHitCodec.cpp
-  discovery/AmpDirectoryService.cpp
+  discovery/AmpDirectoryProtocol.cpp
 )
 
 set(PP_DOMAIN_MESH_DHT_SOURCES
   dht/DhtRecordCodec.cpp
   dht/DhtRecordStore.cpp
   dht/DhtRateLimiter.cpp
-  dht/AmpDhtService.cpp
+  dht/AmpDhtProtocol.cpp
 )
 
 set(PP_DOMAIN_MESH_L4_CIRCUIT_SOURCES

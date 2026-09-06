@@ -49,7 +49,7 @@ struct DhtOpsStats {
   size_t soft_reputation_penalized_peers = 0;
 };
 
-struct AmpDhtServiceConfig {
+struct AmpDhtProtocolConfig {
   std::string local_peer_id;
   std::vector<std::string> listen_multiaddrs;
   std::vector<uint8_t> device_signing_secret;
