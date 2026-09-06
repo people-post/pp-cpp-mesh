@@ -270,6 +270,7 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
   }
   std::vector<std::string> protocols = {kDirectChatProtocolId, kChatHistoryProtocolId, kChatBlobProtocolId,
                                         kRpcPeerAnnounceProtocolId,
+                                        kRpcBroadcastProtocolId,
                                         kCallMediaDirectProtocolId, kDialBackProtocolId, kAmpPunchProtocolId};
   if (config.host_circuit_relay) {
     protocols.push_back(kCircuitRelayProtocolId);
