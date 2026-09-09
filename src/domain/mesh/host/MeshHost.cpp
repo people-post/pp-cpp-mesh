@@ -202,7 +202,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
     amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Links(), io_pump, post_worker, post_io);
   }
   if (!amp_punch_) {
-    amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Links(), io_pump, post_worker);
+    amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Links(), io_pump, post_worker, post_io);
   }
   if (!amp_dht_) {
     amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Links(), io_pump, post_worker);
@@ -481,6 +481,7 @@ std::optional<MeshChatDeps> MeshHost::ChatDeps() {
   MeshIoContext io;
   io.io_pump = MakeL4IoPump();
   io.post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
+  io.post_io = MakeL4IoPost();
   io.local_peer_id = amp_->LocalPeerId();
   io.listen_multiaddr = amp_listen_multiaddr_;
   return MeshChatDeps{std::move(io), *chat_links_};

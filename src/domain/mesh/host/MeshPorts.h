@@ -49,6 +49,8 @@ using MeshWorkerPost = std::function<void(std::function<void()>)>;
 struct MeshIoContext {
   std::function<void()> io_pump;
   MeshWorkerPost post_worker;
+  /** MeshRuntime::PostToIo for A022-style channel-open polls (optional). */
+  MeshWorkerPost post_io;
   std::string local_peer_id;
   std::string listen_multiaddr;
 };
