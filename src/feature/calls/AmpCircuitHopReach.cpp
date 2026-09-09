@@ -8,7 +8,9 @@
 #include "domain/mesh/shared/AmpParkUntil.h"
 #include "common/SettledWait.h"
 
+#include <atomic>
 #include <chrono>
+#include <memory>
 #include <optional>
 
 namespace pbr {
@@ -20,80 +22,111 @@ using Clock = std::chrono::steady_clock;
 
 AmpCircuitHopReach::AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops,
                                        IChatPeerLinks& links, IoPump io_pump,
-                                       CollectRelays collect_relays, TryPunch try_punch,
-                                       TryPunchViaIntroducer try_punch_via_introducer)
+                                       CollectRelays collect_relays, TryPunchAsync try_punch,
+                                       TryPunchViaIntroducerAsync try_punch_via_introducer, IoPost post_io)
     : circuit_(circuit), hops_(hops), links_(links), io_pump_(std::move(io_pump)),
-      collect_relays_(std::move(collect_relays)), try_punch_(std::move(try_punch)),
-      try_punch_via_introducer_(std::move(try_punch_via_introducer)) {}
+      post_io_(std::move(post_io)), collect_relays_(std::move(collect_relays)),
+      try_punch_(std::move(try_punch)), try_punch_via_introducer_(std::move(try_punch_via_introducer)) {}
 
-Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
+void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_id,
+                                                    std::function<void(Roe<void>)> on_done) {
+  if (!on_done) {
+    return;
+  }
   if (hop_peer_id.empty()) {
-    return Error("missing hop peer");
+    on_done(Error("missing hop peer"));
+    return;
   }
   if (hops_.Find(hop_peer_id, kMediaRelayProtocolId)) {
-    return {};
+    on_done(Roe<void>());
+    return;
   }
   if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint) {
-    return {};
+    on_done(Roe<void>());
+    return;
   }
-  if (try_punch_) {
-    if (auto punched = try_punch_(hop_peer_id); punched) {
-      if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint || links_.IsConnected(hop_peer_id)) {
-        return {};
-      }
+  auto after_punch = [this, hop_peer_id, on_done = std::move(on_done)](Roe<void> /*punched*/) mutable {
+    if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint || links_.IsConnected(hop_peer_id)) {
+      on_done(Roe<void>());
+      return;
     }
+    EnsureViaCircuitAsync(hop_peer_id, kMediaRelayProtocolId, /*register_endpoint=*/true,
+                          /*nested_session=*/false, std::move(on_done));
+  };
+  if (try_punch_) {
+    try_punch_(hop_peer_id, std::move(after_punch));
+    return;
   }
-  return EnsureViaCircuit(hop_peer_id, kMediaRelayProtocolId, /*register_endpoint=*/true,
-                          /*nested_session=*/false);
+  after_punch(Error("no punch"));
 }
 
-Roe<void> AmpCircuitHopReach::TryEnsureCallMediaReachable(const std::string& peer_key) {
+void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& peer_key,
+                                                          std::function<void(Roe<void>)> on_done) {
+  if (!on_done) {
+    return;
+  }
   if (peer_key.empty()) {
-    return Error("missing call peer");
+    on_done(Error("missing call peer"));
+    return;
   }
-  // Direct ADP or already-connected nested/direct link — no circuit needed.
   if (links_.IsConnected(peer_key) || links_.GetLinkSnapshot(peer_key).has_endpoint) {
-    return {};
+    on_done(Roe<void>());
+    return;
   }
-  // Protocol-specific: a media-relay hop must not short-circuit call-media reach.
   if (hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId) && links_.IsConnected(peer_key)) {
-    return {};
+    on_done(Roe<void>());
+    return;
   }
-  if (try_punch_) {
-    if (auto punched = try_punch_(peer_key); punched) {
-      if (links_.IsConnected(peer_key) || links_.GetLinkSnapshot(peer_key).has_endpoint) {
-        return {};
-      }
+  auto after_punch = [this, peer_key, on_done = std::move(on_done)](Roe<void> /*punched*/) mutable {
+    if (links_.IsConnected(peer_key) || links_.GetLinkSnapshot(peer_key).has_endpoint) {
+      on_done(Roe<void>());
+      return;
     }
+    EnsureViaCircuitAsync(peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
+                          /*nested_session=*/true, std::move(on_done));
+  };
+  if (try_punch_) {
+    try_punch_(peer_key, std::move(after_punch));
+    return;
   }
-  return EnsureViaCircuit(peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
-                          /*nested_session=*/true);
+  after_punch(Error("no punch"));
 }
 
-Roe<void> AmpCircuitHopReach::EnsureViaCircuit(const std::string& target_peer_id,
+void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id,
                                                const std::string& target_protocol,
-                                               const bool register_endpoint, const bool nested_session) {
+                                               const bool register_endpoint, const bool nested_session,
+                                               std::function<void(Roe<void>)> on_done) {
+  if (!on_done) {
+    return;
+  }
   if (!circuit_.IsStarted()) {
-    return Error("amp circuit-relay not available");
+    on_done(Error("amp circuit-relay not available"));
+    return;
   }
   if (target_peer_id.empty() || target_protocol.empty()) {
-    return Error("amp circuit hop incomplete");
+    on_done(Error("amp circuit hop incomplete"));
+    return;
   }
   if (!nested_session && hops_.Find(target_peer_id, target_protocol)) {
-    return {};
+    on_done(Roe<void>());
+    return;
   }
   if (nested_session && links_.IsConnected(target_peer_id)) {
-    return {};
+    on_done(Roe<void>());
+    return;
   }
   if (!nested_session && links_.GetLinkSnapshot(target_peer_id).has_endpoint) {
-    return {};
+    on_done(Roe<void>());
+    return;
   }
   if (!collect_relays_) {
-    return Error("no dialable circuit relays");
+    on_done(Error("no dialable circuit relays"));
+    return;
   }
-  const std::vector<std::string> relays = collect_relays_(target_peer_id);
-  if (relays.empty()) {
-    return Error("no dialable circuit relays");
+  auto relays = std::make_shared<std::vector<std::string>>(collect_relays_(target_peer_id));
+  if (relays->empty()) {
+    on_done(Error("no dialable circuit relays"));
+    return;
   }
 
   CircuitBridgeTarget bridge_target;
@@ -103,67 +136,120 @@ Roe<void> AmpCircuitHopReach::EnsureViaCircuit(const std::string& target_peer_id
     bridge_target.target_multiaddr = *ma;
   }
 
-  for (const std::string& relay_key : relays) {
+  auto try_relay = std::make_shared<std::function<void(size_t)>>();
+  *try_relay = [this, target_peer_id, target_protocol, register_endpoint, nested_session, bridge_target,
+                relays, try_relay, on_done = std::move(on_done)](size_t index) mutable {
+    if (index >= relays->size()) {
+      on_done(Error("circuit hop reach failed"));
+      return;
+    }
+    const std::string relay_key = (*relays)[index];
     if (relay_key == target_peer_id || !links_.GetLinkSnapshot(relay_key).has_endpoint) {
-      continue;
+      (*try_relay)(index + 1);
+      return;
     }
 
-    SettledWait<CircuitTunnelBridgeResult> wait;
-    const CircuitTunnelId id = circuit_.StartBridge(
+    auto settled = std::make_shared<std::atomic<bool>>(false);
+    auto tunnel_id = std::make_shared<CircuitTunnelId>();
+    auto on_bridge = std::make_shared<std::function<void(Roe<CircuitTunnelBridgeResult>)>>();
+    *on_bridge = [this, target_peer_id, target_protocol, register_endpoint, nested_session, relay_key,
+                  settled, tunnel_id, try_relay, index, on_done](Roe<CircuitTunnelBridgeResult> result) mutable {
+      if (settled->exchange(true, std::memory_order_acq_rel)) {
+        return;
+      }
+      const CircuitTunnelId id = *tunnel_id;
+      if (!result || !result->ok || !result->session) {
+        (*try_relay)(index + 1);
+        return;
+      }
+      auto session = result->session;
+      const std::string resolved = result->resolved_multiaddr;
+
+      if (nested_session) {
+        auto nested_settled = std::make_shared<std::atomic<bool>>(false);
+        const auto nested_deadline = Clock::now() + std::chrono::milliseconds(10000);
+        links_.EstablishNestedOverCarrier(
+            target_peer_id, session, true,
+            [this, target_peer_id, target_protocol, relay_key, id, session, nested_settled, try_relay, index,
+             on_done](IChatPeerLinks::LinkRoe nested) mutable {
+              if (nested_settled->exchange(true, std::memory_order_acq_rel)) {
+                return;
+              }
+              if (!nested) {
+                (*try_relay)(index + 1);
+                return;
+              }
+              (void)hops_.Install(target_peer_id, relay_key, target_protocol, session, id);
+              on_done(Roe<void>());
+            });
+        AmpScheduleUntilSettled(post_io_, io_pump_, nested_settled, nested_deadline,
+                                [nested_settled, try_relay, index]() {
+                                  if (nested_settled->exchange(true, std::memory_order_acq_rel)) {
+                                    return;
+                                  }
+                                  (*try_relay)(index + 1);
+                                });
+        return;
+      }
+
+      if (register_endpoint && !resolved.empty()) {
+        (void)links_.RegisterEndpoint(target_peer_id, resolved);
+      }
+      auto installed = hops_.Install(target_peer_id, relay_key, target_protocol, session, id);
+      if (!installed) {
+        on_done(installed);
+        return;
+      }
+      on_done(Roe<void>());
+    };
+
+    *tunnel_id = circuit_.StartBridge(
         relay_key, bridge_target, {}, {},
-        [wait](Roe<CircuitTunnelBridgeResult> result) { wait.Finish(std::move(result)); }, 8000);
-    if (!id) {
-      continue;
+        [on_bridge](Roe<CircuitTunnelBridgeResult> result) { (*on_bridge)(std::move(result)); }, 8000);
+    if (!*tunnel_id) {
+      (*try_relay)(index + 1);
+      return;
     }
 
     const auto deadline = Clock::now() + std::chrono::milliseconds(10000);
-    // MeshPump owns Drive — empty io_pump sleeps; harness Tick via io_pump.
-    AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
-    auto bridged = wait.Wait(std::chrono::milliseconds(1), Error("amp circuit bridge timed out"));
-    if (!bridged || !bridged->ok || !bridged->session) {
-      continue;
-    }
-
-    if (nested_session) {
-      SettledWait<void> nested_wait;
-      links_.EstablishNestedOverCarrier(
-          target_peer_id, bridged->session, true,
-          [nested_wait](IChatPeerLinks::LinkRoe result) {
-            if (result) {
-              nested_wait.Finish(Roe<void>());
-            } else {
-              nested_wait.Finish(Roe<void>(Error(result.error().message)));
-            }
-          });
-      const auto nested_deadline = Clock::now() + std::chrono::milliseconds(10000);
-      AmpParkUntil([&] { return nested_wait.IsSettled(); }, nested_deadline, io_pump_);
-      auto nested = nested_wait.Wait(std::chrono::milliseconds(1), Error("amp nested session timed out"));
-      if (!nested) {
-        continue;
+    AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline, [settled, try_relay, index]() {
+      if (settled->exchange(true, std::memory_order_acq_rel)) {
+        return;
       }
-      (void)hops_.Install(target_peer_id, relay_key, target_protocol, bridged->session, id);
-      return {};
-    }
-
-    if (register_endpoint && !bridged->resolved_multiaddr.empty()) {
-      (void)links_.RegisterEndpoint(target_peer_id, bridged->resolved_multiaddr);
-    }
-    auto installed =
-        hops_.Install(target_peer_id, relay_key, target_protocol, bridged->session, id);
-    if (!installed) {
-      return installed;
-    }
-    return {};
-  }
-  return Error("circuit hop reach failed");
+      (*try_relay)(index + 1);
+    });
+  };
+  (*try_relay)(0);
 }
 
-Roe<void> AmpCircuitHopReach::TryUpgradeToDirect(const std::string& peer_key) {
+Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
+  SettledWait<void> wait;
+  TryEnsureHopReachableAsync(hop_peer_id, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
+  const auto deadline = Clock::now() + std::chrono::milliseconds(30000);
+  AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
+  return wait.Wait(std::chrono::milliseconds(1), Error("circuit hop reach timed out"));
+}
+
+Roe<void> AmpCircuitHopReach::TryEnsureCallMediaReachable(const std::string& peer_key) {
+  SettledWait<void> wait;
+  TryEnsureCallMediaReachableAsync(peer_key, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
+  const auto deadline = Clock::now() + std::chrono::milliseconds(30000);
+  AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
+  return wait.Wait(std::chrono::milliseconds(1), Error("call-media circuit reach timed out"));
+}
+
+void AmpCircuitHopReach::TryUpgradeToDirectAsync(const std::string& peer_key,
+                                                 std::function<void(Roe<void>)> on_done) {
+  if (!on_done) {
+    return;
+  }
   if (peer_key.empty()) {
-    return Error("missing upgrade peer");
+    on_done(Error("missing upgrade peer"));
+    return;
   }
   if (!try_punch_via_introducer_) {
-    return Error("circuit upgrade punch unavailable");
+    on_done(Error("circuit upgrade punch unavailable"));
+    return;
   }
 
   std::optional<AmpCircuitHopRegistry::Hop> hop = hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId);
@@ -173,23 +259,33 @@ Roe<void> AmpCircuitHopReach::TryUpgradeToDirect(const std::string& peer_key) {
     protocol = kMediaRelayProtocolId;
   }
   if (!hop) {
-    return Error("no circuit hop to upgrade");
+    on_done(Error("no circuit hop to upgrade"));
+    return;
   }
 
   const std::string relay_key = hop->relay_peer_key;
   const CircuitTunnelId tunnel_id = hop->tunnel_id;
+  try_punch_via_introducer_(
+      relay_key, peer_key,
+      [this, peer_key, protocol, tunnel_id, on_done = std::move(on_done)](Roe<void> punched) mutable {
+        if (!punched) {
+          on_done(std::move(punched));
+          return;
+        }
+        if (!links_.GetLinkSnapshot(peer_key).has_endpoint) {
+          on_done(Error("upgrade punch did not yield a direct path"));
+          return;
+        }
+        on_done(DemoteCircuitHop(peer_key, protocol, tunnel_id));
+      });
+}
 
-  if (auto punched = try_punch_via_introducer_(relay_key, peer_key); !punched) {
-    return punched;
-  }
-
-  // Require PeerId address-book upsert (direct dialable) before demoting the circuit.
-  // IsConnected alone may still be the nested/carrier path.
-  if (!links_.GetLinkSnapshot(peer_key).has_endpoint) {
-    return Error("upgrade punch did not yield a direct path");
-  }
-
-  return DemoteCircuitHop(peer_key, protocol, tunnel_id);
+Roe<void> AmpCircuitHopReach::TryUpgradeToDirect(const std::string& peer_key) {
+  SettledWait<void> wait;
+  TryUpgradeToDirectAsync(peer_key, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
+  const auto deadline = Clock::now() + std::chrono::milliseconds(30000);
+  AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
+  return wait.Wait(std::chrono::milliseconds(1), Error("circuit upgrade timed out"));
 }
 
 Roe<void> AmpCircuitHopReach::DemoteCircuitHop(const std::string& peer_key, const std::string& target_protocol,
@@ -198,7 +294,6 @@ Roe<void> AmpCircuitHopReach::DemoteCircuitHop(const std::string& peer_key, cons
     circuit_.CancelTunnel(tunnel_id);
   }
   hops_.Clear(peer_key, target_protocol);
-  // If other protocols remain for this peer, leave them; Clear(peer) only when none left.
   if (!hops_.HasAny(peer_key)) {
     hops_.Clear(peer_key);
   }
