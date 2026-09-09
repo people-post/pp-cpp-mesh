@@ -14,6 +14,8 @@ namespace pbr {
 /**
  * ICircuitHopReach over Amp CircuitTunnelCoordinator + AmpCircuitHopRegistry ([A020]).
  * SoftMigrate / call-media NAT when Amp is the mesh transport entry.
+ *
+ * With MeshPump running, pass empty io_pump so waiters sleep instead of Tick (MeshPump owns Drive).
  */
 class AmpCircuitHopReach final : public ICircuitHopReach {
 public:

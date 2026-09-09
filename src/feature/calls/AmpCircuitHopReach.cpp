@@ -5,11 +5,11 @@
 #include "amp/link/Types.h"
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
+#include "domain/mesh/shared/AmpParkUntil.h"
 #include "common/SettledWait.h"
 
 #include <chrono>
 #include <optional>
-#include <thread>
 
 namespace pbr {
 namespace {
@@ -117,14 +117,9 @@ Roe<void> AmpCircuitHopReach::EnsureViaCircuit(const std::string& target_peer_id
     }
 
     const auto deadline = Clock::now() + std::chrono::milliseconds(10000);
-    while (Clock::now() < deadline && !wait.IsSettled()) {
-      if (io_pump_) {
-        io_pump_();
-      } else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-    }
-    auto bridged = wait.Wait(std::chrono::milliseconds(10000), Error("amp circuit bridge timed out"));
+    // MeshPump owns Drive — empty io_pump sleeps; harness Tick via io_pump.
+    AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
+    auto bridged = wait.Wait(std::chrono::milliseconds(1), Error("amp circuit bridge timed out"));
     if (!bridged || !bridged->ok || !bridged->session) {
       continue;
     }
@@ -141,14 +136,8 @@ Roe<void> AmpCircuitHopReach::EnsureViaCircuit(const std::string& target_peer_id
             }
           });
       const auto nested_deadline = Clock::now() + std::chrono::milliseconds(10000);
-      while (Clock::now() < nested_deadline && !nested_wait.IsSettled()) {
-        if (io_pump_) {
-          io_pump_();
-        } else {
-          std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-      }
-      auto nested = nested_wait.Wait(std::chrono::milliseconds(10000), Error("amp nested session timed out"));
+      AmpParkUntil([&] { return nested_wait.IsSettled(); }, nested_deadline, io_pump_);
+      auto nested = nested_wait.Wait(std::chrono::milliseconds(1), Error("amp nested session timed out"));
       if (!nested) {
         continue;
       }
@@ -215,6 +204,5 @@ Roe<void> AmpCircuitHopReach::DemoteCircuitHop(const std::string& peer_key, cons
   }
   return {};
 }
-
 
 } // namespace pbr

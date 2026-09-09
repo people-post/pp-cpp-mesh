@@ -8,18 +8,32 @@
 
 namespace pbr {
 
-/** Blocking IMediaRelayClient over AmpMediaRelayCoordinator ([A020]). */
+/**
+ * IMediaRelayClient over AmpMediaRelayCoordinator ([A020]).
+ * Prefer RequestQuoteAsync / AcceptAndAttachAsync when MeshPump + PostToIo are available;
+ * sync wrappers park (do not Tick while MeshPump owns Drive).
+ */
 class AmpMediaRelayClient final : public IMediaRelayClient {
 public:
   using IoPump = std::function<void()>;
+  using IoPost = std::function<void(std::function<void()>)>;
 
-  AmpMediaRelayClient(AmpMediaRelayCoordinator& coordinator, IoPump io_pump, std::string local_peer_id);
+  AmpMediaRelayClient(AmpMediaRelayCoordinator& coordinator, IoPump io_pump, std::string local_peer_id,
+                      IoPost post_io = {});
 
   Roe<std::string> LocalPeerIdBase58() const override;
   bool IsStarted() const override;
 
+  void RequestQuoteAsync(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,
+                         std::function<void(Roe<MediaRelayQuote>)> on_done, int timeout_ms = 8000) override;
   Roe<MediaRelayQuote> RequestQuote(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,
                                     int timeout_ms = 8000) override;
+
+  void AcceptAndAttachAsync(const std::string& hop_peer_key, const std::string& quote_id,
+                            const std::string& call_id, const std::string& auth_stub,
+                            std::function<void(MediaDataFrame)> on_frame,
+                            std::function<void(Roe<MediaRelayAttachResult>)> on_done,
+                            int timeout_ms = 8000) override;
   Roe<MediaRelayAttachResult> AcceptAndAttach(const std::string& hop_peer_key, const std::string& quote_id,
                                               const std::string& call_id, const std::string& auth_stub,
                                               std::function<void(MediaDataFrame)> on_frame,
@@ -38,10 +52,9 @@ public:
   CallHopHealth HealthSnapshot() const override;
 
 private:
-  void PumpUntil(const std::function<bool()>& done, int timeout_ms);
-
   AmpMediaRelayCoordinator& coordinator_;
   IoPump io_pump_;
+  IoPost post_io_;
   std::string local_peer_id_;
 };
 
