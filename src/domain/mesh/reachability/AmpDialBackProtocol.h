@@ -19,6 +19,9 @@ namespace pbr {
  * Client asks a seed to dial advertised ADP listen multiaddrs; seed replies with ok/dialed/error.
  *
  * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
+ *
+ * Prefer ProbeAsync (A022-style). Sync Probe parks until done; with MeshPump running leave IoPump
+ * empty so waiters do not Tick. Optional IoPost schedules channel-open polls on MeshRuntime.
  */
 class AmpDialBackProtocol {
 public:
@@ -42,8 +45,11 @@ public:
 
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
+  /** Queue work for MeshRuntime::PostToIo (channel-open poll). */
+  using IoPost = std::function<void(std::function<void()>)>;
 
-  AmpDialBackProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {});
+  AmpDialBackProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {},
+                      IoPost post_io = {});
   ~AmpDialBackProtocol();
 
   AmpDialBackProtocol(const AmpDialBackProtocol&) = delete;
@@ -55,8 +61,12 @@ public:
 
   /**
    * Ask `seed_peer_key` (must have a registered ADP endpoint) to dial `target_multiaddrs`.
-   * Blocks with IoPump until response or timeout.
+   * Non-blocking; completion via `on_done` (may run on Amp io / MeshControl / caller).
    */
+  void ProbeAsync(const std::string& seed_peer_key, const std::vector<std::string>& target_multiaddrs,
+                  std::function<void(ProbeRoe)> on_done, int timeout_ms = 8000);
+
+  /** Blocks until ProbeAsync settles (tests / reachability worker). */
   ProbeRoe Probe(const std::string& seed_peer_key, const std::vector<std::string>& target_multiaddrs,
                  int timeout_ms = 8000);
 
@@ -66,6 +76,7 @@ private:
   pp::amp::PeerLinkManager& links_;
   IoPump io_pump_;
   WorkerPost post_worker_;
+  IoPost post_io_;
   bool started_ = false;
 };
 

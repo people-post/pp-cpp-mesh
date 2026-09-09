@@ -140,6 +140,9 @@ private:
   AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
   void StartOwnedThreads();
   void StopOwnedThreads();
+  /** Empty when MeshPump owns Drive; Tick otherwise (AttachAmpStack / VirtualClock). */
+  std::function<void()> MakeL4IoPump() const;
+  std::function<void(std::function<void()>)> MakeL4IoPost() const;
 
   std::unique_ptr<ReachabilityEngine> reachability_;
   MeshPumpThread pump_;
@@ -154,6 +157,8 @@ private:
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;
   bool host_dht_ = false;
   bool host_directory_ = false;
+  /** True for product Start (MeshPump); false for AttachAmpStack harnesses. */
+  bool prefer_mesh_pump_ = false;
   std::unique_ptr<IChatPeerLinks> chat_links_;
   std::shared_ptr<pp::adp::Clock> amp_clock_;
   std::string amp_listen_multiaddr_;

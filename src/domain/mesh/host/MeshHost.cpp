@@ -122,6 +122,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   amp_ = std::move(*stack);
   chat_links_ = NewAmpChatPeerLinks(amp_->Links());
   ApplyAmpAdvertisement(config);
+  prefer_mesh_pump_ = true;
   EnsureAmpL4Coordinators();
   host_dht_ = config.host_dht;
   host_directory_ = config.host_directory;
@@ -165,6 +166,21 @@ void MeshHost::PostControl(std::function<void()> task) {
   MeshControlDispatch::Post(std::move(task));
 }
 
+std::function<void()> MeshHost::MakeL4IoPump() const {
+  if (prefer_mesh_pump_ || pump_.IsRunning()) {
+    return {};
+  }
+  return [self = const_cast<MeshHost*>(this)]() { self->Tick(); };
+}
+
+std::function<void(std::function<void()>)> MeshHost::MakeL4IoPost() const {
+  return [self = const_cast<MeshHost*>(this)](std::function<void()> task) {
+    if (self->amp_ && task) {
+      self->amp_->Runtime().PostToIo(std::move(task));
+    }
+  };
+}
+
 void MeshHost::EnsureAmpL4Coordinators() {
   if (!amp_) {
     return;
@@ -179,21 +195,20 @@ void MeshHost::EnsureAmpL4Coordinators() {
     amp_media_relay_ = std::make_unique<AmpMediaRelayCoordinator>(amp_->Runtime());
   }
   amp_media_relay_->SetCircuitHopRegistry(amp_circuit_hops_.get());
+  auto io_pump = MakeL4IoPump();
+  auto post_io = MakeL4IoPost();
+  auto post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   if (!amp_dial_back_) {
-    AmpDialBackProtocol::IoPump pump = [this]() { Tick(); };
-    amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Links(), std::move(pump));
+    amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Links(), io_pump, post_worker, post_io);
   }
   if (!amp_punch_) {
-    AmpPunchCoordinator::IoPump pump = [this]() { Tick(); };
-    amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Links(), std::move(pump));
+    amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Links(), io_pump, post_worker);
   }
   if (!amp_dht_) {
-    AmpDhtProtocol::IoPump pump = [this]() { Tick(); };
-    amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Links(), std::move(pump));
+    amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Links(), io_pump, post_worker);
   }
   if (!amp_directory_) {
-    AmpDirectoryProtocol::IoPump pump = [this]() { Tick(); };
-    amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Links(), std::move(pump));
+    amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Links(), io_pump, post_worker);
   }
 }
 
@@ -241,6 +256,7 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media,
 }
 
 void MeshHost::StopAmp() {
+  prefer_mesh_pump_ = false;
   if (amp_) {
     amp_->Links().EnableNestedCarrierAccept(false);
   }
@@ -289,6 +305,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
     return Error("mesh host: null AmpStack");
   }
   StopAmp();
+  prefer_mesh_pump_ = false;
   amp_ = std::move(stack);
   amp_->Start();
   amp_listen_multiaddr_ = std::move(listen_multiaddr);
@@ -435,7 +452,8 @@ AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) con
   deps.amp_listen_multiaddr = amp_listen_multiaddr_;
   deps.local_peer_id = amp_->LocalPeerId();
   deps.bootstrap_peers = bootstrap_peers_;
-  deps.io_pump = [self = const_cast<MeshHost*>(this)]() { self->Tick(); };
+  deps.io_pump = MakeL4IoPump();
+  deps.post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   deps.try_upnp_first = try_upnp_first;
   return deps;
 }
@@ -461,7 +479,7 @@ std::optional<MeshChatDeps> MeshHost::ChatDeps() {
     return std::nullopt;
   }
   MeshIoContext io;
-  io.io_pump = [this]() { Tick(); };
+  io.io_pump = MakeL4IoPump();
   io.post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   io.local_peer_id = amp_->LocalPeerId();
   io.listen_multiaddr = amp_listen_multiaddr_;

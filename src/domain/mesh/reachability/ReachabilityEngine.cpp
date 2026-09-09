@@ -3,6 +3,7 @@
 #include "amp/link/AdpMultiaddr.h"
 #include "domain/mesh/reachability/AmpDialBackProtocol.h"
 #include "domain/mesh/reachability/NatTraversal.h"
+#include "domain/mesh/shared/AmpParkUntil.h"
 #include "common/ValueJson.h"
 
 #include <chrono>
@@ -147,14 +148,9 @@ void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
       }
     });
     const auto deadline = Clock::now() + std::chrono::milliseconds(10000);
-    while (Clock::now() < deadline &&
-           seed_future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
-      if (deps.io_pump) {
-        deps.io_pump();
-      } else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-    }
+    AmpParkUntil(
+        [&] { return seed_future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; }, deadline,
+        deps.io_pump);
     if (seed_future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
       auto seed_result = seed_future.get();
       result.signals.seed_dial_ok = static_cast<bool>(seed_result);

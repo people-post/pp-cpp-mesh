@@ -12,6 +12,7 @@
 #include <mutex>
 #include <thread>
 #include "common/PbrCompat.h"
+#include "domain/mesh/shared/AmpParkUntil.h"
 
 namespace pbr {
 namespace {
@@ -90,15 +91,6 @@ struct AmpDhtProtocol::Impl {
   WorkerPost post_worker;
   std::atomic<bool> stopped{false};
 
-  void IoPumpUntil(const std::function<bool()>& done, const Clock::time_point deadline) {
-    while (!done() && Clock::now() < deadline) {
-      if (io_pump) {
-        io_pump();
-      } else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-    }
-  }
 
   void HandleInboundOnLink(pp::amp::PeerLink& link, const uint32_t channel_id) {
     if (stopped.load(std::memory_order_acquire) || !links || !self) {
@@ -259,13 +251,12 @@ struct AmpDhtProtocol::Impl {
                              finish(RpcRoe::error(WrapLinkFailure(channel.error())));
                              return;
                            }
-                           IoPumpUntil(
+                           AmpParkUntil(
                                [&] {
                                  auto* link = links->FindLink(peer_key);
                                  return link && link->Mux() &&
                                         link->Mux()->State(*channel) == pp::amp::ChannelState::Open;
-                               },
-                               deadline);
+                               }, deadline, io_pump);
                            auto* link = links->FindLink(peer_key);
                            if (!link || !link->Mux() ||
                                link->Mux()->State(*channel) != pp::amp::ChannelState::Open) {
