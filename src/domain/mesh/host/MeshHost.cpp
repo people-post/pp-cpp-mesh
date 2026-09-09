@@ -205,10 +205,10 @@ void MeshHost::EnsureAmpL4Coordinators() {
     amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Links(), io_pump, post_worker, post_io);
   }
   if (!amp_dht_) {
-    amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Links(), io_pump, post_worker);
+    amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Links(), io_pump, post_worker, post_io);
   }
   if (!amp_directory_) {
-    amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Links(), io_pump, post_worker);
+    amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Links(), io_pump, post_worker, post_io);
   }
 }
 

@@ -46,8 +46,9 @@ public:
 
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
+  using IoPost = std::function<void(std::function<void()>)>;
 
-  AmpDirectoryProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {});
+  AmpDirectoryProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {}, IoPost post_io = {});
   ~AmpDirectoryProtocol();
 
   AmpDirectoryProtocol(const AmpDirectoryProtocol&) = delete;
@@ -73,6 +74,7 @@ private:
   pp::amp::PeerLinkManager& links_;
   IoPump io_pump_;
   WorkerPost post_worker_;
+  IoPost post_io_;
   AmpDirectoryProtocolConfig config_;
   AmpDirectoryNodesProvider nodes_provider_;
   std::vector<MeshNodeHit> nodes_snapshot_;

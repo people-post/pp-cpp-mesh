@@ -80,6 +80,7 @@ struct AmpDirectoryProtocol::Impl {
   AmpDirectoryProtocol* self = nullptr;
   IoPump io_pump;
   WorkerPost post_worker;
+  IoPost post_io;
   std::atomic<bool> stopped{false};
 
 
@@ -181,56 +182,68 @@ struct AmpDirectoryProtocol::Impl {
                              finish(RpcRoe::error(WrapLinkFailure(channel.error())));
                              return;
                            }
-                           AmpParkUntil(
-                               [&] {
+                           AmpScheduleWhenChannelOpen(
+                               post_io, io_pump,
+                               [this, peer_key, channel_id = *channel]() {
                                  auto* link = links->FindLink(peer_key);
                                  return link && link->Mux() &&
-                                        link->Mux()->State(*channel) == pp::amp::ChannelState::Open;
-                               }, deadline, io_pump);
-                           auto* link = links->FindLink(peer_key);
-                           if (!link || !link->Mux() ||
-                               link->Mux()->State(*channel) != pp::amp::ChannelState::Open) {
-                             finish(RpcRoe::error(
-                                 Failure::Of(Err::ChannelFailed, "directory channel open failed")));
-                             return;
-                           }
-                           session->Bind(*link->Mux(), *channel, pp::amp::ControlJsonChannelPolicy(timeout),
-                                         [finish](Roe<std::vector<uint8_t>> frame) {
-                                           if (!frame) {
-                                             finish(RpcRoe::error(Failure::Of(
-                                                 Err::ProtocolError, "directory response read failed")));
-                                             return false;
-                                           }
-                                           auto root =
-                                               TryParseObject(std::string(frame->begin(), frame->end()));
-                                           if (!root) {
-                                             finish(RpcRoe::error(Failure::Of(
-                                                 Err::ProtocolError, "invalid directory response json")));
-                                             return false;
-                                           }
-                                           finish(std::move(*root));
-                                           return false;
-                                         });
-                           if (!session->EnqueueOutbound(JsonToBody(request_json))) {
-                             finish(RpcRoe::error(
-                                 Failure::Of(Err::ProtocolError, "directory request send failed")));
-                             return;
-                           }
-                           if (io_pump) {
-                             io_pump();
-                           }
+                                        link->Mux()->State(channel_id) == pp::amp::ChannelState::Open;
+                               },
+                               deadline,
+                               [this, peer_key, channel_id = *channel, request_json, finish, session, timeout](
+                                   bool open) mutable {
+                                 if (!open) {
+                                   finish(RpcRoe::error(
+                                       Failure::Of(Err::ChannelFailed, "directory channel open failed")));
+                                   return;
+                                 }
+                                 auto* link = links->FindLink(peer_key);
+                                 if (!link || !link->Mux() ||
+                                     link->Mux()->State(channel_id) != pp::amp::ChannelState::Open) {
+                                   finish(RpcRoe::error(
+                                       Failure::Of(Err::ChannelFailed, "directory channel open failed")));
+                                   return;
+                                 }
+                                 session->Bind(*link->Mux(), channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
+                                               [finish](Roe<std::vector<uint8_t>> frame) {
+                                                 if (!frame) {
+                                                   finish(RpcRoe::error(Failure::Of(
+                                                       Err::ProtocolError, "directory response read failed")));
+                                                   return false;
+                                                 }
+                                                 auto root =
+                                                     TryParseObject(std::string(frame->begin(), frame->end()));
+                                                 if (!root) {
+                                                   finish(RpcRoe::error(Failure::Of(
+                                                       Err::ProtocolError, "invalid directory response json")));
+                                                   return false;
+                                                 }
+                                                 finish(std::move(*root));
+                                                 return false;
+                                               });
+                                 if (!session->EnqueueOutbound(JsonToBody(request_json))) {
+                                   finish(RpcRoe::error(
+                                       Failure::Of(Err::ProtocolError, "directory request send failed")));
+                                   return;
+                                 }
+                                 if (io_pump) {
+                                   io_pump();
+                                 }
+                               },
+                               [this]() { return stopped.load(std::memory_order_acquire); });
                          });
     });
   }
 };
 
 AmpDirectoryProtocol::AmpDirectoryProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump,
-                                         WorkerPost post_worker)
+                                         WorkerPost post_worker, IoPost post_io)
     : impl_(std::make_unique<Impl>()), links_(links), io_pump_(std::move(io_pump)),
-      post_worker_(std::move(post_worker)) {
+      post_worker_(std::move(post_worker)), post_io_(std::move(post_io)) {
   impl_->links = &links_;
   impl_->io_pump = io_pump_;
   impl_->post_worker = post_worker_;
+  impl_->post_io = post_io_;
   impl_->self = this;
 }
 
