@@ -26,6 +26,8 @@ struct AmpReachabilityProbeDeps {
   std::vector<std::string> bootstrap_peers;
   std::function<void()> io_pump;
   std::function<void(std::function<void()>)> post_worker;
+  /** MeshRuntime::PostToIo — prefer ProbeAsync + callbacks over parking MeshControl. */
+  std::function<void(std::function<void()>)> post_io;
   bool try_upnp_first = false;
 };
 

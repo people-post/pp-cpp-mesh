@@ -454,6 +454,7 @@ AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) con
   deps.bootstrap_peers = bootstrap_peers_;
   deps.io_pump = MakeL4IoPump();
   deps.post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
+  deps.post_io = MakeL4IoPost();
   deps.try_upnp_first = try_upnp_first;
   return deps;
 }
