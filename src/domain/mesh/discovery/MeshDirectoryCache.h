@@ -19,12 +19,16 @@ namespace pbr {
 class MeshDirectoryCache {
 public:
   using Fetcher = std::function<Roe<std::vector<MeshDirectoryNode>>()>;
+  /** Completion may run on any thread; cache posts apply/on_updated to UI. */
+  using AsyncFetcher = std::function<void(std::function<void(Roe<std::vector<MeshDirectoryNode>>)>)>;
 
   explicit MeshDirectoryCache(Fetcher fetcher);
 
   void SetRefreshInterval(std::chrono::seconds interval);
   void SetFailureBackoff(std::chrono::seconds backoff);
   void SetOnUpdated(std::function<void()> callback);
+  /** When set, RequestRefresh prefers this over parking a worker on sync Fetcher. */
+  void SetAsyncFetcher(AsyncFetcher fetcher);
 
   /** Thread-safe snapshot for hop policy (may be empty before first refresh). */
   std::vector<MeshDirectoryNode> Snapshot() const;
@@ -36,7 +40,10 @@ public:
   void RequestRefresh();
 
 private:
+  void ApplyRefreshResult(Roe<std::vector<MeshDirectoryNode>> result);
+
   Fetcher fetcher_;
+  AsyncFetcher async_fetcher_;
   mutable std::mutex mutex_;
   std::vector<MeshDirectoryNode> nodes_;
   std::chrono::steady_clock::time_point next_refresh_at_{};

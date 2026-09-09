@@ -10,7 +10,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <vector>
 #include <memory>
 #include <string>
 #include <vector>
@@ -22,6 +21,9 @@ namespace pbr {
  *
  * L3.25a–c: cold/upgrade punch — connect/offer/candidates/sync + burst; upgrade uses circuit R1 as introducer.
  * Dual-dial election is PeerLinkManager A026; loser teardown is parent-owned A027.
+ *
+ * Prefer TryColdPunchAsync / TryUpgradePunchAsync. Sync Try* parks until done; with MeshPump leave
+ * IoPump empty. Optional IoPost schedules channel-open polls on MeshRuntime.
  */
 class AmpPunchCoordinator {
 public:
@@ -45,8 +47,10 @@ public:
 
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
+  using IoPost = std::function<void(std::function<void()>)>;
 
-  AmpPunchCoordinator(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {});
+  AmpPunchCoordinator(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {},
+                      IoPost post_io = {});
   ~AmpPunchCoordinator();
 
   AmpPunchCoordinator(const AmpPunchCoordinator&) = delete;
@@ -63,6 +67,14 @@ public:
   void SetLocalCandidateAddrs(std::vector<std::string> addrs);
   const std::vector<std::string>& LocalCandidateAddrs() const { return local_addrs_; }
 
+  void TryColdPunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id,
+                         const std::vector<std::string>& my_addrs, std::function<void(PunchRoe)> on_done,
+                         int window_ms = 2000);
+
+  void TryUpgradePunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id,
+                            const std::vector<std::string>& my_addrs, std::function<void(PunchRoe)> on_done,
+                            int window_ms = 2000);
+
   PunchRoe TryColdPunch(const std::string& introducer_peer_key, const std::string& target_peer_id,
                         const std::vector<std::string>& my_addrs, int window_ms = 2000);
 
@@ -71,6 +83,9 @@ public:
                            const std::vector<std::string>& my_addrs, int window_ms = 2000);
 
 private:
+  void RunPunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id,
+                     const std::vector<std::string>& my_addrs, int window_ms, const std::string& reason,
+                     std::function<void(PunchRoe)> on_done);
   PunchRoe RunPunch(const std::string& introducer_peer_key, const std::string& target_peer_id,
                     const std::vector<std::string>& my_addrs, int window_ms, const std::string& reason);
   struct Impl;
@@ -78,6 +93,7 @@ private:
   pp::amp::PeerLinkManager& links_;
   IoPump io_pump_;
   WorkerPost post_worker_;
+  IoPost post_io_;
   std::vector<std::string> local_addrs_;
   bool started_ = false;
 };

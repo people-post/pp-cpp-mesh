@@ -4,6 +4,9 @@
 set(PP_DOMAIN_MESH_HOST_SOURCES
   host/MeshHost.cpp
   host/MeshPorts.cpp
+  host/MeshControlPool.cpp
+  host/MeshControlDispatch.cpp
+  host/MeshPumpThread.cpp
 )
 
 set(PP_DOMAIN_MESH_REACHABILITY_SOURCES

@@ -3,10 +3,12 @@
 #include "amp/link/AdpMultiaddr.h"
 #include "domain/mesh/reachability/AmpDialBackProtocol.h"
 #include "domain/mesh/reachability/NatTraversal.h"
+#include "domain/mesh/shared/AmpParkUntil.h"
 #include "common/ValueJson.h"
 
 #include <chrono>
-#include <future>
+#include <memory>
+#include <optional>
 #include <thread>
 #include "common/PbrCompat.h"
 
@@ -74,31 +76,41 @@ void ReachabilityEngine::StartProbe(AmpReachabilityProbeDeps deps) {
   checking.status = ReachabilityStatus::Checking;
   Publish(checking);
 
-  auto run = [this, deps = std::move(deps)]() mutable {
-    RunProbe(std::move(deps));
-    probing_.store(false);
-  };
-  if (deps.post_worker) {
-    deps.post_worker(std::move(run));
+  auto post_worker = std::move(deps.post_worker);
+  auto run = [this, deps = std::move(deps)]() mutable { RunProbe(std::move(deps)); };
+  if (post_worker) {
+    post_worker(std::move(run));
   } else {
     run();
   }
 }
 
 void ReachabilityEngine::RunProbeBlocking(AmpReachabilityProbeDeps deps) {
+  auto io_pump = deps.io_pump;
   StartProbe(std::move(deps));
   while (probing_.load()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    if (io_pump) {
+      io_pump();
+    } else {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
   }
 }
 
 void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
+  auto complete = [this](ReachabilitySnapshot result) {
+    result.status = ClassifyReachability(result.signals);
+    Publish(std::move(result));
+    probing_.store(false);
+  };
+
   ReachabilitySnapshot result;
   result.measured_at = Clock::now();
 
   if (!deps.links || !deps.dial_back || deps.amp_listen_multiaddr.empty() || deps.local_peer_id.empty()) {
     result.status = ReachabilityStatus::Unknown;
     Publish(result);
+    probing_.store(false);
     return;
   }
 
@@ -122,71 +134,78 @@ void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
     // Without an Amp seed we cannot distinguish inbound; keep chrome honest (not Blocked).
     result.status = ReachabilityStatus::Unknown;
     Publish(result);
+    probing_.store(false);
     return;
   }
 
   const std::string seed_key = "reachability:seed";
   if (auto registered = deps.links->RegisterEndpoint(seed_key, *seed_ma); !registered) {
     result.signals.seed_dial_error = registered.error().message;
-    result.status = ClassifyReachability(result.signals);
-    Publish(result);
+    complete(std::move(result));
     return;
   }
 
-  {
-    auto seed_promise = std::make_shared<std::promise<Roe<void>>>();
-    auto seed_future = seed_promise->get_future();
-    deps.links->EnsureAssociation(seed_key, [seed_promise](pp::amp::PeerLinkManager::LinkRoe dial_result) {
-      try {
-        if (dial_result) {
-          seed_promise->set_value(Roe<void>());
-        } else {
-          seed_promise->set_value(Roe<void>(Error(dial_result.error().message)));
-        }
-      } catch (const std::future_error&) {
-      }
-    });
-    const auto deadline = Clock::now() + std::chrono::milliseconds(10000);
-    while (Clock::now() < deadline &&
-           seed_future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
-      if (deps.io_pump) {
-        deps.io_pump();
-      } else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
+  auto probe_finished = std::make_shared<std::atomic<bool>>(false);
+  auto finish_once = [probe_finished, complete](ReachabilitySnapshot snap) {
+    if (probe_finished->exchange(true, std::memory_order_acq_rel)) {
+      return;
     }
-    if (seed_future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-      auto seed_result = seed_future.get();
-      result.signals.seed_dial_ok = static_cast<bool>(seed_result);
-      if (!seed_result) {
-        result.signals.seed_dial_error = seed_result.error().message;
-      }
-    } else {
-      result.signals.seed_dial_error = "seed dial timed out";
-    }
-  }
+    complete(std::move(snap));
+  };
 
-  if (result.signals.seed_dial_ok) {
-    const auto targets = BuildAmpReachabilityProbeTargets(
-        deps.amp_listen_multiaddr, deps.local_peer_id, upnp_external_ip_);
-    if (deps.dial_back->IsStarted()) {
-      auto probed = deps.dial_back->Probe(seed_key, targets, 8000);
-      if (probed) {
-        result.signals.dial_back_ok = probed->ok;
-        result.signals.dial_back_dialed = probed->dialed;
-        if (!probed->ok) {
-          result.signals.dial_back_error = probed->error;
+  // Settles when seed dial callback runs or seed dial times out (not when ProbeAsync ends).
+  auto seed_settled = std::make_shared<std::atomic<bool>>(false);
+  const auto seed_deadline = Clock::now() + std::chrono::milliseconds(10000);
+  deps.links->EnsureAssociation(
+      seed_key, [deps, result, seed_key, seed_settled, finish_once, upnp_ip = upnp_external_ip_](
+                    pp::amp::PeerLinkManager::LinkRoe dial_result) mutable {
+        if (seed_settled->exchange(true, std::memory_order_acq_rel)) {
+          return;  // seed dial already timed out
         }
-      } else {
-        result.signals.dial_back_error = probed.error().message;
-      }
-    } else {
-      result.signals.dial_back_error = "dial-back service not started";
-    }
-  }
+        if (!dial_result) {
+          result.signals.seed_dial_ok = false;
+          result.signals.seed_dial_error = dial_result.error().message;
+          finish_once(std::move(result));
+          return;
+        }
+        result.signals.seed_dial_ok = true;
 
-  result.status = ClassifyReachability(result.signals);
-  Publish(result);
+        if (!deps.dial_back->IsStarted()) {
+          result.signals.dial_back_error = "dial-back service not started";
+          finish_once(std::move(result));
+          return;
+        }
+
+        const auto targets =
+            BuildAmpReachabilityProbeTargets(deps.amp_listen_multiaddr, deps.local_peer_id, upnp_ip);
+        deps.dial_back->ProbeAsync(
+            seed_key, targets,
+            [result = std::move(result), finish_once](AmpDialBackProtocol::ProbeRoe probed) mutable {
+              if (probed) {
+                result.signals.dial_back_ok = probed->ok;
+                result.signals.dial_back_dialed = probed->dialed;
+                if (!probed->ok) {
+                  result.signals.dial_back_error = probed->error;
+                }
+              } else {
+                result.signals.dial_back_error = probed.error().message;
+              }
+              finish_once(std::move(result));
+            },
+            8000);
+      });
+
+  // Product: MeshPump + PostToIo — do not park MeshControl on seed dial.
+  // Harness without post_io: AmpParkUntil + Tick until seed settles (then ProbeAsync continues).
+  AmpScheduleUntilSettled(
+      deps.post_io, deps.io_pump, seed_settled, seed_deadline,
+      [result, seed_settled, finish_once]() mutable {
+        if (seed_settled->exchange(true, std::memory_order_acq_rel)) {
+          return;
+        }
+        result.signals.seed_dial_error = "seed dial timed out";
+        finish_once(std::move(result));
+      });
 }
 
 std::string ReachabilityEngine::FormatOpsStatusJson() const {
