@@ -22,6 +22,11 @@ void MeshDirectoryCache::SetOnUpdated(std::function<void()> callback) {
   on_updated_ = std::move(callback);
 }
 
+void MeshDirectoryCache::SetAsyncFetcher(AsyncFetcher fetcher) {
+  std::lock_guard lock(mutex_);
+  async_fetcher_ = std::move(fetcher);
+}
+
 std::vector<MeshDirectoryNode> MeshDirectoryCache::Snapshot() const {
   std::lock_guard lock(mutex_);
   return nodes_;
@@ -38,38 +43,51 @@ void MeshDirectoryCache::MaybeRefresh() {
   RequestRefresh();
 }
 
-void MeshDirectoryCache::RequestRefresh() {
-  if (!fetcher_) {
-    return;
+void MeshDirectoryCache::ApplyRefreshResult(Roe<std::vector<MeshDirectoryNode>> result) {
+  std::function<void()> notify;
+  {
+    const auto now = std::chrono::steady_clock::now();
+    std::lock_guard lock(mutex_);
+    inflight_ = false;
+    if (result) {
+      nodes_ = std::move(*result);
+      next_refresh_at_ = now + refresh_interval_;
+    } else {
+      next_refresh_at_ = now + failure_backoff_;
+    }
+    notify = on_updated_;
   }
+  if (notify) {
+    notify();
+  }
+}
+
+void MeshDirectoryCache::RequestRefresh() {
+  AsyncFetcher async;
+  Fetcher sync;
   {
     std::lock_guard lock(mutex_);
     if (inflight_) {
       return;
     }
+    if (!async_fetcher_ && !fetcher_) {
+      return;
+    }
     inflight_ = true;
+    async = async_fetcher_;
+    sync = fetcher_;
+  }
+
+  if (async) {
+    async([this](Roe<std::vector<MeshDirectoryNode>> result) {
+      AppRuntime::PostUI([this, result = std::move(result)]() mutable { ApplyRefreshResult(std::move(result)); });
+    });
+    return;
   }
 
   AppRuntime::PostWorkerAndReplyOnUI<Roe<std::vector<MeshDirectoryNode>>>(
-      WorkerLane::Normal, [this]() { return fetcher_(); },
-      [this](Roe<std::vector<MeshDirectoryNode>> result) {
-        std::function<void()> notify;
-        {
-          const auto now = std::chrono::steady_clock::now();
-          std::lock_guard lock(mutex_);
-          inflight_ = false;
-          if (result) {
-            nodes_ = std::move(*result);
-            next_refresh_at_ = now + refresh_interval_;
-          } else {
-            next_refresh_at_ = now + failure_backoff_;
-          }
-          notify = on_updated_;
-        }
-        if (notify) {
-          notify();
-        }
-      });
+      WorkerLane::Normal, [sync]() { return sync(); },
+      [this](Roe<std::vector<MeshDirectoryNode>> result) { ApplyRefreshResult(std::move(result)); });
 }
 
 std::vector<MeshDirectoryNode> MeshDirectoryNodesFromHits(const std::vector<MeshNodeHit>& hits) {
