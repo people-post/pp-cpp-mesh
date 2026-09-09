@@ -74,4 +74,43 @@ inline void AmpScheduleWhenChannelOpen(const std::function<void(std::function<vo
   post_io([attempt]() { (*attempt)(); });
 }
 
+/**
+ * Keep polling until `settled` or `deadline`. With `post_io`, schedules on MeshPump;
+ * otherwise AmpParkUntil (harness Tick). Invokes `on_timeout` once if still unsettled.
+ */
+inline void AmpScheduleUntilSettled(const std::function<void(std::function<void()>)>& post_io,
+                                    const std::function<void()>& io_pump,
+                                    const std::shared_ptr<std::atomic<bool>>& settled,
+                                    const std::chrono::steady_clock::time_point deadline,
+                                    std::function<void()> on_timeout) {
+  if (!settled) {
+    return;
+  }
+  if (post_io) {
+    auto poll = std::make_shared<std::function<void()>>();
+    *poll = [post_io, settled, deadline, on_timeout = std::move(on_timeout), poll]() mutable {
+      if (settled->load(std::memory_order_acquire)) {
+        return;
+      }
+      if (std::chrono::steady_clock::now() >= deadline) {
+        if (on_timeout) {
+          on_timeout();
+        }
+        return;
+      }
+      post_io([poll, settled]() {
+        if (!settled->load(std::memory_order_acquire)) {
+          (*poll)();
+        }
+      });
+    };
+    post_io([poll]() { (*poll)(); });
+    return;
+  }
+  AmpParkUntil([settled] { return settled->load(std::memory_order_acquire); }, deadline, io_pump);
+  if (!settled->load(std::memory_order_acquire) && on_timeout) {
+    on_timeout();
+  }
+}
+
 } // namespace pbr
