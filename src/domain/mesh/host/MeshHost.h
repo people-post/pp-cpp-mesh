@@ -9,8 +9,10 @@
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "domain/mesh/host/MeshControlPool.h"
 #include "domain/mesh/host/MeshIdentityConfig.h"
 #include "domain/mesh/host/MeshPorts.h"
+#include "domain/mesh/host/MeshPumpThread.h"
 #include "domain/mesh/reachability/ReachabilityEngine.h"
 #include "common/Error.h"
 
@@ -73,6 +75,11 @@ public:
   void Tick();
   bool IsRunning() const;
 
+  /** Post Amp control waits (Connect / IoPumpUntil) onto MeshControlPool. */
+  void PostControl(std::function<void()> task);
+  bool MeshPumpRunning() const { return pump_.IsRunning(); }
+  bool MeshControlRunning() const { return control_ && control_->IsRunning(); }
+
   ReachabilityEngine& Reachability();
 
   /** Feature-layer chat port bundle (null when Amp is down). */
@@ -131,8 +138,12 @@ private:
   void StartAmpL4Hosting(bool host_circuit, bool host_media, bool host_dht, bool host_directory,
                          bool refresh_listen_addrs = true);
   AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
+  void StartOwnedThreads();
+  void StopOwnedThreads();
 
   std::unique_ptr<ReachabilityEngine> reachability_;
+  MeshPumpThread pump_;
+  std::unique_ptr<MeshControlPool> control_;
   std::unique_ptr<pp::amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
   std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
