@@ -149,8 +149,13 @@ void MeshHost::StopOwnedThreads() {
   // Join control waiters before tearing down L4 / Amp so IoPumpUntil exits cleanly.
   MeshControlDispatch::Uninstall();
   if (control_) {
-    control_->Shutdown();
-    control_.reset();
+    // Budget: abort should unblock parks; do not hang product quit on a stuck control task.
+    if (!control_->Shutdown(MeshControlPool::kDefaultShutdownJoinBudget)) {
+      // Detached workers; drop ownership without destroy to avoid UAF until process exit.
+      (void)control_.release();
+    } else {
+      control_.reset();
+    }
   }
   pump_.Stop();
 }
