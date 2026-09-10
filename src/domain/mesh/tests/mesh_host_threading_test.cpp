@@ -13,6 +13,8 @@
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <sodium.h>
 #include <thread>
 
@@ -111,6 +113,40 @@ TEST(MeshControlPoolTest, PostAndShutdown) {
   pool.Shutdown();
   pool.Post([&n]() { ++n; }); // dropped after shutdown
   EXPECT_EQ(n.load(std::memory_order_acquire), 10);
+}
+
+TEST(MeshControlPoolTest, ShutdownBudgetDetachesStuckWorker) {
+  MeshControlPool pool(1);
+  std::mutex mu;
+  std::condition_variable cv;
+  bool release_worker = false;
+  std::atomic<bool> entered{false};
+
+  pool.Post([&]() {
+    entered.store(true, std::memory_order_release);
+    std::unique_lock lock(mu);
+    cv.wait(lock, [&]() { return release_worker; });
+  });
+
+  const auto enter_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (!entered.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() < enter_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_TRUE(entered.load(std::memory_order_acquire));
+
+  const auto t0 = std::chrono::steady_clock::now();
+  const bool ok = pool.Shutdown(std::chrono::milliseconds(80));
+  const auto elapsed = std::chrono::steady_clock::now() - t0;
+  EXPECT_FALSE(ok);
+  EXPECT_LT(elapsed, std::chrono::milliseconds(500));
+
+  {
+    std::lock_guard lock(mu);
+    release_worker = true;
+  }
+  cv.notify_all();
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
 } // namespace

@@ -6,7 +6,9 @@
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
+#include "foundation/runtime/AppRuntime.h"
 #include "common/SettledWait.h"
+#include "common/Logger.h"
 
 #include <atomic>
 #include <chrono>
@@ -17,6 +19,11 @@ namespace pbr {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+logging::Logger& AmpReachLog() {
+  static logging::Logger log = logging::getLogger("AmpCircuitHopReach");
+  return log;
+}
 
 } // namespace
 
@@ -223,6 +230,10 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
 }
 
 Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
+  if (AppRuntime::IsShuttingDown()) {
+    AmpReachLog().debug << "TryEnsureHopReachable rejected: shutting down";
+    return Error("shutdown in progress");
+  }
   SettledWait<void> wait;
   TryEnsureHopReachableAsync(hop_peer_id, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
   const auto deadline = Clock::now() + std::chrono::milliseconds(30000);
@@ -231,6 +242,10 @@ Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_
 }
 
 Roe<void> AmpCircuitHopReach::TryEnsureCallMediaReachable(const std::string& peer_key) {
+  if (AppRuntime::IsShuttingDown()) {
+    AmpReachLog().debug << "TryEnsureCallMediaReachable rejected: shutting down";
+    return Error("shutdown in progress");
+  }
   SettledWait<void> wait;
   TryEnsureCallMediaReachableAsync(peer_key, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
   const auto deadline = Clock::now() + std::chrono::milliseconds(30000);
