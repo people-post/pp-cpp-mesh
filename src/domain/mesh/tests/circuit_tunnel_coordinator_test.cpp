@@ -25,22 +25,30 @@ protected:
     harness_ = std::move(*created);
 
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_a().RegisterEndpoint("relay", harness_->ma_r)));
+    ASSERT_TRUE(static_cast<bool>(harness_->mgr_b().RegisterEndpoint("relay", harness_->ma_r)));
+    ASSERT_TRUE(static_cast<bool>(harness_->mgr_r().RegisterEndpoint("a", harness_->ma_a)));
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_r().RegisterEndpoint("b", harness_->ma_b)));
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_r().RegisterEndpoint(harness_->peer_id_b, harness_->ma_b)));
 
     relay_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_r);
     client_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_a);
+    client_b_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_b);
     relay_->Start();
     client_->Start();
+    client_b_->Start();
   }
 
   void TearDown() override {
+    if (client_b_) {
+      client_b_->Stop();
+    }
     if (client_) {
       client_->Stop();
     }
     if (relay_) {
       relay_->Stop();
     }
+    client_b_.reset();
     client_.reset();
     relay_.reset();
     harness_.reset();
@@ -84,6 +92,7 @@ protected:
   std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness_;
   std::unique_ptr<CircuitTunnelCoordinator> relay_;
   std::unique_ptr<CircuitTunnelCoordinator> client_;
+  std::unique_ptr<CircuitTunnelCoordinator> client_b_;
   std::shared_ptr<pp::amp::ChannelSession> target_session_;
   std::mutex target_mu_;
   bool target_got_ = false;
@@ -183,6 +192,45 @@ TEST_F(CircuitTunnelCoordinatorTest, StrangerRefusedWhenContactsOnly) {
   wait.PumpUntilDone(*harness_);
   ASSERT_FALSE(wait.result);
   EXPECT_NE(wait.result.error().message.find("stranger"), std::string::npos);
+}
+
+TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridge) {
+  ArmTargetReader();
+
+  // B parks on R first (double-NAT answerer pattern).
+  {
+    BridgeWait reserve_wait;
+    auto rid = client_b_->StartReserve("relay", reserve_wait.Fn(), 15000);
+    ASSERT_TRUE(rid);
+    reserve_wait.PumpUntilDone(*harness_);
+    ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
+    ASSERT_TRUE(reserve_wait.result->ok) << reserve_wait.result->error;
+    EXPECT_EQ(client_b_->Phase(rid), CircuitTunnelPhase::Reserved);
+  }
+
+  CircuitBridgeTarget target;
+  target.target_multiaddr = harness_->ma_b;
+  target.target_peer_id = harness_->peer_id_b;
+  target.target_protocol = kAmpBridgeTargetProtocol;
+
+  BridgeWait wait;
+  auto id = client_->StartBridge("relay", target, {}, {}, wait.Fn(), 8000);
+  ASSERT_TRUE(id);
+  wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(wait.result) << wait.result.error().message;
+  ASSERT_TRUE(wait.result->ok) << wait.result->error;
+
+  const std::vector<uint8_t> payload = {'r', 'e', 's', 'v'};
+  ASSERT_TRUE(wait.result->session->EnqueueOutbound(payload));
+  harness_->PumpUntil([this] {
+    std::lock_guard lock(target_mu_);
+    return target_got_;
+  });
+  {
+    std::lock_guard lock(target_mu_);
+    ASSERT_TRUE(target_got_);
+    EXPECT_EQ(target_received_, payload);
+  }
 }
 
 } // namespace

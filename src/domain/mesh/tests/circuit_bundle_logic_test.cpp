@@ -23,6 +23,25 @@ TEST(CircuitBundleLogicTest, AdmitRefusesStranger) {
   EXPECT_EQ(DecideCircuitAdmit(ctx), CircuitAdmitDecision::RefuseStranger);
 }
 
+TEST(CircuitBundleLogicTest, AdmitAllowsReserveOp) {
+  CircuitAdmitContext ctx;
+  ctx.service_started = true;
+  ctx.op = "reserve";
+  ctx.dialer_peer_id = "peer-a";
+  EXPECT_EQ(DecideCircuitAdmit(ctx), CircuitAdmitDecision::Allow);
+}
+
+TEST(CircuitBundleLogicTest, AdmitAllowsStrangerWhenPublicScope) {
+  CircuitAdmitContext ctx;
+  ctx.service_started = true;
+  ctx.op = "bridge";
+  ctx.dialer_peer_id = "stranger";
+  ctx.contact_peer_ids = {"friend"};
+  ctx.serve_scope_mask =
+      kRelayScopeShortTerm | static_cast<RelayScopeMask>(RelayScope::Public);
+  EXPECT_EQ(DecideCircuitAdmit(ctx), CircuitAdmitDecision::Allow);
+}
+
 TEST(CircuitBundleLogicTest, AdmitRefusesBadOpAndNotReady) {
   CircuitAdmitContext ctx;
   ctx.service_started = true;

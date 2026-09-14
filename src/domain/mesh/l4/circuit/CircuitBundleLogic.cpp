@@ -6,7 +6,7 @@ CircuitAdmitDecision DecideCircuitAdmit(const CircuitAdmitContext& ctx) {
   if (!ctx.service_started || ctx.stopping) {
     return CircuitAdmitDecision::RefuseNotReady;
   }
-  if (ctx.op != "bridge") {
+  if (ctx.op != "bridge" && ctx.op != "reserve") {
     return CircuitAdmitDecision::RefuseBadOp;
   }
   if (!RelayAdmissionAllowsDialer(ctx.serve_scope_mask, ctx.dialer_peer_id, ctx.contact_peer_ids)) {
@@ -42,6 +42,7 @@ bool CircuitTunnelPhaseIsActive(const CircuitTunnelPhase phase) {
   switch (phase) {
   case CircuitTunnelPhase::OutboundOpen:
   case CircuitTunnelPhase::WaitAck:
+  case CircuitTunnelPhase::Reserved:
   case CircuitTunnelPhase::ServeDial:
   case CircuitTunnelPhase::Bridging:
     return true;

@@ -63,6 +63,13 @@ public:
                               FrameHandler on_payload = {}, ClosedCallback on_closed = {},
                               BridgeFinished on_finished = {}, int timeout_ms = 8000);
 
+  /**
+   * Client: park on relay until TTL / CancelTunnel so R can bridge to this PeerId without
+   * dialing into NAT (answerer outbound Session).
+   */
+  CircuitTunnelId StartReserve(const std::string& relay_peer_key, BridgeFinished on_finished = {},
+                               int timeout_ms = 30000);
+
   void CancelTunnel(CircuitTunnelId id);
 
   CircuitTunnelPhase Phase(CircuitTunnelId id) const;

@@ -19,8 +19,10 @@ enum class CircuitTunnelPhase {
   Idle = 0,
   /** Client: opening circuit channel to relay. */
   OutboundOpen,
-  /** Client: bridge JSON sent; waiting for ack. */
+  /** Client: bridge or reserve JSON sent; waiting for ack. */
   WaitAck,
+  /** Client: reserve ack ok; holding circuit channel until cancelled / TTL. */
+  Reserved,
   /** Relay: dialing / opening target protocol. */
   ServeDial,
   /** Relay: ack sent; ChannelBridge armed (or client: ack ok, splice live). */
