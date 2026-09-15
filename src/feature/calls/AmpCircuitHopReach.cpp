@@ -81,7 +81,9 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
     return;
   }
   // has_endpoint alone is not Connected — call-media OpenChannel hangs if we skip dial
-  // (dogfood 612b: via_ok=1 with connected=0). Kick EnsureAssociation then poll.
+  // (dogfood 612b: via_ok=1 with connected=0). Under dual-NAT, punch sync often registers a
+  // *private* advertise MA; EnsureAssociation on that MA burns the dial budget and can drop the
+  // hop assoc (hard-w5 Phase-2). Prefer punch→circuit (peer-id-only nested) over direct dial.
   if (hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId) && links_.IsConnected(peer_key)) {
     on_done(Roe<void>());
     return;
@@ -94,18 +96,6 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
     EnsureViaCircuitAsync(peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
                           /*nested_session=*/true, std::move(on_done));
   };
-  if (links_.GetLinkSnapshot(peer_key).has_endpoint) {
-    links_.EnsureAssociation(peer_key, [this, peer_key, after_punch = std::move(after_punch)](
-                                           IChatPeerLinks::LinkRoe assoc) mutable {
-      if (assoc && links_.IsConnected(peer_key)) {
-        after_punch({});
-        return;
-      }
-      after_punch(assoc ? Error("amp link: associated but not connected")
-                        : Error(assoc.error().message));
-    });
-    return;
-  }
   if (try_punch_) {
     try_punch_(peer_key, std::move(after_punch));
     return;
@@ -153,8 +143,14 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   CircuitBridgeTarget bridge_target;
   bridge_target.target_peer_id = target_peer_id;
   bridge_target.target_protocol = target_protocol;
-  if (auto ma = links_.PreferredMultiaddr(target_peer_id)) {
-    bridge_target.target_multiaddr = *ma;
+  // Nested call-media: peer-id-only. Punch/sync often registers the peer's *private*
+  // advertise MA on the dialer; sending that as target_multiaddr makes the hop
+  // overwrite its SNAT-learned book entry and fail dual-NAT (dogfood / hard-w5 Phase-2).
+  // Non-nested media-relay may still use PreferredMultiaddr when the dialer knows a path.
+  if (!nested_session) {
+    if (auto ma = links_.PreferredMultiaddr(target_peer_id)) {
+      bridge_target.target_multiaddr = *ma;
+    }
   }
 
   auto try_relay = std::make_shared<std::function<void(size_t)>>();
