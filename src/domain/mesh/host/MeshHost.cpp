@@ -1,3 +1,4 @@
+#include "domain/mesh/reachability/ReachabilityNetIf.h"
 #include "domain/mesh/reachability/AmpObservedAddrs.h"
 #include "domain/mesh/host/MeshControlDispatch.h"
 #include "domain/mesh/host/MeshHost.h"
@@ -92,7 +93,15 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
     return peer_id.error();
   }
 
-  auto bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
+  // Prefer dual-stack :: when the host already has a global IPv6 (N013 / Reachable-via-v6).
+  // IPV6_V6ONLY=0 is cleared in pp-cpp-amp so IPv4-mapped peers still work.
+  const bool prefer_v6 = !reachability_netif::GlobalIpv6Addresses().empty();
+  auto bound = prefer_v6
+                   ? pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V6({}, config.amp_udp_port))
+                   : pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
+  if (!bound && prefer_v6) {
+    bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
+  }
   if (!bound) {
     return bound.error();
   }
