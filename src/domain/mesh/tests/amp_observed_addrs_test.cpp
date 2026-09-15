@@ -43,5 +43,21 @@ TEST(AmpObservedAddrsTest, SkipsUnusableDialBack) {
   }
 }
 
+
+TEST(AmpObservedAddrsTest, PrefersGlobalIpv6BeforePrivateLan) {
+  ReachabilitySnapshot snap;
+  // Inject via listen list directly: CollectAmpObservedAddrs enumerates host ifaces;
+  // unit-test ranking through MergedForAdvertise on a crafted set.
+  AmpObservedAddrSet set;
+  set.listen = {
+      "/ip4/192.168.1.50/udp/19001/adp/1.0.0/p2p/12D3KooWObservedPeer",
+      "/ip6/2001:db8::55/udp/19001/adp/1.0.0/p2p/12D3KooWObservedPeer",
+  };
+  const auto merged = set.MergedForAdvertise();
+  ASSERT_GE(merged.size(), 2u);
+  EXPECT_NE(merged.front().find("/ip6/2001:db8::55/"), std::string::npos)
+      << "global /ip6 must precede private /ip4 for PreferredMultiaddr ingest";
+}
+
 } // namespace
 } // namespace pbr

@@ -63,8 +63,8 @@ bool IsVirtualLanIfaceName(const std::string& ifname);
 std::string IpHostFromMultiaddrPrefix(const std::string& multiaddr);
 
 /**
- * Build Amp dial-back probe targets (D8): public IPv4 + UPnP external + bound listen as ADP MAs.
- * (ADP multiaddrs are IPv4-only today.)
+ * Build Amp dial-back probe targets (D8): global IPv6, public IPv4 + UPnP external + bound listen.
+ * Preference: global `/ip6` before public `/ip4` before private listen.
  */
 std::vector<std::string> BuildAmpReachabilityProbeTargets(const std::string& amp_listen_multiaddr,
                                                           const std::string& local_peer_id,
@@ -84,7 +84,24 @@ bool ShouldSkipUpnpForListen(const std::string& bound_listen_multiaddr);
 std::vector<std::string> BuildAmpLanAdvertisedAddrs(const std::string& amp_listen_multiaddr,
                                                     const std::string& local_peer_id);
 
+/**
+ * Global (non-link-local, non-ULA) `/ip6/.../adp/...` ADP multiaddrs for the Amp UDP port.
+ * Uses `hosts` when provided; otherwise enumerates via `GlobalIpv6Addresses()`.
+ */
+std::vector<std::string> BuildAmpGlobalIpv6AdvertisedAddrs(
+    const std::string& amp_listen_multiaddr, const std::string& local_peer_id,
+    const std::vector<std::string>& hosts = {});
+
 /** Dialable LAN IPv4 host strings (same filters as call-scoped advertise). */
 std::vector<std::string> EnumerateDialableLanIpv4Hosts();
+
+/**
+ * Stable dial/advertise preference (H002/N013): global `/ip6` > public `/ip4` > private `/ip4` >
+ * other. First entry is PreferredMultiaddr ingest order.
+ */
+std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiaddrs);
+
+/** Rank key for tests (lower is preferred). */
+int AmpDialMultiaddrRank(const std::string& multiaddr);
 
 } // namespace pbr

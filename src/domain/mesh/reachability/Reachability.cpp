@@ -225,10 +225,10 @@ std::vector<std::string> BuildAmpReachabilityProbeTargets(const std::string& amp
   const auto port = UdpPortFromMultiaddr(amp_listen_multiaddr);
   if (!port || *port <= 0) {
     AppendUnique(targets, EnsurePeerIdSuffix(amp_listen_multiaddr, local_peer_id));
-    return targets;
+    return RankAmpDialMultiaddrs(std::move(targets));
   }
 
-  auto append_adp = [&](const std::string& ip) {
+  auto append_adp_ip4 = [&](const std::string& ip) {
     if (ip.empty() || ip == "0.0.0.0" || ip == "127.0.0.1") {
       return;
     }
@@ -236,16 +236,27 @@ std::vector<std::string> BuildAmpReachabilityProbeTargets(const std::string& amp
                                              local_peer_id));
   };
 
+  auto append_adp_ip6 = [&](const std::string& ip) {
+    if (ip.empty() || ip == "::" || ip == "::1" || !IsGlobalIpv6(ip)) {
+      return;
+    }
+    AppendUnique(targets, EnsurePeerIdSuffix("/ip6/" + ip + "/udp/" + std::to_string(*port) + "/adp/1.0.0",
+                                             local_peer_id));
+  };
+
+  for (const std::string& ip : reachability_netif::GlobalIpv6Addresses()) {
+    append_adp_ip6(ip);
+  }
   if (!upnp_external_ip.empty() && IsPublicIpv4(upnp_external_ip)) {
-    append_adp(upnp_external_ip);
+    append_adp_ip4(upnp_external_ip);
   }
   for (const std::string& ip : reachability_netif::PublicIpv4Addresses()) {
     if (IsPublicIpv4(ip)) {
-      append_adp(ip);
+      append_adp_ip4(ip);
     }
   }
   AppendUnique(targets, EnsurePeerIdSuffix(amp_listen_multiaddr, local_peer_id));
-  return targets;
+  return RankAmpDialMultiaddrs(std::move(targets));
 }
 
 std::vector<std::string> EnumerateDialableLanIpv4Hosts() {
@@ -301,6 +312,72 @@ std::vector<std::string> BuildAmpLanAdvertisedAddrs(const std::string& amp_liste
     }
   }
   return out;
+}
+
+std::vector<std::string> BuildAmpGlobalIpv6AdvertisedAddrs(const std::string& amp_listen_multiaddr,
+                                                          const std::string& local_peer_id,
+                                                          const std::vector<std::string>& hosts) {
+  std::vector<std::string> out;
+  if (amp_listen_multiaddr.empty() || local_peer_id.empty()) {
+    return out;
+  }
+  const auto port = UdpPortFromMultiaddr(amp_listen_multiaddr);
+  if (!port || *port <= 0) {
+    return out;
+  }
+  const std::vector<std::string> ipv6_hosts =
+      hosts.empty() ? reachability_netif::GlobalIpv6Addresses() : hosts;
+  for (const std::string& ip : ipv6_hosts) {
+    if (!IsGlobalIpv6(ip)) {
+      continue;
+    }
+    const std::string ma =
+        EnsurePeerIdSuffix("/ip6/" + ip + "/udp/" + std::to_string(*port) + "/adp/1.0.0", local_peer_id);
+    // Prefer FormatAdpMultiaddr round-trip when parseable so ingest matches dial.
+    if (auto parsed = pp::amp::ParseAdpMultiaddr(ma)) {
+      if (auto formatted = pp::amp::FormatAdpMultiaddr(parsed->endpoint, parsed->peer_id)) {
+        AppendUnique(out, *formatted);
+        continue;
+      }
+    }
+    AppendUnique(out, ma);
+  }
+  return out;
+}
+
+int AmpDialMultiaddrRank(const std::string& multiaddr) {
+  if (multiaddr.empty()) {
+    return 100;
+  }
+  const std::string host = IpHostFromMultiaddrPrefix(multiaddr);
+  if (host.empty() || host == "0.0.0.0" || host == "::" || host == "127.0.0.1" || host == "::1") {
+    return 90;
+  }
+  if (multiaddr.rfind("/ip6/", 0) == 0) {
+    return IsGlobalIpv6(host) ? 0 : 80;
+  }
+  if (multiaddr.rfind("/ip4/", 0) == 0) {
+    if (IsPublicIpv4(host)) {
+      return 10;
+    }
+    if (IsPrivateIpv4(host)) {
+      return 20;
+    }
+  }
+  return 50;
+}
+
+std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiaddrs) {
+  std::stable_sort(multiaddrs.begin(), multiaddrs.end(),
+                   [](const std::string& a, const std::string& b) {
+                     const int ra = AmpDialMultiaddrRank(a);
+                     const int rb = AmpDialMultiaddrRank(b);
+                     if (ra != rb) {
+                       return ra < rb;
+                     }
+                     return a < b;
+                   });
+  return multiaddrs;
 }
 
 } // namespace pbr

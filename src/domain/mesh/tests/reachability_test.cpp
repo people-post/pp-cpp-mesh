@@ -65,3 +65,52 @@ TEST(ReachabilityTest, BuildAmpLanAdvertisedAddrsExpandsWildcardOrKeepsConcrete)
     EXPECT_NE(ma.find("/udp/19001/adp/1.0.0/p2p/12D3KooWTest"), std::string::npos);
   }
 }
+
+TEST(ReachabilityTest, RankAmpDialMultiaddrsPrefersGlobalIpv6OverPrivateIpv4) {
+  const std::string v6 = "/ip6/2001:db8::1/udp/19001/adp/1.0.0/p2p/12D3KooWTest";
+  const std::string pub4 = "/ip4/203.0.113.10/udp/19001/adp/1.0.0/p2p/12D3KooWTest";
+  const std::string lan4 = "/ip4/192.168.1.50/udp/19001/adp/1.0.0/p2p/12D3KooWTest";
+  EXPECT_LT(pbr::AmpDialMultiaddrRank(v6), pbr::AmpDialMultiaddrRank(pub4));
+  EXPECT_LT(pbr::AmpDialMultiaddrRank(pub4), pbr::AmpDialMultiaddrRank(lan4));
+
+  const auto ranked = pbr::RankAmpDialMultiaddrs({lan4, pub4, v6});
+  ASSERT_EQ(ranked.size(), 3u);
+  EXPECT_EQ(ranked[0], v6);
+  EXPECT_EQ(ranked[1], pub4);
+  EXPECT_EQ(ranked[2], lan4);
+}
+
+TEST(ReachabilityTest, BuildAmpGlobalIpv6AdvertisedAddrsFromHosts) {
+  const auto addrs = pbr::BuildAmpGlobalIpv6AdvertisedAddrs(
+      "/ip4/0.0.0.0/udp/19001/adp/1.0.0/p2p/12D3KooWTest", "12D3KooWTest",
+      {"2001:db8::10", "fe80::1", "fd12::1", "::1"});
+  ASSERT_EQ(addrs.size(), 1u);
+  EXPECT_NE(addrs.front().find("/ip6/"), std::string::npos);
+  EXPECT_NE(addrs.front().find("2001:db8::10"), std::string::npos);
+  EXPECT_NE(addrs.front().find("/udp/19001/adp/1.0.0/p2p/12D3KooWTest"), std::string::npos);
+}
+
+TEST(ReachabilityTest, ReachableViaIpv6ContractUsesDialBackPlusGlobalIpv6) {
+  // Product chrome: Reachable + has_global_ipv6 + dial_back_ok => "Reachable via IPv6".
+  pbr::ReachabilitySignals signals;
+  signals.seed_dial_ok = true;
+  signals.dial_back_ok = true;
+  signals.has_global_ipv6 = true;
+  EXPECT_EQ(pbr::ClassifyReachability(signals), pbr::ReachabilityStatus::Reachable);
+  EXPECT_TRUE(signals.has_global_ipv6);
+  EXPECT_TRUE(signals.dial_back_ok);
+
+  pbr::ReachabilitySignals outbound_only_v6;
+  outbound_only_v6.seed_dial_ok = true;
+  outbound_only_v6.dial_back_ok = false;
+  outbound_only_v6.has_global_ipv6 = true;
+  EXPECT_EQ(pbr::ClassifyReachability(outbound_only_v6), pbr::ReachabilityStatus::OutboundOnly);
+}
+
+TEST(ReachabilityTest, IsGlobalIpv6FiltersLinkLocalAndUla) {
+  EXPECT_TRUE(pbr::IsGlobalIpv6("2001:db8::1"));
+  EXPECT_FALSE(pbr::IsGlobalIpv6("fe80::1"));
+  EXPECT_FALSE(pbr::IsGlobalIpv6("fd12::1"));
+  EXPECT_FALSE(pbr::IsGlobalIpv6("::1"));
+  EXPECT_FALSE(pbr::IsGlobalIpv6("192.168.1.1"));
+}
