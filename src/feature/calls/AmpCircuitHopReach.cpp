@@ -76,22 +76,36 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
     on_done(Error("missing call peer"));
     return;
   }
-  if (links_.IsConnected(peer_key) || links_.GetLinkSnapshot(peer_key).has_endpoint) {
+  if (links_.IsConnected(peer_key)) {
     on_done(Roe<void>());
     return;
   }
+  // has_endpoint alone is not Connected — call-media OpenChannel hangs if we skip dial
+  // (dogfood 612b: via_ok=1 with connected=0). Kick EnsureAssociation then poll.
   if (hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId) && links_.IsConnected(peer_key)) {
     on_done(Roe<void>());
     return;
   }
   auto after_punch = [this, peer_key, on_done = std::move(on_done)](Roe<void> /*punched*/) mutable {
-    if (links_.IsConnected(peer_key) || links_.GetLinkSnapshot(peer_key).has_endpoint) {
+    if (links_.IsConnected(peer_key)) {
       on_done(Roe<void>());
       return;
     }
     EnsureViaCircuitAsync(peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
                           /*nested_session=*/true, std::move(on_done));
   };
+  if (links_.GetLinkSnapshot(peer_key).has_endpoint) {
+    links_.EnsureAssociation(peer_key, [this, peer_key, after_punch = std::move(after_punch)](
+                                           IChatPeerLinks::LinkRoe assoc) mutable {
+      if (assoc && links_.IsConnected(peer_key)) {
+        after_punch({});
+        return;
+      }
+      after_punch(assoc ? Error("amp link: associated but not connected")
+                        : Error(assoc.error().message));
+    });
+    return;
+  }
   if (try_punch_) {
     try_punch_(peer_key, std::move(after_punch));
     return;
