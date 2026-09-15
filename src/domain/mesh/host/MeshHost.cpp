@@ -511,7 +511,9 @@ std::optional<MeshChatDeps> MeshHost::ChatDeps() {
   io.post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   io.post_io = MakeL4IoPost();
   io.local_peer_id = amp_->LocalPeerId();
-  io.listen_multiaddr = amp_listen_multiaddr_;
+  // Prefer ranked advertise front (global /ip6 or LAN) over raw wildcard Amp bind.
+  const auto advertised = AdvertisedListenMultiaddrs();
+  io.listen_multiaddr = advertised.empty() ? amp_listen_multiaddr_ : advertised.front();
   return MeshChatDeps{std::move(io), *chat_links_};
 }
 
