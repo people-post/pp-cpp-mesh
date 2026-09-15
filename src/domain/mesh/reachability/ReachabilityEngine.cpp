@@ -3,6 +3,7 @@
 #include "amp/link/AdpMultiaddr.h"
 #include "domain/mesh/reachability/AmpDialBackProtocol.h"
 #include "domain/mesh/reachability/NatTraversal.h"
+#include "domain/mesh/reachability/ReachabilityNetIf.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
 #include "common/ValueJson.h"
 
@@ -19,17 +20,28 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 ReachabilitySignals AnalyzeAmpListen(const std::string& amp_listen,
-                                     const std::vector<std::string>& /*ipv6_unused*/) {
+                                     const std::vector<std::string>& ipv6_addrs) {
   ReachabilitySignals signals;
   if (auto parsed = pp::amp::ParseAdpMultiaddr(amp_listen)) {
     const std::string ip = IpHostFromMultiaddrPrefix(amp_listen);
     signals.listen_is_wildcard = (ip == "0.0.0.0" || ip == "::");
     if (!ip.empty() && !signals.listen_is_wildcard) {
-      signals.has_private_listen_ip = IsPrivateIpv4(ip);
-      signals.has_public_listen_ip = IsPublicIpv4(ip);
+      if (amp_listen.rfind("/ip6/", 0) == 0) {
+        signals.has_global_ipv6 = IsGlobalIpv6(ip);
+      } else {
+        signals.has_private_listen_ip = IsPrivateIpv4(ip);
+        signals.has_public_listen_ip = IsPublicIpv4(ip);
+      }
     }
   } else {
-    signals.listen_is_wildcard = amp_listen.find("/ip4/0.0.0.0/") != std::string::npos;
+    signals.listen_is_wildcard = amp_listen.find("/ip4/0.0.0.0/") != std::string::npos ||
+                                 amp_listen.find("/ip6/::/") != std::string::npos;
+  }
+  for (const std::string& addr : ipv6_addrs) {
+    if (IsGlobalIpv6(addr)) {
+      signals.has_global_ipv6 = true;
+      break;
+    }
   }
   return signals;
 }
@@ -114,10 +126,13 @@ void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
     return;
   }
 
-  result.signals = AnalyzeAmpListen(deps.amp_listen_multiaddr, {});
+  result.signals = AnalyzeAmpListen(deps.amp_listen_multiaddr,
+                                  reachability_netif::GlobalIpv6Addresses());
 
   const auto udp_port = UdpPortFromMultiaddr(deps.amp_listen_multiaddr);
-  if (deps.try_upnp_first && udp_port && !ShouldSkipUpnpForListen(deps.amp_listen_multiaddr)) {
+  // N013: prefer IPv6 advertise over UPnP when a global address is already present.
+  if (deps.try_upnp_first && udp_port && !ShouldSkipUpnpForListen(deps.amp_listen_multiaddr) &&
+      !result.signals.has_global_ipv6) {
     auto mapped = TryUpnpUdpPortMapping(*udp_port);
     if (mapped.ok) {
       result.signals.upnp_mapped = true;
@@ -186,6 +201,11 @@ void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
                 result.signals.dial_back_dialed = probed->dialed;
                 if (!probed->ok) {
                   result.signals.dial_back_error = probed->error;
+                } else {
+                  const std::string host = IpHostFromMultiaddrPrefix(probed->dialed);
+                  if (probed->dialed.rfind("/ip6/", 0) == 0 && IsGlobalIpv6(host)) {
+                    result.signals.has_global_ipv6 = true;
+                  }
                 }
               } else {
                 result.signals.dial_back_error = probed.error().message;

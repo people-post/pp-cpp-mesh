@@ -1,3 +1,4 @@
+#include "domain/mesh/reachability/ReachabilityNetIf.h"
 #include "domain/mesh/reachability/AmpObservedAddrs.h"
 #include "domain/mesh/host/MeshControlDispatch.h"
 #include "domain/mesh/host/MeshHost.h"
@@ -92,7 +93,15 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
     return peer_id.error();
   }
 
-  auto bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
+  // Prefer dual-stack :: when the host already has a global IPv6 (N013 / Reachable-via-v6).
+  // IPV6_V6ONLY=0 is cleared in pp-cpp-amp so IPv4-mapped peers still work.
+  const bool prefer_v6 = !reachability_netif::GlobalIpv6Addresses().empty();
+  auto bound = prefer_v6
+                   ? pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V6({}, config.amp_udp_port))
+                   : pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
+  if (!bound && prefer_v6) {
+    bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
+  }
   if (!bound) {
     return bound.error();
   }
@@ -380,6 +389,19 @@ void MeshHost::Tick() {
 bool MeshHost::IsRunning() const { return static_cast<bool>(amp_); }
 
 
+std::vector<std::string> MeshHost::AdvertisedListenMultiaddrs() const {
+  if (!amp_ || amp_listen_multiaddr_.empty()) {
+    return {};
+  }
+  const auto observed =
+      CollectAmpObservedAddrs(amp_listen_multiaddr_, amp_->LocalPeerId(), reachability_->Snapshot());
+  auto merged = observed.MergedForAdvertise();
+  if (merged.empty()) {
+    merged.push_back(amp_listen_multiaddr_);
+  }
+  return merged;
+}
+
 void MeshHost::RefreshAdvertisedListenAddrs() {
   if (!amp_ || amp_listen_multiaddr_.empty()) {
     return;
@@ -489,6 +511,7 @@ std::optional<MeshChatDeps> MeshHost::ChatDeps() {
   io.post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   io.post_io = MakeL4IoPost();
   io.local_peer_id = amp_->LocalPeerId();
+  // Keep raw bind here (hot path). Dialable advertise lives in AdvertisedListenMultiaddrs().
   io.listen_multiaddr = amp_listen_multiaddr_;
   return MeshChatDeps{std::move(io), *chat_links_};
 }

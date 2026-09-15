@@ -2,6 +2,7 @@
 
 #include "amp/link/AdpMultiaddr.h"
 
+#include <algorithm>
 #include <unordered_set>
 
 namespace pbr {
@@ -49,15 +50,25 @@ std::vector<std::string> MergeAll(const AmpObservedAddrSet& set) {
 
 } // namespace
 
-std::vector<std::string> AmpObservedAddrSet::MergedForAdvertise() const { return MergeAll(*this); }
+std::vector<std::string> AmpObservedAddrSet::MergedForAdvertise() const {
+  return RankAmpDialMultiaddrs(MergeAll(*this));
+}
 
-std::vector<std::string> AmpObservedAddrSet::MergedForPunch() const { return MergeAll(*this); }
+std::vector<std::string> AmpObservedAddrSet::MergedForPunch() const {
+  return RankAmpDialMultiaddrs(MergeAll(*this));
+}
 
 AmpObservedAddrSet CollectAmpObservedAddrs(const std::string& amp_listen_multiaddr,
                                            const std::string& local_peer_id,
                                            const ReachabilitySnapshot& snapshot) {
   AmpObservedAddrSet out;
-  out.listen = BuildAmpLanAdvertisedAddrs(amp_listen_multiaddr, local_peer_id);
+  // Prefer global /ip6 first (H002/N013); LAN private /ip4 follows for PreferLocal.
+  out.listen = BuildAmpGlobalIpv6AdvertisedAddrs(amp_listen_multiaddr, local_peer_id);
+  for (const std::string& ma : BuildAmpLanAdvertisedAddrs(amp_listen_multiaddr, local_peer_id)) {
+    if (std::find(out.listen.begin(), out.listen.end(), ma) == out.listen.end()) {
+      out.listen.push_back(ma);
+    }
+  }
   if (out.listen.empty() && IsUsableAdpListen(amp_listen_multiaddr)) {
     out.listen.push_back(amp_listen_multiaddr);
   }
