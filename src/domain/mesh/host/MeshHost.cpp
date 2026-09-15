@@ -389,6 +389,19 @@ void MeshHost::Tick() {
 bool MeshHost::IsRunning() const { return static_cast<bool>(amp_); }
 
 
+std::vector<std::string> MeshHost::AdvertisedListenMultiaddrs() const {
+  if (!amp_ || amp_listen_multiaddr_.empty()) {
+    return {};
+  }
+  const auto observed =
+      CollectAmpObservedAddrs(amp_listen_multiaddr_, amp_->LocalPeerId(), reachability_->Snapshot());
+  auto merged = observed.MergedForAdvertise();
+  if (merged.empty()) {
+    merged.push_back(amp_listen_multiaddr_);
+  }
+  return merged;
+}
+
 void MeshHost::RefreshAdvertisedListenAddrs() {
   if (!amp_ || amp_listen_multiaddr_.empty()) {
     return;

@@ -114,3 +114,9 @@ TEST(ReachabilityTest, IsGlobalIpv6FiltersLinkLocalAndUla) {
   EXPECT_FALSE(pbr::IsGlobalIpv6("::1"));
   EXPECT_FALSE(pbr::IsGlobalIpv6("192.168.1.1"));
 }
+
+TEST(ReachabilityTest, SkipUpnpForGlobalIpv6Listen) {
+  EXPECT_TRUE(pbr::ShouldSkipUpnpForListen("/ip6/2001:db8::10/udp/18517/adp/1.0.0"));
+  EXPECT_FALSE(pbr::ShouldSkipUpnpForListen("/ip6/::/udp/18517/adp/1.0.0"));
+  EXPECT_FALSE(pbr::ShouldSkipUpnpForListen("/ip6/fe80::1/udp/18517/adp/1.0.0"));
+}

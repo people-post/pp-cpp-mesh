@@ -34,7 +34,8 @@ ReachabilitySignals AnalyzeAmpListen(const std::string& amp_listen,
       }
     }
   } else {
-    signals.listen_is_wildcard = amp_listen.find("/ip4/0.0.0.0/") != std::string::npos;
+    signals.listen_is_wildcard = amp_listen.find("/ip4/0.0.0.0/") != std::string::npos ||
+                                 amp_listen.find("/ip6/::/") != std::string::npos;
   }
   for (const std::string& addr : ipv6_addrs) {
     if (IsGlobalIpv6(addr)) {

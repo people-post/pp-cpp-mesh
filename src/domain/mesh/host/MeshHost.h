@@ -94,6 +94,11 @@ public:
   pp::amp::AmpStack* Amp();
   const pp::amp::AmpStack* Amp() const;
   const std::string& AmpListenMultiaddr() const { return amp_listen_multiaddr_; }
+  /**
+   * Ranked dialable Amp listen MAs for ch0 / DHT / invite (global /ip6 before private /ip4).
+   * Empty when Amp is down. May expand wildcard binds via LAN + GlobalIpv6Addresses.
+   */
+  std::vector<std::string> AdvertisedListenMultiaddrs() const;
   /** Set when Amp was requested but failed (Start returns error; for diagnostics). */
   const std::string& AmpLastError() const { return amp_last_error_; }
 

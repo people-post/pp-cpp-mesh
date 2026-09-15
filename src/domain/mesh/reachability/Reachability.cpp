@@ -212,8 +212,11 @@ bool ShouldSkipUpnpForListen(const std::string& bound_listen_multiaddr) {
   const std::string prefix =
       cut == std::string::npos ? bound_listen_multiaddr : bound_listen_multiaddr.substr(0, cut);
   const std::string ip = IpHostFromMultiaddrPrefix(prefix);
-  if (ip.empty() || ip == "0.0.0.0") {
+  if (ip.empty() || ip == "0.0.0.0" || ip == "::") {
     return false;
+  }
+  if (prefix.rfind("/ip6/", 0) == 0 || bound_listen_multiaddr.rfind("/ip6/", 0) == 0) {
+    return IsGlobalIpv6(ip);
   }
   return IsPublicIpv4(ip);
 }
