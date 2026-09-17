@@ -52,6 +52,7 @@ MeshPeerLinkSnapshot ToMeshPeerLinkSnapshot(const pp::amp::PeerLinkSnapshot& sna
   out.backoff_remaining = snap.backoff_remaining;
   out.detail = snap.detail;
   out.has_endpoint = snap.has_endpoint;
+  out.carrier_backed = snap.carrier_backed;
   out.multiaddr = snap.multiaddr;
   return out;
 }

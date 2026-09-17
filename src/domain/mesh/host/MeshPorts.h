@@ -39,6 +39,7 @@ struct MeshPeerLinkSnapshot {
   std::chrono::milliseconds backoff_remaining{0};
   std::string detail;
   bool has_endpoint = false;
+  bool carrier_backed = false;
   std::string multiaddr;
 };
 
