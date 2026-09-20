@@ -5,6 +5,7 @@
 #include "domain/mesh/host/MeshPorts.h"
 #include "feature/calls/CallTopologyRelayDeps.h"
 
+#include <atomic>
 #include <functional>
 #include <string>
 #include <vector>
@@ -45,6 +46,7 @@ public:
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override;
   Roe<void> TryEnsureCallMediaReachable(const std::string& peer_key) override;
   Roe<void> TryUpgradeToDirect(const std::string& peer_key) override;
+  void AbortPending() override;
 
 private:
   void EnsureViaCircuitAsync(const std::string& target_peer_id, const std::string& target_protocol,
@@ -59,6 +61,7 @@ private:
   CollectRelays collect_relays_;
   TryPunchAsync try_punch_;
   TryPunchViaIntroducerAsync try_punch_via_introducer_;
+  std::atomic<uint64_t> abort_gen_{0};
 
   Roe<void> DemoteCircuitHop(const std::string& peer_key, const std::string& target_protocol,
                              CircuitTunnelId tunnel_id);

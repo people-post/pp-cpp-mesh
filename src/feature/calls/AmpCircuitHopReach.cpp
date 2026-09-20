@@ -159,9 +159,18 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   }
 
   auto last_fail = std::make_shared<std::string>("circuit hop reach failed");
+  const uint64_t gen = abort_gen_.load(std::memory_order_acquire);
+  auto aborted = [this, gen]() {
+    return abort_gen_.load(std::memory_order_acquire) != gen;
+  };
   auto try_relay = std::make_shared<std::function<void(size_t)>>();
   *try_relay = [this, target_peer_id, target_protocol, register_endpoint, nested_session, bridge_target,
-                relays, last_fail, try_relay, on_done = std::move(on_done)](size_t index) mutable {
+                relays, last_fail, aborted, try_relay, on_done = std::move(on_done)](size_t index) mutable {
+    if (aborted()) {
+      AmpReachLog().info << "EnsureViaCircuit aborted target=" << target_peer_id << " index=" << index;
+      on_done(Error("circuit hop aborted"));
+      return;
+    }
     if (index >= relays->size()) {
       AmpReachLog().info << "EnsureViaCircuit exhausted relays target=" << target_peer_id
                          << " tried=" << relays->size() << " last=" << *last_fail;
@@ -182,17 +191,31 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
       return;
     }
 
+    // Dogfood: EnsureAssociation on the call peer can leave unrelated relays in DialInBackoff;
+    // clear before StartBridge so circuit can dial the hop (hard-lab MarkHot/Clear heal).
+    links_.AbortInflightDial(relay_key);
+    links_.ClearDialBackoff(relay_key);
+
     AmpReachLog().info << "EnsureViaCircuit try relay=" << relay_key << " index=" << index
                        << " target=" << target_peer_id;
     auto settled = std::make_shared<std::atomic<bool>>(false);
     auto tunnel_id = std::make_shared<CircuitTunnelId>();
     auto on_bridge = std::make_shared<std::function<void(Roe<CircuitTunnelBridgeResult>)>>();
     *on_bridge = [this, target_peer_id, target_protocol, register_endpoint, nested_session, relay_key,
-                  settled, tunnel_id, last_fail, try_relay, index, on_done](Roe<CircuitTunnelBridgeResult> result) mutable {
+                  settled, tunnel_id, last_fail, aborted, try_relay, index,
+                  on_done](Roe<CircuitTunnelBridgeResult> result) mutable {
       if (settled->exchange(true, std::memory_order_acq_rel)) {
         return;
       }
       const CircuitTunnelId id = *tunnel_id;
+      if (aborted()) {
+        if (id) {
+          circuit_.CancelTunnel(id);
+        }
+        AmpReachLog().info << "EnsureViaCircuit aborted after tunnel relay=" << relay_key;
+        on_done(Error("circuit hop aborted"));
+        return;
+      }
       if (!result || !result->ok || !result->session) {
         *last_fail = !result ? ("circuit hop reach failed: tunnel " + result.error().message)
                              : (!result->ok ? ("circuit hop reach failed: tunnel rejected " + result->error)
@@ -211,8 +234,15 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         links_.EstablishNestedOverCarrier(
             target_peer_id, session, true,
             [this, target_peer_id, target_protocol, relay_key, id, session, nested_settled, last_fail,
-             try_relay, index, on_done](IChatPeerLinks::LinkRoe nested) mutable {
+             aborted, try_relay, index, on_done](IChatPeerLinks::LinkRoe nested) mutable {
               if (nested_settled->exchange(true, std::memory_order_acq_rel)) {
+                return;
+              }
+              if (aborted()) {
+                if (id) {
+                  circuit_.CancelTunnel(id);
+                }
+                on_done(Error("circuit hop aborted"));
                 return;
               }
               if (!nested) {
@@ -228,8 +258,16 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
               on_done(Roe<void>());
             });
         AmpScheduleUntilSettled(post_io_, io_pump_, nested_settled, nested_deadline,
-                                [nested_settled, last_fail, try_relay, index]() {
+                                [this, nested_settled, last_fail, aborted, try_relay, index, id = id,
+                                 on_done]() {
                                   if (nested_settled->exchange(true, std::memory_order_acq_rel)) {
+                                    return;
+                                  }
+                                  if (aborted()) {
+                                    if (id) {
+                                      circuit_.CancelTunnel(id);
+                                    }
+                                    on_done(Error("circuit hop aborted"));
                                     return;
                                   }
                                   *last_fail = "circuit hop reach failed: nested timeout";
@@ -255,7 +293,12 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
 
     *tunnel_id = circuit_.StartBridge(
         relay_key, bridge_target, {}, {},
-        [on_bridge](Roe<CircuitTunnelBridgeResult> result) { (*on_bridge)(std::move(result)); }, 8000);
+        [on_bridge](Roe<CircuitTunnelBridgeResult> result) {
+          if (on_bridge && *on_bridge) {
+            (*on_bridge)(std::move(result));
+          }
+        },
+        8000);
     if (!*tunnel_id) {
       *last_fail = "circuit hop reach failed: StartBridge rejected";
       AmpReachLog().info << "EnsureViaCircuit StartBridge reject relay=" << relay_key;
@@ -264,15 +307,28 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
     }
 
     const auto deadline = Clock::now() + std::chrono::milliseconds(10000);
-    AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline, [settled, last_fail, try_relay, index]() {
-      if (settled->exchange(true, std::memory_order_acq_rel)) {
-        return;
-      }
-      *last_fail = "circuit hop reach failed: tunnel timeout";
-      (*try_relay)(index + 1);
-    });
+    AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline,
+                            [this, settled, last_fail, aborted, try_relay, index, tunnel_id, on_done]() {
+                              if (settled->exchange(true, std::memory_order_acq_rel)) {
+                                return;
+                              }
+                              if (aborted()) {
+                                if (*tunnel_id) {
+                                  circuit_.CancelTunnel(*tunnel_id);
+                                }
+                                on_done(Error("circuit hop aborted"));
+                                return;
+                              }
+                              *last_fail = "circuit hop reach failed: tunnel timeout";
+                              (*try_relay)(index + 1);
+                            });
   };
   (*try_relay)(0);
+}
+
+void AmpCircuitHopReach::AbortPending() {
+  const uint64_t next = abort_gen_.fetch_add(1, std::memory_order_acq_rel) + 1;
+  AmpReachLog().info << "AbortPending gen=" << next;
 }
 
 Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
