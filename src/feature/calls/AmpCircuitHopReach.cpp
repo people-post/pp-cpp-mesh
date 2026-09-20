@@ -84,11 +84,8 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
   // has_endpoint alone is not Connected — call-media OpenChannel hangs if we skip dial
   // (dogfood 612b: via_ok=1 with connected=0). Under dual-NAT, punch sync often registers a
   // *private* advertise MA; EnsureAssociation on that MA burns the dial budget and can drop the
-  // hop assoc (hard-w5 Phase-2). Prefer punch∥circuit (peer-id-only nested) over direct dial.
-  if (hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId) && links_.IsConnected(peer_key)) {
-    on_done(Roe<void>());
-    return;
-  }
+  // hop assoc (hard-w5 Phase-2). Prefer circuit (peer-id-only nested) then punch over direct dial.
+  //
   // Dogfood 130521: punch∥circuit on the same ADP UDP path (introducer often = circuit relay)
   // overlapped OpenChannel after EnsureAssociation sendto-miss and AVd ~10s with no tunnel log.
   // Circuit first; punch only if circuit misses. SoftMigrate can still upgrade later.
@@ -96,6 +93,10 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
   // Answerer reverse-dial (allow_circuit=false): punch only and wait. Circuit StartBridge to the
   // offerer fails with "endpoint not registered" on fleet seeds that do not see the offerer
   // (dogfood 072a7425); offerer dials the reserved answerer after inbound grace instead.
+  const uint64_t gen = abort_gen_.load(std::memory_order_acquire);
+  auto aborted = [this, gen]() {
+    return abort_gen_.load(std::memory_order_acquire) != gen;
+  };
   auto settled = std::make_shared<std::atomic<bool>>(false);
   auto finish = [settled, on_done = std::move(on_done)](Roe<void> result) mutable {
     if (settled->exchange(true, std::memory_order_acq_rel)) {
@@ -105,7 +106,11 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
       on_done(std::move(result));
     }
   };
-  auto run_punch = [this, peer_key, finish, settled](std::shared_ptr<Error> last_err) mutable {
+  auto run_punch = [this, peer_key, finish, settled, aborted](std::shared_ptr<Error> last_err) mutable {
+    if (aborted()) {
+      finish(Error("circuit hop aborted"));
+      return;
+    }
     if (!try_punch_) {
       if (links_.IsConnected(peer_key)) {
         finish(Roe<void>());
@@ -115,8 +120,12 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
       return;
     }
     AmpReachLog().info << "TryEnsureCallMediaReachable punch after circuit miss target=" << peer_key;
-    try_punch_(peer_key, [this, peer_key, finish, settled, last_err](Roe<void>) mutable {
+    try_punch_(peer_key, [this, peer_key, finish, settled, last_err, aborted](Roe<void>) mutable {
       if (settled->load(std::memory_order_acquire)) {
+        return;
+      }
+      if (aborted()) {
+        finish(Error("circuit hop aborted"));
         return;
       }
       if (links_.IsConnected(peer_key)) {
@@ -137,12 +146,21 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
   EnsureViaCircuitAsync(
       peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
       /*nested_session=*/true,
-      [this, peer_key, finish, settled, run_punch](Roe<void> via) mutable {
+      [this, peer_key, finish, settled, run_punch, aborted](Roe<void> via) mutable {
         if (settled->load(std::memory_order_acquire)) {
+          return;
+        }
+        if (aborted()) {
+          finish(Error("circuit hop aborted"));
           return;
         }
         if (links_.IsConnected(peer_key)) {
           finish(Roe<void>());
+          return;
+        }
+        // Do not fall through to punch after an intentional abort (Leave / ConnectFailed).
+        if (!via && via.error().message.find("aborted") != std::string::npos) {
+          finish(via);
           return;
         }
         auto last_err = std::make_shared<Error>(
@@ -254,6 +272,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
     auto advance_relay = std::make_shared<std::function<void(size_t, CircuitTunnelId)>>();
     *advance_relay =
         [this, try_relay, aborted, on_done](size_t next_index, CircuitTunnelId id) mutable {
+          ClearInflightTunnel(id);
           if (id) {
             circuit_.CancelTunnel(id);
           }
@@ -274,6 +293,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         return;
       }
       const CircuitTunnelId id = *tunnel_id;
+      ClearInflightTunnel(id);
       if (aborted()) {
         if (id) {
           circuit_.CancelTunnel(id);
@@ -295,6 +315,8 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
       const std::string resolved = result->resolved_multiaddr;
 
       if (nested_session) {
+        // Keep tunnel noted until nested settles so AbortPending can hard-cancel mid-Establish.
+        NoteInflightTunnel(id);
         auto nested_settled = std::make_shared<std::atomic<bool>>(false);
         const auto nested_deadline = Clock::now() + std::chrono::milliseconds(10000);
         links_.EstablishNestedOverCarrier(
@@ -304,6 +326,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
               if (nested_settled->exchange(true, std::memory_order_acq_rel)) {
                 return;
               }
+              ClearInflightTunnel(id);
               if (aborted()) {
                 if (id) {
                   circuit_.CancelTunnel(id);
@@ -324,9 +347,17 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
               on_done(Roe<void>());
             });
         AmpScheduleUntilSettled(post_io_, io_pump_, nested_settled, nested_deadline,
-                                [nested_settled, last_fail, advance_relay, index, id = id,
-                                 relay_key]() {
+                                [this, nested_settled, last_fail, advance_relay, index, id = id,
+                                 relay_key, aborted, on_done]() {
                                   if (nested_settled->exchange(true, std::memory_order_acq_rel)) {
+                                    return;
+                                  }
+                                  ClearInflightTunnel(id);
+                                  if (aborted()) {
+                                    if (id) {
+                                      circuit_.CancelTunnel(id);
+                                    }
+                                    on_done(Error("circuit hop aborted"));
                                     return;
                                   }
                                   *last_fail = "circuit hop reach failed: nested timeout";
@@ -345,6 +376,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         *last_fail = "circuit hop reach failed: install " + installed.error().message;
         AmpReachLog().info << "EnsureViaCircuit install miss relay=" << relay_key
                            << " err=" << *last_fail;
+        if (id) {
+          circuit_.CancelTunnel(id);
+        }
         on_done(installed);
         return;
       }
@@ -366,15 +400,25 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
       (*advance_relay)(index + 1, {});
       return;
     }
+    NoteInflightTunnel(*tunnel_id);
 
     const auto deadline = Clock::now() + std::chrono::milliseconds(10000);
     AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline,
-                            [this, settled, last_fail, advance_relay, index, tunnel_id, relay_key]() {
+                            [this, settled, last_fail, advance_relay, index, tunnel_id, relay_key,
+                             aborted, on_done]() {
                               if (settled->exchange(true, std::memory_order_acq_rel)) {
                                 return;
                               }
                               // Dogfood 997c1c6f / 131904: waiter while OpenChannel live; cancel and
                               // flush pending drops before the next relay dial.
+                              if (aborted()) {
+                                ClearInflightTunnel(*tunnel_id);
+                                if (*tunnel_id) {
+                                  circuit_.CancelTunnel(*tunnel_id);
+                                }
+                                on_done(Error("circuit hop aborted"));
+                                return;
+                              }
                               *last_fail = "circuit hop reach failed: tunnel timeout";
                               AmpReachLog().info << "EnsureViaCircuit tunnel timeout relay=" << relay_key
                                                  << " cancelling tunnel before next relay";
@@ -384,9 +428,33 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   (*try_relay)(0);
 }
 
+void AmpCircuitHopReach::NoteInflightTunnel(const CircuitTunnelId id) {
+  if (!id) {
+    return;
+  }
+  inflight_tunnel_value_.store(id.value, std::memory_order_release);
+}
+
+void AmpCircuitHopReach::ClearInflightTunnel(const CircuitTunnelId id) {
+  if (!id) {
+    return;
+  }
+  uint64_t expected = id.value;
+  (void)inflight_tunnel_value_.compare_exchange_strong(expected, 0, std::memory_order_acq_rel);
+}
+
+CircuitTunnelId AmpCircuitHopReach::TakeInflightTunnel() {
+  const uint64_t value = inflight_tunnel_value_.exchange(0, std::memory_order_acq_rel);
+  return CircuitTunnelId{value};
+}
+
 void AmpCircuitHopReach::AbortPending() {
   const uint64_t next = abort_gen_.fetch_add(1, std::memory_order_acq_rel) + 1;
-  AmpReachLog().info << "AbortPending gen=" << next;
+  const CircuitTunnelId id = TakeInflightTunnel();
+  if (id) {
+    circuit_.CancelTunnel(id);
+  }
+  AmpReachLog().info << "AbortPending gen=" << next << " cancelled_tunnel=" << (id ? 1 : 0);
 }
 
 Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
