@@ -288,6 +288,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                                             : "circuit hop reach failed: tunnel no session");
         AmpReachLog().info << "EnsureViaCircuit tunnel miss relay=" << relay_key
                            << " err=" << *last_fail;
+        if (id) {
+          circuit_.CancelTunnel(id);
+        }
         (*try_relay)(index + 1);
         return;
       }
@@ -315,6 +318,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                 *last_fail = "circuit hop reach failed: nested " + nested.error().message;
                 AmpReachLog().info << "EnsureViaCircuit nested miss relay=" << relay_key
                                    << " target=" << target_peer_id << " err=" << *last_fail;
+                if (id) {
+                  circuit_.CancelTunnel(id);
+                }
                 (*try_relay)(index + 1);
                 return;
               }
@@ -325,18 +331,20 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
             });
         AmpScheduleUntilSettled(post_io_, io_pump_, nested_settled, nested_deadline,
                                 [this, nested_settled, last_fail, aborted, try_relay, index, id = id,
-                                 on_done]() {
+                                 relay_key, on_done]() {
                                   if (nested_settled->exchange(true, std::memory_order_acq_rel)) {
                                     return;
                                   }
+                                  if (id) {
+                                    circuit_.CancelTunnel(id);
+                                  }
                                   if (aborted()) {
-                                    if (id) {
-                                      circuit_.CancelTunnel(id);
-                                    }
                                     on_done(Error("circuit hop aborted"));
                                     return;
                                   }
                                   *last_fail = "circuit hop reach failed: nested timeout";
+                                  AmpReachLog().info << "EnsureViaCircuit nested timeout relay=" << relay_key
+                                                     << " cancelling tunnel before next relay";
                                   (*try_relay)(index + 1);
                                 });
         return;
@@ -374,18 +382,24 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
 
     const auto deadline = Clock::now() + std::chrono::milliseconds(10000);
     AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline,
-                            [this, settled, last_fail, aborted, try_relay, index, tunnel_id, on_done]() {
+                            [this, settled, last_fail, aborted, try_relay, index, tunnel_id, relay_key,
+                             on_done]() {
                               if (settled->exchange(true, std::memory_order_acq_rel)) {
                                 return;
                               }
+                              // Dogfood 997c1c6f: waiter fired while StartBridge/OpenChannel was still
+                              // live; advancing to the next relay without CancelTunnel overlapped ADP
+                              // handshake on the same UDP path and AVd (~10s, no tunnel-miss log).
+                              if (*tunnel_id) {
+                                circuit_.CancelTunnel(*tunnel_id);
+                              }
                               if (aborted()) {
-                                if (*tunnel_id) {
-                                  circuit_.CancelTunnel(*tunnel_id);
-                                }
                                 on_done(Error("circuit hop aborted"));
                                 return;
                               }
                               *last_fail = "circuit hop reach failed: tunnel timeout";
+                              AmpReachLog().info << "EnsureViaCircuit tunnel timeout relay=" << relay_key
+                                                 << " cancelling tunnel before next relay";
                               (*try_relay)(index + 1);
                             });
   };
