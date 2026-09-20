@@ -233,5 +233,48 @@ TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridge) {
   }
 }
 
+TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridgePeerIdOnly) {
+  // Nested call-media: dialer sends peer-id-only. Relay must accept a Connected/reserved
+  // target without a dial-book multiaddr (dogfood 997c1c6f).
+  ArmTargetReader();
+
+  {
+    BridgeWait reserve_wait;
+    auto rid = client_b_->StartReserve("relay", reserve_wait.Fn(), 15000);
+    ASSERT_TRUE(rid);
+    reserve_wait.PumpUntilDone(*harness_);
+    ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
+    ASSERT_TRUE(reserve_wait.result->ok) << reserve_wait.result->error;
+  }
+  ASSERT_TRUE(harness_->mgr_r().IsConnected(harness_->peer_id_b));
+  // Drop dial-book entry if any — peer-id-only must not depend on RegisterEndpoint.
+  // PeerLinkManager has no Unregister; omit MA in the bridge request instead.
+
+  CircuitBridgeTarget target;
+  target.target_peer_id = harness_->peer_id_b;
+  target.target_protocol = kAmpBridgeTargetProtocol;
+  ASSERT_TRUE(target.target_multiaddr.empty());
+
+  BridgeWait wait;
+  auto id = client_->StartBridge("relay", target, {}, {}, wait.Fn(), 8000);
+  ASSERT_TRUE(id);
+  wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(wait.result) << wait.result.error().message;
+  ASSERT_TRUE(wait.result->ok) << wait.result->error
+                               << " peer-id-only bridge must succeed when target is reserved/Connected";
+
+  const std::vector<uint8_t> payload = {'p', 'i', 'd'};
+  ASSERT_TRUE(wait.result->session->EnqueueOutbound(payload));
+  harness_->PumpUntil([this] {
+    std::lock_guard lock(target_mu_);
+    return target_got_;
+  });
+  {
+    std::lock_guard lock(target_mu_);
+    ASSERT_TRUE(target_got_);
+    EXPECT_EQ(target_received_, payload);
+  }
+}
+
 } // namespace
 } // namespace pbr
