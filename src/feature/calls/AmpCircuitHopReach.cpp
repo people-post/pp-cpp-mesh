@@ -136,9 +136,14 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   }
   auto relays = std::make_shared<std::vector<std::string>>(collect_relays_(target_peer_id));
   if (relays->empty()) {
+    AmpReachLog().info << "EnsureViaCircuit no dialable circuit relays target=" << target_peer_id
+                       << " nested=" << (nested_session ? 1 : 0);
     on_done(Error("no dialable circuit relays"));
     return;
   }
+  AmpReachLog().info << "EnsureViaCircuit start target=" << target_peer_id
+                     << " protocol=" << target_protocol << " nested=" << (nested_session ? 1 : 0)
+                     << " relays=" << relays->size();
 
   CircuitBridgeTarget bridge_target;
   bridge_target.target_peer_id = target_peer_id;
@@ -153,29 +158,47 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
     }
   }
 
+  auto last_fail = std::make_shared<std::string>("circuit hop reach failed");
   auto try_relay = std::make_shared<std::function<void(size_t)>>();
   *try_relay = [this, target_peer_id, target_protocol, register_endpoint, nested_session, bridge_target,
-                relays, try_relay, on_done = std::move(on_done)](size_t index) mutable {
+                relays, last_fail, try_relay, on_done = std::move(on_done)](size_t index) mutable {
     if (index >= relays->size()) {
-      on_done(Error("circuit hop reach failed"));
+      AmpReachLog().info << "EnsureViaCircuit exhausted relays target=" << target_peer_id
+                         << " tried=" << relays->size() << " last=" << *last_fail;
+      on_done(Error(*last_fail));
       return;
     }
     const std::string relay_key = (*relays)[index];
-    if (relay_key == target_peer_id || !links_.GetLinkSnapshot(relay_key).has_endpoint) {
+    if (relay_key == target_peer_id) {
+      AmpReachLog().info << "EnsureViaCircuit skip self-relay target=" << target_peer_id;
+      *last_fail = "circuit hop reach failed: relay is target";
+      (*try_relay)(index + 1);
+      return;
+    }
+    if (!links_.GetLinkSnapshot(relay_key).has_endpoint) {
+      AmpReachLog().info << "EnsureViaCircuit skip relay=" << relay_key << " reason=!endpoint";
+      *last_fail = "circuit hop reach failed: relay !endpoint";
       (*try_relay)(index + 1);
       return;
     }
 
+    AmpReachLog().info << "EnsureViaCircuit try relay=" << relay_key << " index=" << index
+                       << " target=" << target_peer_id;
     auto settled = std::make_shared<std::atomic<bool>>(false);
     auto tunnel_id = std::make_shared<CircuitTunnelId>();
     auto on_bridge = std::make_shared<std::function<void(Roe<CircuitTunnelBridgeResult>)>>();
     *on_bridge = [this, target_peer_id, target_protocol, register_endpoint, nested_session, relay_key,
-                  settled, tunnel_id, try_relay, index, on_done](Roe<CircuitTunnelBridgeResult> result) mutable {
+                  settled, tunnel_id, last_fail, try_relay, index, on_done](Roe<CircuitTunnelBridgeResult> result) mutable {
       if (settled->exchange(true, std::memory_order_acq_rel)) {
         return;
       }
       const CircuitTunnelId id = *tunnel_id;
       if (!result || !result->ok || !result->session) {
+        *last_fail = !result ? ("circuit hop reach failed: tunnel " + result.error().message)
+                             : (!result->ok ? ("circuit hop reach failed: tunnel rejected " + result->error)
+                                            : "circuit hop reach failed: tunnel no session");
+        AmpReachLog().info << "EnsureViaCircuit tunnel miss relay=" << relay_key
+                           << " err=" << *last_fail;
         (*try_relay)(index + 1);
         return;
       }
@@ -187,23 +210,29 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         const auto nested_deadline = Clock::now() + std::chrono::milliseconds(10000);
         links_.EstablishNestedOverCarrier(
             target_peer_id, session, true,
-            [this, target_peer_id, target_protocol, relay_key, id, session, nested_settled, try_relay, index,
-             on_done](IChatPeerLinks::LinkRoe nested) mutable {
+            [this, target_peer_id, target_protocol, relay_key, id, session, nested_settled, last_fail,
+             try_relay, index, on_done](IChatPeerLinks::LinkRoe nested) mutable {
               if (nested_settled->exchange(true, std::memory_order_acq_rel)) {
                 return;
               }
               if (!nested) {
+                *last_fail = "circuit hop reach failed: nested " + nested.error().message;
+                AmpReachLog().info << "EnsureViaCircuit nested miss relay=" << relay_key
+                                   << " target=" << target_peer_id << " err=" << *last_fail;
                 (*try_relay)(index + 1);
                 return;
               }
               (void)hops_.Install(target_peer_id, relay_key, target_protocol, session, id);
+              AmpReachLog().info << "EnsureViaCircuit nested ok relay=" << relay_key
+                                 << " target=" << target_peer_id;
               on_done(Roe<void>());
             });
         AmpScheduleUntilSettled(post_io_, io_pump_, nested_settled, nested_deadline,
-                                [nested_settled, try_relay, index]() {
+                                [nested_settled, last_fail, try_relay, index]() {
                                   if (nested_settled->exchange(true, std::memory_order_acq_rel)) {
                                     return;
                                   }
+                                  *last_fail = "circuit hop reach failed: nested timeout";
                                   (*try_relay)(index + 1);
                                 });
         return;
@@ -214,9 +243,13 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
       }
       auto installed = hops_.Install(target_peer_id, relay_key, target_protocol, session, id);
       if (!installed) {
+        *last_fail = "circuit hop reach failed: install " + installed.error().message;
+        AmpReachLog().info << "EnsureViaCircuit install miss relay=" << relay_key
+                           << " err=" << *last_fail;
         on_done(installed);
         return;
       }
+      AmpReachLog().info << "EnsureViaCircuit ok relay=" << relay_key << " target=" << target_peer_id;
       on_done(Roe<void>());
     };
 
@@ -224,15 +257,18 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         relay_key, bridge_target, {}, {},
         [on_bridge](Roe<CircuitTunnelBridgeResult> result) { (*on_bridge)(std::move(result)); }, 8000);
     if (!*tunnel_id) {
+      *last_fail = "circuit hop reach failed: StartBridge rejected";
+      AmpReachLog().info << "EnsureViaCircuit StartBridge reject relay=" << relay_key;
       (*try_relay)(index + 1);
       return;
     }
 
     const auto deadline = Clock::now() + std::chrono::milliseconds(10000);
-    AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline, [settled, try_relay, index]() {
+    AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline, [settled, last_fail, try_relay, index]() {
       if (settled->exchange(true, std::memory_order_acq_rel)) {
         return;
       }
+      *last_fail = "circuit hop reach failed: tunnel timeout";
       (*try_relay)(index + 1);
     });
   };
