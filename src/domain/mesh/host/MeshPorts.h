@@ -116,6 +116,11 @@ public:
 
   virtual void MarkWarm(const std::string& peer_key) = 0;
 
+  /** Clear PeerLinkManager dial-failure cooldown (default no-op for fakes). */
+  virtual void ClearDialBackoff(const std::string& /*peer_key*/) {}
+  /** Abort in-flight EnsureAssociation without arming a new backoff (default no-op). */
+  virtual void AbortInflightDial(const std::string& /*peer_key*/) {}
+
   virtual pp::amp::PeerLink* FindLink(const std::string& peer_key) = 0;
   virtual const pp::amp::PeerLink* FindLink(const std::string& peer_key) const = 0;
 };

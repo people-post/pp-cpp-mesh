@@ -128,6 +128,10 @@ public:
 
   void MarkWarm(const std::string& peer_key) override { links_.MarkWarm(peer_key); }
 
+  void ClearDialBackoff(const std::string& peer_key) override { links_.ClearDialBackoff(peer_key); }
+
+  void AbortInflightDial(const std::string& peer_key) override { links_.AbortInflightDial(peer_key); }
+
   pp::amp::PeerLink* FindLink(const std::string& peer_key) override { return links_.FindLink(peer_key); }
 
   const pp::amp::PeerLink* FindLink(const std::string& peer_key) const override { return links_.FindLink(peer_key); }
