@@ -39,7 +39,8 @@ public:
   void TryEnsureHopReachableAsync(const std::string& hop_peer_id,
                                   std::function<void(Roe<void>)> on_done) override;
   void TryEnsureCallMediaReachableAsync(const std::string& peer_key,
-                                        std::function<void(Roe<void>)> on_done) override;
+                                        std::function<void(Roe<void>)> on_done,
+                                        bool allow_circuit = true) override;
   void TryUpgradeToDirectAsync(const std::string& peer_key,
                                std::function<void(Roe<void>)> on_done) override;
 
