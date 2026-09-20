@@ -54,6 +54,10 @@ private:
                              bool register_endpoint, bool nested_session,
                              std::function<void(Roe<void>)> on_done);
 
+  void NoteInflightTunnel(CircuitTunnelId id);
+  void ClearInflightTunnel(CircuitTunnelId id);
+  CircuitTunnelId TakeInflightTunnel();
+
   CircuitTunnelCoordinator& circuit_;
   AmpCircuitHopRegistry& hops_;
   IChatPeerLinks& links_;
@@ -63,6 +67,8 @@ private:
   TryPunchAsync try_punch_;
   TryPunchViaIntroducerAsync try_punch_via_introducer_;
   std::atomic<uint64_t> abort_gen_{0};
+  /** Active StartBridge id for this reach chain; AbortPending CancelTunnel's it (hard cancel). */
+  std::atomic<uint64_t> inflight_tunnel_value_{0};
 
   Roe<void> DemoteCircuitHop(const std::string& peer_key, const std::string& target_protocol,
                              CircuitTunnelId tunnel_id);
