@@ -246,7 +246,10 @@ TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridgePeerIdOnly) {
     ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
     ASSERT_TRUE(reserve_wait.result->ok) << reserve_wait.result->error;
   }
-  ASSERT_TRUE(harness_->mgr_r().IsConnected(harness_->peer_id_b));
+  // Link may be keyed as alias/inbound — IsConnected(peer_id) only checks exact key.
+  harness_->PumpUntil(
+      [this] { return harness_->mgr_r().CountConnectedLinksForPeerId(harness_->peer_id_b) > 0; });
+  ASSERT_GT(harness_->mgr_r().CountConnectedLinksForPeerId(harness_->peer_id_b), 0u);
   // Drop dial-book entry if any — peer-id-only must not depend on RegisterEndpoint.
   // PeerLinkManager has no Unregister; omit MA in the bridge request instead.
 

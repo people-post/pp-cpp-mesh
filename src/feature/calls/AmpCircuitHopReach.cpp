@@ -89,17 +89,14 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
     on_done(Roe<void>());
     return;
   }
-  // Dogfood 8b452388: sequential punch (window+4s) left only ~4s of the Bridge dial budget for
-  // StartBridge+nested — AbortPending killed the in-flight hop. Run punch and circuit in parallel;
-  // first Connected wins. SoftMigrate still prefers punched path when it wins the race.
+  // Dogfood 130521: punch∥circuit on the same ADP UDP path (introducer often = circuit relay)
+  // overlapped OpenChannel after EnsureAssociation sendto-miss and AVd ~10s with no tunnel log.
+  // Circuit first; punch only if circuit misses. SoftMigrate can still upgrade later.
   //
   // Answerer reverse-dial (allow_circuit=false): punch only and wait. Circuit StartBridge to the
   // offerer fails with "endpoint not registered" on fleet seeds that do not see the offerer
   // (dogfood 072a7425); offerer dials the reserved answerer after inbound grace instead.
   auto settled = std::make_shared<std::atomic<bool>>(false);
-  auto punch_done = std::make_shared<std::atomic<bool>>(false);
-  auto circuit_done = std::make_shared<std::atomic<bool>>(false);
-  auto last_err = std::make_shared<Error>(Error("call-media circuit reach failed"));
   auto finish = [settled, on_done = std::move(on_done)](Roe<void> result) mutable {
     if (settled->exchange(true, std::memory_order_acq_rel)) {
       return;
@@ -108,65 +105,50 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
       on_done(std::move(result));
     }
   };
-  auto maybe_finish_miss =
-      [this, peer_key, finish, punch_done, circuit_done, last_err, settled]() mutable {
+  auto run_punch = [this, peer_key, finish, settled](std::shared_ptr<Error> last_err) mutable {
+    if (!try_punch_) {
+      if (links_.IsConnected(peer_key)) {
+        finish(Roe<void>());
+      } else {
+        finish(last_err ? *last_err : Error("call-media circuit reach failed"));
+      }
+      return;
+    }
+    AmpReachLog().info << "TryEnsureCallMediaReachable punch after circuit miss target=" << peer_key;
+    try_punch_(peer_key, [this, peer_key, finish, settled, last_err](Roe<void>) mutable {
+      if (settled->load(std::memory_order_acquire)) {
+        return;
+      }
+      if (links_.IsConnected(peer_key)) {
+        finish(Roe<void>());
+        return;
+      }
+      finish(last_err ? *last_err : Error("call peer not connected after punch"));
+    });
+  };
+
+  if (!allow_circuit) {
+    AmpReachLog().info << "TryEnsureCallMediaReachable punch-only (no circuit dial) target="
+                       << peer_key;
+    run_punch(nullptr);
+    return;
+  }
+
+  EnsureViaCircuitAsync(
+      peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
+      /*nested_session=*/true,
+      [this, peer_key, finish, settled, run_punch](Roe<void> via) mutable {
         if (settled->load(std::memory_order_acquire)) {
-          return;
-        }
-        if (!punch_done->load(std::memory_order_acquire) ||
-            !circuit_done->load(std::memory_order_acquire)) {
           return;
         }
         if (links_.IsConnected(peer_key)) {
           finish(Roe<void>());
           return;
         }
-        finish(*last_err);
-      };
-
-  if (allow_circuit) {
-    EnsureViaCircuitAsync(
-        peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
-        /*nested_session=*/true,
-        [this, peer_key, finish, circuit_done, last_err, settled,
-         maybe_finish_miss](Roe<void> via) mutable {
-          circuit_done->store(true, std::memory_order_release);
-          if (settled->load(std::memory_order_acquire)) {
-            return;
-          }
-          if (links_.IsConnected(peer_key)) {
-            finish(Roe<void>());
-            return;
-          }
-          if (!via) {
-            *last_err = via.error();
-          } else {
-            *last_err = Error("call peer not connected after circuit");
-          }
-          maybe_finish_miss();
-        });
-  } else {
-    circuit_done->store(true, std::memory_order_release);
-    AmpReachLog().info << "TryEnsureCallMediaReachable punch-only (no circuit dial) target="
-                       << peer_key;
-  }
-
-  if (!try_punch_) {
-    punch_done->store(true, std::memory_order_release);
-    maybe_finish_miss();
-    return;
-  }
-  try_punch_(peer_key, [this, peer_key, finish, punch_done, settled, maybe_finish_miss](Roe<void>) mutable {
-    punch_done->store(true, std::memory_order_release);
-    if (settled->load(std::memory_order_acquire)) {
-      return;
-    }
-    if (links_.IsConnected(peer_key)) {
-      finish(Roe<void>());
-      return;
-    }
-    maybe_finish_miss();
-  });
+        auto last_err = std::make_shared<Error>(
+            !via ? via.error() : Error("call peer not connected after circuit"));
+        run_punch(std::move(last_err));
+      });
 }
 
 void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id,
