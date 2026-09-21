@@ -45,27 +45,34 @@ void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_
     on_done(Error("missing hop peer"));
     return;
   }
-  if (hops_.Find(hop_peer_id, kMediaRelayProtocolId)) {
-    on_done(Roe<void>());
-    return;
-  }
-  if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint) {
-    on_done(Roe<void>());
-    return;
-  }
-  auto after_punch = [this, hop_peer_id, on_done = std::move(on_done)](Roe<void> /*punched*/) mutable {
-    if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint || links_.IsConnected(hop_peer_id)) {
+  auto run = [this, hop_peer_id, on_done = std::move(on_done)]() mutable {
+    if (hops_.Find(hop_peer_id, kMediaRelayProtocolId)) {
       on_done(Roe<void>());
       return;
     }
-    EnsureViaCircuitAsync(hop_peer_id, kMediaRelayProtocolId, /*register_endpoint=*/true,
-                          /*nested_session=*/false, std::move(on_done));
+    if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint) {
+      on_done(Roe<void>());
+      return;
+    }
+    auto after_punch = [this, hop_peer_id, on_done = std::move(on_done)](Roe<void> /*punched*/) mutable {
+      if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint || links_.IsConnected(hop_peer_id)) {
+        on_done(Roe<void>());
+        return;
+      }
+      EnsureViaCircuitAsync(hop_peer_id, kMediaRelayProtocolId, /*register_endpoint=*/true,
+                            /*nested_session=*/false, std::move(on_done));
+    };
+    if (try_punch_) {
+      try_punch_(hop_peer_id, std::move(after_punch));
+      return;
+    }
+    after_punch(Error("no punch"));
   };
-  if (try_punch_) {
-    try_punch_(hop_peer_id, std::move(after_punch));
-    return;
+  if (post_io_) {
+    post_io_(std::move(run));
+  } else {
+    run();
   }
-  after_punch(Error("no punch"));
 }
 
 void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& peer_key,
@@ -306,13 +313,14 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
             on_done(Error("circuit hop aborted"));
             return;
           }
-          if (io_pump_) {
-            io_pump_();
-          }
           auto go = [try_relay, next_index]() { (*try_relay)(next_index); };
           if (post_io_) {
+            // MeshPump owns Drive — defer next StartBridge; do not nested-Tick.
             post_io_(std::move(go));
           } else {
+            if (io_pump_) {
+              io_pump_();
+            }
             go();
           }
         };

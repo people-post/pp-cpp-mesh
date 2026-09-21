@@ -16,8 +16,9 @@ namespace pbr {
  * ICircuitHopReach over Amp CircuitTunnelCoordinator + AmpCircuitHopRegistry ([A020]).
  * SoftMigrate / call-media NAT when Amp is the mesh transport entry.
  *
- * Prefer TryEnsure*Async. With MeshPump running, pass empty io_pump + post_io so waiters
- * do not Tick (MeshPump owns Drive).
+ * Prefer TryEnsure*Async. Product Wire passes empty io_pump + post_io when MeshPump runs
+ * (MeshPump owns Drive; nested Tick from Coordinator races PeerLink teardown). Harnesses
+ * without MeshPump may supply io_pump for flush-between-relay attempts.
  */
 class AmpCircuitHopReach final : public ICircuitHopReach {
 public:
