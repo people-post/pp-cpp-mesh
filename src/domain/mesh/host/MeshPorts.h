@@ -19,6 +19,7 @@
 namespace pp::amp {
 class ChannelSession;
 class PeerLink;
+class MeshRuntime;
 struct PeerLinkSnapshot;
 } // namespace pp::amp
 
@@ -60,9 +61,10 @@ struct MeshIoContext {
  * Narrow peer-link port for feature chat/history/blob/circuit reach.
  * Implemented in mesh/host by wrapping Amp PeerLinkManager (sole amp/link consumer).
  *
- * Affinity: PeerLinkManager is Amp-IO-strand only. Callers outside MeshPump / PostToIo
- * must not mutate (RegisterEndpoint, EnsureAssociation, ClearDialBackoff, AbortInflightDial,
- * OpenChannel, …). Prefer MeshChatDeps::io.post_io. See THREADING.md § Thread affinity.
+ * Affinity: PeerLinkManager mutations run under MeshRuntime::io_mu_ (Drive/PostToIo).
+ * AmpChatPeerLinks takes the same lock via WithIoLock for every call — Coordinator/UI
+ * may read IsConnected safely. Prefer post_io for multi-step dial/circuit work.
+ * See THREADING.md § Thread affinity.
  */
 class IChatPeerLinks {
 public:
@@ -153,7 +155,7 @@ std::optional<std::string> PeerIdFromAdpMultiaddr(const std::string& multiaddr);
 /** UDP port from ADP multiaddr when parseable. */
 std::optional<uint16_t> UdpPortFromAdpMultiaddr(const std::string& multiaddr);
 
-/** Wrap Amp PeerLinkManager for feature-layer chat/circuit ports. */
-std::unique_ptr<IChatPeerLinks> NewAmpChatPeerLinks(pp::amp::PeerLinkManager& links);
+/** Wrap Amp MeshRuntime Links() under WithIoLock for feature-layer chat/circuit ports. */
+std::unique_ptr<IChatPeerLinks> NewAmpChatPeerLinks(pp::amp::MeshRuntime& runtime);
 
 } // namespace pbr

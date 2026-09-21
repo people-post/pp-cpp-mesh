@@ -129,7 +129,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   amp_listen_multiaddr_ = *listen;
   (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   amp_ = std::move(*stack);
-  chat_links_ = NewAmpChatPeerLinks(amp_->Links());
+  chat_links_ = NewAmpChatPeerLinks(amp_->Runtime());
   ApplyAmpAdvertisement(config);
   prefer_mesh_pump_ = true;
   EnsureAmpL4Coordinators();
@@ -326,7 +326,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   if (!amp_listen_multiaddr_.empty()) {
     amp_->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   }
-  chat_links_ = NewAmpChatPeerLinks(amp_->Links());
+  chat_links_ = NewAmpChatPeerLinks(amp_->Runtime());
   EnsureAmpL4Coordinators();
   // Tests / AttachAmpStack: start outbound-capable L4 without inbound hosting unless configured.
   // Keep the caller-supplied listen multiaddr — LAN refresh would replace MemoryDatagramIo

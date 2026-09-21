@@ -39,8 +39,8 @@ pp::Roe<std::unique_ptr<AmpMeshHarness>> AmpMeshHarness::Create() {
                                                           link_config);
   harness->runtime_a->Start();
   harness->runtime_b->Start();
-  harness->chat_links_a = pbr::NewAmpChatPeerLinks(harness->runtime_a->Links());
-  harness->chat_links_b = pbr::NewAmpChatPeerLinks(harness->runtime_b->Links());
+  harness->chat_links_a = pbr::NewAmpChatPeerLinks(*harness->runtime_a);
+  harness->chat_links_b = pbr::NewAmpChatPeerLinks(*harness->runtime_b);
 
   auto ma_b = pp::amp::FormatAdpMultiaddr(harness->addr_b, harness->peer_id_b);
   auto ma_a = pp::amp::FormatAdpMultiaddr(harness->addr_a, harness->peer_id_a);

@@ -1,6 +1,7 @@
 #include "domain/mesh/host/MeshPorts.h"
 
 #include "amp/link/AdpMultiaddr.h"
+#include "amp/link/MeshRuntime.h"
 #include "amp/link/PeerLinkManager.h"
 #include "amp/link/Types.h"
 
@@ -77,71 +78,98 @@ std::optional<uint16_t> UdpPortFromAdpMultiaddr(const std::string& multiaddr) {
   return std::nullopt;
 }
 
+/**
+ * PeerLinkManager is mutated under MeshRuntime::io_mu_ (Drive / PostToIo).
+ * Lock the same mutex for every façade call so Coordinator/UI reads cannot race
+ * FinishDial / ScheduleDropLink (dogfood 091029 / 091740).
+ */
 class AmpChatPeerLinks final : public IChatPeerLinks {
 public:
-  explicit AmpChatPeerLinks(pp::amp::PeerLinkManager& links) : links_(links) {}
+  explicit AmpChatPeerLinks(pp::amp::MeshRuntime& runtime)
+      : runtime_(runtime), links_(runtime.Links()) {}
 
   std::optional<std::string> PreferredMultiaddr(const std::string& peer_id) const override {
-    return links_.PreferredMultiaddr(peer_id);
+    return runtime_.WithIoLock([&] { return links_.PreferredMultiaddr(peer_id); });
   }
 
   Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) override {
-    return links_.RegisterEndpoint(peer_key, multiaddr);
+    return runtime_.WithIoLock([&] { return links_.RegisterEndpoint(peer_key, multiaddr); });
   }
 
   void EnsureAssociation(const std::string& peer_key, LinkCb on_complete) override {
-    links_.EnsureAssociation(peer_key, [on_complete = std::move(on_complete)](pp::amp::PeerLinkManager::LinkRoe result) {
-      on_complete(ToLinkRoe(result));
+    runtime_.WithIoLock([&] {
+      links_.EnsureAssociation(peer_key, [on_complete = std::move(on_complete)](
+                                             pp::amp::PeerLinkManager::LinkRoe result) {
+        on_complete(ToLinkRoe(result));
+      });
     });
   }
 
   void OpenChannel(const std::string& peer_key, const std::string& protocol_id, pp::amp::ChannelPolicy policy,
                    ChannelCb on_complete) override {
-    links_.OpenChannel(peer_key, protocol_id, std::move(policy),
-                       [on_complete = std::move(on_complete)](pp::amp::PeerLinkManager::ChannelRoe result) {
-                         on_complete(ToChannelRoe(result));
-                       });
+    runtime_.WithIoLock([&] {
+      links_.OpenChannel(peer_key, protocol_id, std::move(policy),
+                         [on_complete = std::move(on_complete)](pp::amp::PeerLinkManager::ChannelRoe result) {
+                           on_complete(ToChannelRoe(result));
+                         });
+    });
   }
 
   void EstablishNestedOverCarrier(const std::string& peer_key, std::shared_ptr<pp::amp::ChannelSession> carrier,
                                   bool initiator, LinkCb on_complete) override {
-    links_.EstablishNestedOverCarrier(
-        peer_key, std::move(carrier), initiator,
-        [on_complete = std::move(on_complete)](pp::amp::PeerLinkManager::LinkRoe result) {
-          on_complete(ToLinkRoe(result));
-        });
+    runtime_.WithIoLock([&] {
+      links_.EstablishNestedOverCarrier(
+          peer_key, std::move(carrier), initiator,
+          [on_complete = std::move(on_complete)](pp::amp::PeerLinkManager::LinkRoe result) {
+            on_complete(ToLinkRoe(result));
+          });
+    });
   }
 
   void SetProtocolHandler(const std::string& protocol_id, ProtocolHandler handler) override {
-    links_.SetProtocolHandler(protocol_id, std::move(handler));
+    runtime_.WithIoLock([&] { links_.SetProtocolHandler(protocol_id, std::move(handler)); });
   }
 
   void RemoveProtocolHandler(const std::string& protocol_id) override {
-    links_.RemoveProtocolHandler(protocol_id);
+    runtime_.WithIoLock([&] { links_.RemoveProtocolHandler(protocol_id); });
   }
 
   MeshPeerLinkSnapshot GetLinkSnapshot(const std::string& peer_key) const override {
-    return ToMeshPeerLinkSnapshot(links_.GetLinkSnapshot(peer_key));
+    return runtime_.WithIoLock(
+        [&] { return ToMeshPeerLinkSnapshot(links_.GetLinkSnapshot(peer_key)); });
   }
 
-  bool IsConnected(const std::string& peer_key) const override { return links_.IsConnected(peer_key); }
+  bool IsConnected(const std::string& peer_key) const override {
+    return runtime_.WithIoLock([&] { return links_.IsConnected(peer_key); });
+  }
 
-  void MarkWarm(const std::string& peer_key) override { links_.MarkWarm(peer_key); }
+  void MarkWarm(const std::string& peer_key) override {
+    runtime_.WithIoLock([&] { links_.MarkWarm(peer_key); });
+  }
 
-  void ClearDialBackoff(const std::string& peer_key) override { links_.ClearDialBackoff(peer_key); }
+  void ClearDialBackoff(const std::string& peer_key) override {
+    runtime_.WithIoLock([&] { links_.ClearDialBackoff(peer_key); });
+  }
 
-  void AbortInflightDial(const std::string& peer_key) override { links_.AbortInflightDial(peer_key); }
+  void AbortInflightDial(const std::string& peer_key) override {
+    runtime_.WithIoLock([&] { links_.AbortInflightDial(peer_key); });
+  }
 
-  pp::amp::PeerLink* FindLink(const std::string& peer_key) override { return links_.FindLink(peer_key); }
+  pp::amp::PeerLink* FindLink(const std::string& peer_key) override {
+    return runtime_.WithIoLock([&] { return links_.FindLink(peer_key); });
+  }
 
-  const pp::amp::PeerLink* FindLink(const std::string& peer_key) const override { return links_.FindLink(peer_key); }
+  const pp::amp::PeerLink* FindLink(const std::string& peer_key) const override {
+    return runtime_.WithIoLock([&] { return links_.FindLink(peer_key); });
+  }
 
 private:
+  pp::amp::MeshRuntime& runtime_;
   pp::amp::PeerLinkManager& links_;
 };
 
-std::unique_ptr<IChatPeerLinks> NewAmpChatPeerLinks(pp::amp::PeerLinkManager& links) {
-  return std::make_unique<AmpChatPeerLinks>(links);
+std::unique_ptr<IChatPeerLinks> NewAmpChatPeerLinks(pp::amp::MeshRuntime& runtime) {
+  return std::make_unique<AmpChatPeerLinks>(runtime);
 }
 
 } // namespace pbr
