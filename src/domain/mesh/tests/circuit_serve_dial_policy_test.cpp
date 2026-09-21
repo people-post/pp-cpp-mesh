@@ -28,30 +28,15 @@ TEST(CircuitServeDialPolicyTest, SkipPreferredAfterSeedPark) {
   EXPECT_FALSE(pbr::CallMediaShouldSkipPreferredDialAfterSeedPark(false, true));
 }
 
-TEST(CircuitServeDialPolicyTest, FarLegWaitArmsAndExpires) {
-  int64_t wait_deadline = 0;
-  const int64_t now = 1000;
-  const int64_t tunnel_deadline = now + 10000;
-  EXPECT_TRUE(pbr::CircuitServeDialContinueWaitingForFarLeg(true, false, now, tunnel_deadline,
-                                                            wait_deadline));
-  EXPECT_EQ(wait_deadline, now + pbr::kCircuitServeDialFarLegWaitMs);
-  EXPECT_TRUE(pbr::CircuitServeDialContinueWaitingForFarLeg(true, false, now + 100, tunnel_deadline,
-                                                            wait_deadline));
-  EXPECT_FALSE(pbr::CircuitServeDialContinueWaitingForFarLeg(
-      true, false, wait_deadline, tunnel_deadline, wait_deadline));
-  EXPECT_FALSE(pbr::CircuitServeDialContinueWaitingForFarLeg(true, true, now, tunnel_deadline,
-                                                             wait_deadline));
-  EXPECT_FALSE(pbr::CircuitServeDialContinueWaitingForFarLeg(false, false, now, tunnel_deadline,
-                                                             wait_deadline));
-}
-
-TEST(CircuitServeDialPolicyTest, FarLegWaitCapsToTunnelDeadline) {
-  int64_t wait_deadline = 0;
+TEST(CircuitServeDialPolicyTest, ArmFarLegWaitDeadlineCapsToTunnel) {
   const int64_t now = 1000;
   const int64_t tunnel_deadline = now + 500;
-  EXPECT_TRUE(pbr::CircuitServeDialContinueWaitingForFarLeg(true, false, now, tunnel_deadline,
-                                                            wait_deadline));
-  EXPECT_EQ(wait_deadline, tunnel_deadline - 100);
-  EXPECT_FALSE(pbr::CircuitServeDialContinueWaitingForFarLeg(true, false, wait_deadline,
-                                                             tunnel_deadline, wait_deadline));
+  EXPECT_EQ(pbr::CircuitServeDialArmFarLegWaitDeadlineMs(now, tunnel_deadline),
+            tunnel_deadline - pbr::kCircuitServeDialFarLegDeadlineSlackMs);
+}
+
+TEST(CircuitServeDialPolicyTest, ArmFarLegWaitDeadlineUsesMaxWhenNoTunnel) {
+  const int64_t now = 1000;
+  EXPECT_EQ(pbr::CircuitServeDialArmFarLegWaitDeadlineMs(now, 0),
+            now + pbr::kCircuitServeDialFarLegWaitMs);
 }

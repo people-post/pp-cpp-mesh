@@ -13,6 +13,8 @@ namespace pbr {
  * Same failure used to show up as dialer `not registered`, WaitAck `bridge timed out`,
  * or answerer punch give-up — all from cold-dialing a private Preferred or ServeDial
  * without a live Connected far leg. Keep the rules here; call sites only apply them.
+ *
+ * Far-leg wait is **event-driven** (PeerConnected / reserve / deadline) — not Tick polling.
  */
 
 /** Peer-id-only far leg: only a live Connected PeerLink (inbound alias ok). Never Preferred. */
@@ -24,37 +26,29 @@ inline constexpr std::string_view kCircuitTargetPeerNotRegistered =
     "circuit target peer endpoint not registered";
 
 /**
- * Hop ServeDial: briefly wait for answerer PeerLink before failing not-registered
- * (dogfood dual-NAT race — answerer still parking). Capped by tunnel deadline.
+ * Max ServeDial wait for far PeerLink when arming an event waiter (capped by tunnel deadline).
+ * Not a poll interval — deadline fires as a timer event.
  */
 inline constexpr int64_t kCircuitServeDialFarLegWaitMs = 6000;
 
+/** Slack before tunnel deadline so hop can fail_near(ack) before dialer WaitAck timeout. */
+inline constexpr int64_t kCircuitServeDialFarLegDeadlineSlackMs = 100;
+
 /**
- * Peer-id-only ServeDial with no live far leg yet: arm/continue wait, or stop (caller fails).
- * `wait_deadline_ms` is 0 until armed; then absolute steady-clock ms.
+ * Absolute steady-clock ms deadline for event-driven ServeDial far-leg wait.
+ * Cap at tunnel deadline − slack when a tunnel deadline is set.
  */
-inline bool CircuitServeDialContinueWaitingForFarLeg(const bool peer_id_only, const bool has_live_far_leg,
-                                                     const int64_t now_ms, const int64_t tunnel_deadline_ms,
-                                                     int64_t& wait_deadline_ms) {
-  if (!peer_id_only || has_live_far_leg) {
-    return false;
+inline int64_t CircuitServeDialArmFarLegWaitDeadlineMs(const int64_t now_ms,
+                                                       const int64_t tunnel_deadline_ms) {
+  const int64_t armed = now_ms + kCircuitServeDialFarLegWaitMs;
+  if (tunnel_deadline_ms <= 0) {
+    return armed;
   }
-  if (wait_deadline_ms == 0) {
-    const int64_t armed = now_ms + kCircuitServeDialFarLegWaitMs;
-    if (tunnel_deadline_ms <= 0) {
-      wait_deadline_ms = armed;
-    } else {
-      // Expire slightly before tunnel deadline so hop can fail_near (ack) before dialer WaitAck timeout.
-      const int64_t slack_ms = 100;
-      const int64_t capped =
-          tunnel_deadline_ms > now_ms + slack_ms ? tunnel_deadline_ms - slack_ms : tunnel_deadline_ms;
-      wait_deadline_ms = std::min(armed, capped);
-    }
-  }
-  if (tunnel_deadline_ms > 0 && now_ms >= tunnel_deadline_ms) {
-    return false;
-  }
-  return now_ms < wait_deadline_ms;
+  const int64_t capped =
+      tunnel_deadline_ms > now_ms + kCircuitServeDialFarLegDeadlineSlackMs
+          ? tunnel_deadline_ms - kCircuitServeDialFarLegDeadlineSlackMs
+          : tunnel_deadline_ms;
+  return std::min(armed, capped);
 }
 
 /**
