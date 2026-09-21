@@ -60,8 +60,3 @@ TEST(CircuitHopAttemptBudgetTest, StickyRetryOnceOnFastFail) {
   EXPECT_FALSE(pbr::CircuitShouldRetryStickyOnce("seed", "seed", false, true,
                                                  pbr::kCircuitMaxStartBridgeAttempts));
 }
-
-TEST(CircuitHopAttemptBudgetTest, StickyNotRegisteredDelayPositive) {
-  EXPECT_GT(pbr::kCircuitStickyNotRegisteredDelayMs, 0);
-  EXPECT_LT(pbr::kCircuitStickyNotRegisteredDelayMs, pbr::kCircuitReachEnvelopeMs);
-}

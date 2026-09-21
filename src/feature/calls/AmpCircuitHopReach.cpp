@@ -390,14 +390,12 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         const bool fast_fail = CircuitBridgeErrorIsFastFail(*last_fail);
         const bool not_reg = last_fail->find("not registered") != std::string::npos;
         auto go_same = [advance_relay, index, id]() { (*advance_relay)(index, id); };
-        // Keep hammering sticky on not-reg until bridge budget — answerer park can take seconds.
+        // Sticky not-reg: retry immediately — hop event-waits for far leg (H010).
         if (not_reg && !sticky.empty() && relay_key == sticky &&
             *bridges_started < kCircuitMaxStartBridgeAttempts) {
           AmpReachLog().info << "EnsureViaCircuit sticky not-reg retry relay=" << relay_key
-                             << " delay_ms=" << kCircuitStickyNotRegisteredDelayMs
                              << " bridges=" << *bridges_started;
-          (void)AppRuntime::ScheduleCoordinatorOneShot(
-              std::chrono::milliseconds(kCircuitStickyNotRegisteredDelayMs), std::move(go_same));
+          go_same();
           return;
         }
         if (CircuitShouldRetryStickyOnce(relay_key, sticky, *sticky_retried, fast_fail,
