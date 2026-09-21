@@ -78,6 +78,7 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
     on_done(Error("missing call peer"));
     return;
   }
+  auto run = [this, peer_key, allow_circuit, on_done = std::move(on_done)]() mutable {
   if (links_.IsConnected(peer_key)) {
     on_done(Roe<void>());
     return;
@@ -168,6 +169,12 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
             !via ? via.error() : Error("call peer not connected after circuit"));
         run_punch(std::move(last_err));
       });
+  };
+  if (post_io_) {
+    post_io_(std::move(run));
+  } else {
+    run();
+  }
 }
 
 void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id,
@@ -177,6 +184,11 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   if (!on_done) {
     return;
   }
+  // PeerLinkManager is Amp-IO only. CallMedia Connect ticks on Coordinator while MeshPump
+  // Ticks on IO — ClearDialBackoff / snapshot / OpenChannel off-strand AVs around dial
+  // timeout (dogfood 085210, ~8s after StartBridge).
+  auto run = [this, target_peer_id, target_protocol, register_endpoint, nested_session,
+              on_done = std::move(on_done)]() mutable {
   if (!circuit_.IsStarted()) {
     on_done(Error("amp circuit-relay not available"));
     return;
@@ -446,6 +458,12 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                             });
   };
   (*try_relay)(0);
+  };
+  if (post_io_) {
+    post_io_(std::move(run));
+  } else {
+    run();
+  }
 }
 
 void AmpCircuitHopReach::NoteInflightTunnel(const CircuitTunnelId id) {
