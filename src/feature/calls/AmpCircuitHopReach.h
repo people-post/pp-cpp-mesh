@@ -70,6 +70,8 @@ private:
   std::atomic<uint64_t> abort_gen_{0};
   /** Active StartBridge id for this reach chain; AbortPending CancelTunnel's it (hard cancel). */
   std::atomic<uint64_t> inflight_tunnel_value_{0};
+  /** Last relay that completed a bridge Install (sticky first try — H010). */
+  std::string last_good_relay_peer_key_;
 
   Roe<void> DemoteCircuitHop(const std::string& peer_key, const std::string& target_protocol,
                              CircuitTunnelId tunnel_id);
