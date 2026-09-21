@@ -68,8 +68,8 @@ TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
-  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint(harness->peer_id_b, harness->ma_b)));
-  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint(harness->peer_id_a, harness->ma_a)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("b", harness->ma_b)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("a", harness->ma_a)));
 
   auto pump = [&]() { harness->PumpBoth(); };
 
@@ -81,7 +81,7 @@ TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
   cfg_a.listen_multiaddrs = {harness->ma_a};
   cfg_a.device_signing_secret = harness->alice.ml_dsa_secret_key;
   cfg_a.device_signing_public = harness->alice.ml_dsa_public_key;
-  cfg_a.query_peer_keys = {harness->peer_id_b};
+  cfg_a.query_peer_keys = {"b"};
   cfg_a.participate = true;
   node_a.Configure(cfg_a);
 
@@ -90,21 +90,31 @@ TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
   cfg_b.listen_multiaddrs = {harness->ma_b};
   cfg_b.device_signing_secret = harness->bob.ml_dsa_secret_key;
   cfg_b.device_signing_public = harness->bob.ml_dsa_public_key;
-  cfg_b.query_peer_keys = {harness->peer_id_a};
+  cfg_b.query_peer_keys = {"a"};
   cfg_b.participate = true;
   node_b.Configure(cfg_b);
 
   node_a.Start();
   node_b.Start();
-  node_a.Tick();
-  node_b.Tick();
 
-  harness->PumpUntil(
-      [&]() {
-        return node_a.LocalRecord(harness->peer_id_b).has_value() &&
-               node_b.LocalRecord(harness->peer_id_a).has_value();
-      },
-      2000);
+  // Sequential publish + FindPeer (avoids concurrent dual-dial Store/FindPeer races).
+  node_a.Tick();
+  SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait_a;
+  node_a.FindPeer(harness->peer_id_b,
+                  [&wait_a](AmpDhtProtocol::FindPeerRoe result) { wait_a.Finish(std::move(result)); });
+  harness->PumpUntil([&]() { return wait_a.IsSettled(); }, 2000);
+  auto found_b = wait_a.Wait(std::chrono::seconds(5), AmpDhtProtocol::Failure::Of(
+                                                          AmpDhtProtocol::Err::Timeout, "find_peer A→B timed out"));
+  ASSERT_TRUE(static_cast<bool>(found_b)) << found_b.error().message;
+
+  node_b.Tick();
+  SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait_b;
+  node_b.FindPeer(harness->peer_id_a,
+                  [&wait_b](AmpDhtProtocol::FindPeerRoe result) { wait_b.Finish(std::move(result)); });
+  harness->PumpUntil([&]() { return wait_b.IsSettled(); }, 2000);
+  auto found_a = wait_b.Wait(std::chrono::seconds(5), AmpDhtProtocol::Failure::Of(
+                                                          AmpDhtProtocol::Err::Timeout, "find_peer B→A timed out"));
+  ASSERT_TRUE(static_cast<bool>(found_a)) << found_a.error().message;
 
   auto a_has_b = node_a.LocalRecord(harness->peer_id_b);
   auto b_has_a = node_b.LocalRecord(harness->peer_id_a);

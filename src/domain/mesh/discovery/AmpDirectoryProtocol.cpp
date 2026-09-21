@@ -11,6 +11,7 @@
 #include <optional>
 #include <thread>
 #include "common/PbrCompat.h"
+#include "domain/mesh/shared/AmpChannelOpen.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
 
 namespace pbr {
@@ -84,19 +85,22 @@ struct AmpDirectoryProtocol::Impl {
   std::atomic<bool> stopped{false};
 
 
-  void HandleInboundOnLink(pp::amp::PeerLink& link, const uint32_t channel_id) {
-    if (stopped.load(std::memory_order_acquire) || !links || !self) {
+  void HandleInboundOnLink(pp::amp::LinkHandle /*handle*/, const std::string& remote_peer_id,
+                           const uint32_t channel_id) {
+    if (stopped.load(std::memory_order_acquire) || !links || !self || remote_peer_id.empty()) {
       return;
     }
-    auto session = std::make_shared<pp::amp::ChannelSession>();
-    session->Bind(*link.Mux(), channel_id, pp::amp::ControlJsonChannelPolicy(),
-                  [this, session, &link](Roe<std::vector<uint8_t>> frame) {
-                    if (!frame || stopped.load(std::memory_order_acquire)) {
-                      return false;
-                    }
-                    auto body = std::move(*frame);
-                    RunWorker(post_worker, [this, session, body = std::move(body),
-                                           remote_peer = link.RemotePeerId()]() mutable {
+    const std::string remote_peer = remote_peer_id;
+    auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
+    *session_holder = links->BindChannel(
+        remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
+        [this, session_holder, remote_peer](Roe<std::vector<uint8_t>> frame) {
+          auto session = *session_holder;
+          if (!session || !frame || stopped.load(std::memory_order_acquire)) {
+            return false;
+          }
+          auto body = std::move(*frame);
+          RunWorker(post_worker, [this, session, body = std::move(body), remote_peer]() mutable {
                       if (stopped.load(std::memory_order_acquire) || !self) {
                         return;
                       }
@@ -141,8 +145,8 @@ struct AmpDirectoryProtocol::Impl {
                       }
                       session->Close();
                     });
-                    return false;
-                  });
+          return false;
+        });
   }
 
   void Rpc(const std::string& peer_key, Object request, std::function<void(RpcRoe)> on_response) {
@@ -158,70 +162,75 @@ struct AmpDirectoryProtocol::Impl {
     const auto timeout = ControlTimeout(self->config_);
     const auto deadline = Clock::now() + timeout + std::chrono::milliseconds(2000);
     const std::string request_json = DumpJson(request);
-    auto session = std::make_shared<pp::amp::ChannelSession>();
+    auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
     auto settled = std::make_shared<std::atomic<bool>>(false);
 
-    auto finish = [settled, session, on_response = std::move(on_response)](RpcRoe value) {
+    auto finish = [settled, session_holder, on_response = std::move(on_response)](RpcRoe value) {
       if (settled->exchange(true, std::memory_order_acq_rel)) {
         return;
       }
-      session->Close();
+      if (*session_holder) {
+        (*session_holder)->Close();
+      }
       on_response(std::move(value));
     };
 
-    links->EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session, deadline,
+    links->EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session_holder, deadline,
                                         timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
       if (!assoc) {
         finish(RpcRoe::error(WrapLinkFailure(assoc.error())));
         return;
       }
       links->OpenChannel(peer_key, kDirectoryProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
-                         [this, peer_key, request_json, finish, session, deadline,
+                         [this, peer_key, request_json, finish, session_holder, deadline,
                           timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
                            if (!channel) {
                              finish(RpcRoe::error(WrapLinkFailure(channel.error())));
                              return;
                            }
-                           AmpScheduleWhenChannelOpen(
-                               post_io, io_pump,
-                               [this, peer_key, channel_id = *channel]() {
-                                 auto* link = links->FindLink(peer_key);
-                                 return link && link->Mux() &&
-                                        link->Mux()->State(channel_id) == pp::amp::ChannelState::Open;
-                               },
-                               deadline,
-                               [this, peer_key, channel_id = *channel, request_json, finish, session, timeout](
+                           if (stopped.load(std::memory_order_acquire)) {
+                             finish(RpcRoe::error(Failure::Of(Err::NotStarted, "directory service stopped")));
+                             return;
+                           }
+                           const uint32_t channel_id = *channel;
+                           AmpWhenChannelOpen(
+                               *links, peer_key, channel_id, deadline,
+                               [this, peer_key, channel_id, request_json, finish, session_holder, timeout](
                                    bool open) mutable {
+                                 if (stopped.load(std::memory_order_acquire)) {
+                                   finish(RpcRoe::error(
+                                       Failure::Of(Err::NotStarted, "directory service stopped")));
+                                   return;
+                                 }
                                  if (!open) {
                                    finish(RpcRoe::error(
                                        Failure::Of(Err::ChannelFailed, "directory channel open failed")));
                                    return;
                                  }
-                                 auto* link = links->FindLink(peer_key);
-                                 if (!link || !link->Mux() ||
-                                     link->Mux()->State(channel_id) != pp::amp::ChannelState::Open) {
+                                 *session_holder = links->BindChannel(
+                                     peer_key, channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
+                                     [finish](Roe<std::vector<uint8_t>> frame) {
+                                       if (!frame) {
+                                         finish(RpcRoe::error(Failure::Of(
+                                             Err::ProtocolError, "directory response read failed")));
+                                         return false;
+                                       }
+                                       auto root =
+                                           TryParseObject(std::string(frame->begin(), frame->end()));
+                                       if (!root) {
+                                         finish(RpcRoe::error(Failure::Of(
+                                             Err::ProtocolError, "invalid directory response json")));
+                                         return false;
+                                       }
+                                       finish(std::move(*root));
+                                       return false;
+                                     });
+                                 if (!*session_holder) {
                                    finish(RpcRoe::error(
                                        Failure::Of(Err::ChannelFailed, "directory channel open failed")));
                                    return;
                                  }
-                                 session->Bind(*link->Mux(), channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
-                                               [finish](Roe<std::vector<uint8_t>> frame) {
-                                                 if (!frame) {
-                                                   finish(RpcRoe::error(Failure::Of(
-                                                       Err::ProtocolError, "directory response read failed")));
-                                                   return false;
-                                                 }
-                                                 auto root =
-                                                     TryParseObject(std::string(frame->begin(), frame->end()));
-                                                 if (!root) {
-                                                   finish(RpcRoe::error(Failure::Of(
-                                                       Err::ProtocolError, "invalid directory response json")));
-                                                   return false;
-                                                 }
-                                                 finish(std::move(*root));
-                                                 return false;
-                                               });
-                                 if (!session->EnqueueOutbound(JsonToBody(request_json))) {
+                                 if (!(*session_holder)->EnqueueOutbound(JsonToBody(request_json))) {
                                    finish(RpcRoe::error(
                                        Failure::Of(Err::ProtocolError, "directory request send failed")));
                                    return;
@@ -229,8 +238,7 @@ struct AmpDirectoryProtocol::Impl {
                                  if (io_pump) {
                                    io_pump();
                                  }
-                               },
-                               [this]() { return stopped.load(std::memory_order_acquire); });
+                               });
                          });
     });
   }
@@ -286,10 +294,12 @@ void AmpDirectoryProtocol::Start() {
   }
   started_ = true;
   impl_->stopped.store(false, std::memory_order_release);
-  links_.SetProtocolHandler(kDirectoryProtocolId,
-                            [impl = impl_.get()](pp::amp::PeerLink& link, const uint32_t channel_id) {
-                              impl->HandleInboundOnLink(link, channel_id);
-                            });
+  links_.SetProtocolHandler(
+      kDirectoryProtocolId,
+      [impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id,
+                           const uint32_t channel_id) {
+        impl->HandleInboundOnLink(handle, remote_peer_id, channel_id);
+      });
 }
 
 void AmpDirectoryProtocol::Stop() {

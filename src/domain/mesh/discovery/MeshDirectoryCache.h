@@ -29,8 +29,14 @@ public:
   void SetOnUpdated(std::function<void()> callback);
   /** When set, RequestRefresh prefers this over parking a worker on sync Fetcher. */
   void SetAsyncFetcher(AsyncFetcher fetcher);
+  /**
+   * Machine-wide last-good mesh_node list (N027 cold start before HTTP).
+   * Call LoadPersisted() after set so Snapshot is non-empty before first refresh.
+   */
+  void SetPersistPath(std::string path);
+  void LoadPersisted();
 
-  /** Thread-safe snapshot for hop policy (may be empty before first refresh). */
+  /** Thread-safe snapshot for hop policy (may be empty before first refresh / load). */
   std::vector<MeshDirectoryNode> Snapshot() const;
 
   /** Cheap due-check; schedules async refresh when interval elapsed. */
@@ -41,11 +47,13 @@ public:
 
 private:
   void ApplyRefreshResult(Roe<std::vector<MeshDirectoryNode>> result);
+  void PersistLocked() const;
 
   Fetcher fetcher_;
   AsyncFetcher async_fetcher_;
   mutable std::mutex mutex_;
   std::vector<MeshDirectoryNode> nodes_;
+  std::string persist_path_;
   std::chrono::steady_clock::time_point next_refresh_at_{};
   std::chrono::seconds refresh_interval_{300};
   std::chrono::seconds failure_backoff_{60};

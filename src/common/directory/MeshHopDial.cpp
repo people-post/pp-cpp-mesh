@@ -139,6 +139,32 @@ bool MultiaddrHasPublicDialHost(const std::string& multiaddr) {
   return false;
 }
 
+bool CircuitHopDialBookAllowsRegister(const std::string& multiaddr) {
+  return MultiaddrHasPublicDialHost(multiaddr);
+}
+
+bool CircuitHopMultiaddrIsUdpDialable(const std::string& multiaddr) {
+  if (multiaddr.empty()) {
+    return false;
+  }
+  if (multiaddr.rfind("/ip6/", 0) == 0) {
+    const size_t start = 5;
+    const size_t end = multiaddr.find('/', start);
+    std::string host =
+        multiaddr.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    if (!host.empty() && host.front() == '[' && host.back() == ']') {
+      host = host.substr(1, host.size() - 2);
+    }
+    return !host.empty() && host != "::";
+  }
+  if (multiaddr.find("/ip4/") != std::string::npos) {
+    const std::string ip = Ip4HostFromMultiaddr(multiaddr);
+    return !ip.empty() && ip != "0.0.0.0";
+  }
+  // Non-IP (MemoryIo harness / future transports).
+  return true;
+}
+
 std::string PreferredDialMultiaddr(const std::vector<std::string>& multiaddrs) {
   std::string best;
   int best_rank = 100;
