@@ -433,7 +433,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
             (*on_bridge)(std::move(result));
           }
         },
-        8000);
+        20000);
     if (!*tunnel_id) {
       *last_fail = "circuit hop reach failed: StartBridge rejected";
       AmpReachLog().info << "EnsureViaCircuit StartBridge reject relay=" << relay_key;
@@ -442,7 +442,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
     }
     NoteInflightTunnel(*tunnel_id);
 
-    const auto deadline = Clock::now() + std::chrono::milliseconds(10000);
+    const auto deadline = Clock::now() + std::chrono::milliseconds(22000);
     AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline,
                             [this, settled, last_fail, advance_relay, index, tunnel_id, relay_key,
                              aborted, on_done]() {
