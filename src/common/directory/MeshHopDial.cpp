@@ -139,6 +139,10 @@ bool MultiaddrHasPublicDialHost(const std::string& multiaddr) {
   return false;
 }
 
+bool CircuitHopDialBookAllowsRegister(const std::string& multiaddr) {
+  return MultiaddrHasPublicDialHost(multiaddr);
+}
+
 std::string PreferredDialMultiaddr(const std::vector<std::string>& multiaddrs) {
   std::string best;
   int best_rank = 100;

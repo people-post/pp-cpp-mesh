@@ -306,8 +306,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         *last_fail = !result ? ("circuit hop reach failed: tunnel " + result.error().message)
                              : (!result->ok ? ("circuit hop reach failed: tunnel rejected " + result->error)
                                             : "circuit hop reach failed: tunnel no session");
+        const std::string relay_ma = links_.PreferredMultiaddr(relay_key).value_or("");
         AmpReachLog().info << "EnsureViaCircuit tunnel miss relay=" << relay_key
-                           << " err=" << *last_fail;
+                           << " preferred_ma=" << relay_ma << " err=" << *last_fail;
         (*advance_relay)(index + 1, id);
         return;
       }

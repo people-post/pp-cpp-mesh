@@ -20,6 +20,13 @@ bool MultiaddrHasPrivateIpv4Host(const std::string& multiaddr);
 bool MultiaddrHasPublicDialHost(const std::string& multiaddr);
 
 /**
+ * Gate for RegisterEndpoint of circuit/bootstrap hop candidates into the dial book.
+ * Private/undialable MAs must not overwrite a public PreferredMultiaddr (dogfood
+ * `adp udp :send to` on StartBridge hop dial).
+ */
+bool CircuitHopDialBookAllowsRegister(const std::string& multiaddr);
+
+/**
  * Prefer dialable advertise MAs (H002/N013): global `/ip6` > public `/ip4` > other ADP >
  * first non-empty. Used for directory/DHT/contact hop PreferredMultiaddr selection.
  */
