@@ -104,4 +104,7 @@ inline bool CircuitShouldRetryStickyOnce(const std::string& relay_key, const std
          bridges_started < kCircuitMaxStartBridgeAttempts;
 }
 
+/** Delay before sticky retry on not-registered — give answerer seed park time (H010). */
+inline constexpr int64_t kCircuitStickyNotRegisteredDelayMs = 1500;
+
 } // namespace pbr

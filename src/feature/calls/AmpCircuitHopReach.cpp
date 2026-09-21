@@ -391,8 +391,19 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         if (CircuitShouldRetryStickyOnce(relay_key, sticky, *sticky_retried, fast_fail,
                                          *bridges_started)) {
           *sticky_retried = true;
-          AmpReachLog().info << "EnsureViaCircuit sticky retry once relay=" << relay_key;
-          (*advance_relay)(index, id);
+          const bool not_reg = last_fail->find("not registered") != std::string::npos;
+          AmpReachLog().info << "EnsureViaCircuit sticky retry once relay=" << relay_key
+                             << " delay_ms="
+                             << (not_reg ? kCircuitStickyNotRegisteredDelayMs : 0);
+          auto go = [advance_relay, index, id]() { (*advance_relay)(index, id); };
+          if (not_reg) {
+            // Answerer may still be parking — brief wait before re-ServeDial.
+            // advance_relay already PostToIo's the next StartBridge.
+            (void)AppRuntime::ScheduleCoordinatorOneShot(
+                std::chrono::milliseconds(kCircuitStickyNotRegisteredDelayMs), std::move(go));
+          } else {
+            go();
+          }
           return;
         }
         (*advance_relay)(index + 1, id);
