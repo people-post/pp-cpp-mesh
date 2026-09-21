@@ -388,22 +388,23 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         AmpReachLog().info << "EnsureViaCircuit tunnel miss relay=" << relay_key
                            << " preferred_ma=" << relay_ma << " err=" << *last_fail;
         const bool fast_fail = CircuitBridgeErrorIsFastFail(*last_fail);
+        const bool not_reg = last_fail->find("not registered") != std::string::npos;
+        auto go_same = [advance_relay, index, id]() { (*advance_relay)(index, id); };
+        // Keep hammering sticky on not-reg until bridge budget — answerer park can take seconds.
+        if (not_reg && !sticky.empty() && relay_key == sticky &&
+            *bridges_started < kCircuitMaxStartBridgeAttempts) {
+          AmpReachLog().info << "EnsureViaCircuit sticky not-reg retry relay=" << relay_key
+                             << " delay_ms=" << kCircuitStickyNotRegisteredDelayMs
+                             << " bridges=" << *bridges_started;
+          (void)AppRuntime::ScheduleCoordinatorOneShot(
+              std::chrono::milliseconds(kCircuitStickyNotRegisteredDelayMs), std::move(go_same));
+          return;
+        }
         if (CircuitShouldRetryStickyOnce(relay_key, sticky, *sticky_retried, fast_fail,
                                          *bridges_started)) {
           *sticky_retried = true;
-          const bool not_reg = last_fail->find("not registered") != std::string::npos;
-          AmpReachLog().info << "EnsureViaCircuit sticky retry once relay=" << relay_key
-                             << " delay_ms="
-                             << (not_reg ? kCircuitStickyNotRegisteredDelayMs : 0);
-          auto go = [advance_relay, index, id]() { (*advance_relay)(index, id); };
-          if (not_reg) {
-            // Answerer may still be parking — brief wait before re-ServeDial.
-            // advance_relay already PostToIo's the next StartBridge.
-            (void)AppRuntime::ScheduleCoordinatorOneShot(
-                std::chrono::milliseconds(kCircuitStickyNotRegisteredDelayMs), std::move(go));
-          } else {
-            go();
-          }
+          AmpReachLog().info << "EnsureViaCircuit sticky retry once relay=" << relay_key;
+          go_same();
           return;
         }
         (*advance_relay)(index + 1, id);
