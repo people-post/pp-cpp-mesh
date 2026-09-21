@@ -388,11 +388,21 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         AmpReachLog().info << "EnsureViaCircuit tunnel miss relay=" << relay_key
                            << " preferred_ma=" << relay_ma << " err=" << *last_fail;
         const bool fast_fail = CircuitBridgeErrorIsFastFail(*last_fail);
+        const bool not_reg = last_fail->find("not registered") != std::string::npos;
+        auto go_same = [advance_relay, index, id]() { (*advance_relay)(index, id); };
+        // Sticky not-reg: retry immediately — hop event-waits for far leg (H010).
+        if (not_reg && !sticky.empty() && relay_key == sticky &&
+            *bridges_started < kCircuitMaxStartBridgeAttempts) {
+          AmpReachLog().info << "EnsureViaCircuit sticky not-reg retry relay=" << relay_key
+                             << " bridges=" << *bridges_started;
+          go_same();
+          return;
+        }
         if (CircuitShouldRetryStickyOnce(relay_key, sticky, *sticky_retried, fast_fail,
                                          *bridges_started)) {
           *sticky_retried = true;
           AmpReachLog().info << "EnsureViaCircuit sticky retry once relay=" << relay_key;
-          (*advance_relay)(index, id);
+          go_same();
           return;
         }
         (*advance_relay)(index + 1, id);
