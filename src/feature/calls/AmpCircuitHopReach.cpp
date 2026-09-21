@@ -3,6 +3,7 @@
 
 #include "amp/link/PeerLink.h"
 #include "amp/link/Types.h"
+#include "common/directory/MeshHopDial.h"
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
@@ -256,6 +257,18 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
       (*try_relay)(index + 1);
       return;
     }
+    // Defense: capability ingest can leave Preferred as /ip4/0.0.0.0 (dogfood 084055). Connected
+    // relays are peer-id-only safe; otherwise skip undialable Preferred before StartBridge.
+    if (!links_.IsConnected(relay_key)) {
+      if (auto relay_ma = links_.PreferredMultiaddr(relay_key);
+          relay_ma && !CircuitHopMultiaddrIsUdpDialable(*relay_ma)) {
+        AmpReachLog().info << "EnsureViaCircuit skip relay=" << relay_key
+                           << " reason=undialable_preferred preferred_ma=" << *relay_ma;
+        *last_fail = "circuit hop reach failed: relay preferred undialable";
+        (*try_relay)(index + 1);
+        return;
+      }
+    }
 
     // Dogfood: EnsureAssociation on the call peer can leave relays in DialInBackoff;
     // clear before StartBridge so circuit can dial the hop. Do not AbortInflightDial —
@@ -267,8 +280,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                        << " target=" << target_peer_id;
     auto settled = std::make_shared<std::atomic<bool>>(false);
     auto tunnel_id = std::make_shared<CircuitTunnelId>();
-    // After a miss, FinishDial only ScheduleDropLink's. PostToIo drains before Links::Tick, so
-    // try_relay in the same queue would redial under a pending drop. Nested io_pump flushes first.
+    // After a miss, FinishDial only ScheduleDropLink's. Nested Drive under an active PostToIo
+    // drain skips the queue (MeshRuntime::pumping_) but Tick still flushes drops. Then defer
+    // the next StartBridge onto PostToIo so BeginOutbound is not stacked on the finish cb.
     auto advance_relay = std::make_shared<std::function<void(size_t, CircuitTunnelId)>>();
     *advance_relay =
         [this, try_relay, aborted, on_done](size_t next_index, CircuitTunnelId id) mutable {
@@ -283,7 +297,12 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
           if (io_pump_) {
             io_pump_();
           }
-          (*try_relay)(next_index);
+          auto go = [try_relay, next_index]() { (*try_relay)(next_index); };
+          if (post_io_) {
+            post_io_(std::move(go));
+          } else {
+            go();
+          }
         };
     auto on_bridge = std::make_shared<std::function<void(Roe<CircuitTunnelBridgeResult>)>>();
     *on_bridge = [this, target_peer_id, target_protocol, register_endpoint, nested_session, relay_key,

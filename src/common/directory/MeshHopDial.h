@@ -27,6 +27,14 @@ bool MultiaddrHasPublicDialHost(const std::string& multiaddr);
 bool CircuitHopDialBookAllowsRegister(const std::string& multiaddr);
 
 /**
+ * True when PreferredMultiaddr is safe to UDP-dial for StartBridge hop association.
+ * Rejects empty / wildcard bind (`0.0.0.0`, `::`) that peer-capability ingest often
+ * advertises as listen MA (dogfood preferred_ma=/ip4/0.0.0.0 → sendto). Allows private
+ * LAN and non-IP (MemoryIo harness) so same-net / unit paths still dial.
+ */
+bool CircuitHopMultiaddrIsUdpDialable(const std::string& multiaddr);
+
+/**
  * Prefer dialable advertise MAs (H002/N013): global `/ip6` > public `/ip4` > other ADP >
  * first non-empty. Used for directory/DHT/contact hop PreferredMultiaddr selection.
  */
