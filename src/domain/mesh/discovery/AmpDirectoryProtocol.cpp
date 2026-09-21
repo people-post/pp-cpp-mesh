@@ -11,16 +11,13 @@
 #include <optional>
 #include <thread>
 #include "common/PbrCompat.h"
+#include "domain/mesh/shared/AmpChannelOpen.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
 
 namespace pbr {
 namespace {
 
 using Clock = std::chrono::steady_clock;
-
-int64_t SteadyDeadlineMs(const Clock::time_point deadline) {
-  return std::chrono::duration_cast<std::chrono::milliseconds>(deadline.time_since_epoch()).count();
-}
 
 std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
   return std::vector<uint8_t>(json_utf8.begin(), json_utf8.end());
@@ -196,8 +193,8 @@ struct AmpDirectoryProtocol::Impl {
                              return;
                            }
                            const uint32_t channel_id = *channel;
-                           links->WhenChannelOpen(
-                               peer_key, channel_id, SteadyDeadlineMs(deadline),
+                           AmpWhenChannelOpen(
+                               *links, peer_key, channel_id, deadline,
                                [this, peer_key, channel_id, request_json, finish, session_holder, timeout](
                                    bool open) mutable {
                                  if (stopped.load(std::memory_order_acquire)) {

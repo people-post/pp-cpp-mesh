@@ -39,6 +39,10 @@ protected:
   }
 
   void TearDown() override {
+    target_session_.reset();
+    if (harness_) {
+      harness_->mgr_b().RemoveProtocolHandler(kAmpBridgeTargetProtocol);
+    }
     if (client_b_) {
       client_b_->Stop();
     }

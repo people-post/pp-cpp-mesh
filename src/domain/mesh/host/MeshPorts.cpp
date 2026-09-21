@@ -4,6 +4,9 @@
 #include "amp/link/MeshRuntime.h"
 #include "amp/link/PeerLinkManager.h"
 #include "amp/link/Types.h"
+#include "domain/mesh/shared/AmpChannelOpen.h"
+
+#include <chrono>
 
 namespace pbr {
 
@@ -165,8 +168,12 @@ public:
 
   void WhenChannelOpen(const std::string& peer_key, uint32_t channel_id, int64_t deadline_ms,
                        std::function<void(bool ok)> done) override {
-    runtime_.WithIoLock(
-        [&] { links_.WhenChannelOpen(peer_key, channel_id, deadline_ms, std::move(done)); });
+    // IChatPeerLinks contract: steady_clock epoch ms. Amp WhenChannelOpen wants Amp clock.
+    runtime_.WithIoLock([&] {
+      const auto steady_deadline =
+          std::chrono::steady_clock::time_point(std::chrono::milliseconds(deadline_ms));
+      AmpWhenChannelOpen(links_, peer_key, channel_id, steady_deadline, std::move(done));
+    });
   }
 
   std::shared_ptr<pp::amp::ChannelSession> BindChannel(const std::string& peer_key, uint32_t channel_id,

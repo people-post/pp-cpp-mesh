@@ -133,8 +133,8 @@ public:
   virtual void AbortInflightDial(const std::string& /*peer_key*/) {}
 
   /**
-   * Poll until mux channel is open or deadline_ms (steady-clock epoch ms).
-   * Prefer over FindLink + AmpScheduleWhenChannelOpen.
+   * Poll until mux channel is open or `deadline_ms` (steady_clock epoch ms).
+   * AmpChatPeerLinks converts to Amp clock before PeerLinkManager::WhenChannelOpen.
    */
   virtual void WhenChannelOpen(const std::string& peer_key, uint32_t channel_id, int64_t deadline_ms,
                                std::function<void(bool ok)> done) = 0;
