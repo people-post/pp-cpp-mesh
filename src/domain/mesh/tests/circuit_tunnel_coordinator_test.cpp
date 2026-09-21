@@ -56,19 +56,20 @@ protected:
 
   void ArmTargetReader() {
     harness_->mgr_b().SetProtocolHandler(
-        kAmpBridgeTargetProtocol, [this](pp::amp::PeerLink& link, const uint32_t channel_id) {
-          auto session = std::make_shared<pp::amp::ChannelSession>();
+        kAmpBridgeTargetProtocol,
+        [this](pp::amp::LinkHandle /*handle*/, const std::string& remote_peer_id, const uint32_t channel_id) {
+          auto session = harness_->mgr_b().BindChannel(
+              remote_peer_id, channel_id, pp::amp::CircuitTunnelChannelPolicy(),
+              [this](Roe<std::vector<uint8_t>> frame) {
+                if (!frame) {
+                  return false;
+                }
+                std::lock_guard lock(target_mu_);
+                target_received_ = *frame;
+                target_got_ = true;
+                return true;
+              });
           target_session_ = session;
-          session->Bind(*link.Mux(), channel_id, pp::amp::CircuitTunnelChannelPolicy(),
-                        [this, session](Roe<std::vector<uint8_t>> frame) {
-                          if (!frame) {
-                            return false;
-                          }
-                          std::lock_guard lock(target_mu_);
-                          target_received_ = *frame;
-                          target_got_ = true;
-                          return true;
-                        });
         });
   }
 

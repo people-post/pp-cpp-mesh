@@ -1,6 +1,8 @@
 #pragma once
 
 #include "amp/L3/ChannelPolicy.h"
+#include "amp/L3/ChannelSession.h"
+#include "amp/link/LinkIdentity.h"
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
@@ -17,8 +19,6 @@
 #include <vector>
 
 namespace pp::amp {
-class ChannelSession;
-class PeerLink;
 class MeshRuntime;
 struct PeerLinkSnapshot;
 } // namespace pp::amp
@@ -65,6 +65,8 @@ struct MeshIoContext {
  * AmpChatPeerLinks takes the same lock via WithIoLock for every call — Coordinator/UI
  * may read IsConnected safely. Prefer post_io for multi-step dial/circuit work.
  * See THREADING.md § Thread affinity.
+ *
+ * Prefer BindChannel / WhenChannelOpen / SnapshotByPeerId / IsReachable over raw PeerLink*.
  */
 class IChatPeerLinks {
 public:
@@ -90,7 +92,8 @@ public:
   using ChannelRoe = CodedRoe<uint32_t, Err>;
   using LinkCb = std::function<void(LinkRoe)>;
   using ChannelCb = std::function<void(ChannelRoe)>;
-  using ProtocolHandler = std::function<void(pp::amp::PeerLink& link, uint32_t channel_id)>;
+  using ProtocolHandler =
+      std::function<void(pp::amp::LinkHandle handle, const std::string& remote_peer_id, uint32_t channel_id)>;
 
   /** Stable codes mirror `PeerLinkManager::Err` — see docs/contracts/AMP-LINK-ERRORS.md. */
   static bool IsAssociationNotReady(const Failure& failure) {
@@ -118,7 +121,9 @@ public:
   virtual void RemoveProtocolHandler(const std::string& protocol_id) = 0;
 
   virtual MeshPeerLinkSnapshot GetLinkSnapshot(const std::string& peer_key) const = 0;
+  virtual pp::amp::LinkSnapshotEx SnapshotByPeerId(const std::string& peer_id) const = 0;
   virtual bool IsConnected(const std::string& peer_key) const = 0;
+  virtual bool IsReachable(const std::string& peer_id) const = 0;
 
   virtual void MarkWarm(const std::string& peer_key) = 0;
 
@@ -127,8 +132,19 @@ public:
   /** Abort in-flight EnsureAssociation without arming a new backoff (default no-op). */
   virtual void AbortInflightDial(const std::string& /*peer_key*/) {}
 
-  virtual pp::amp::PeerLink* FindLink(const std::string& peer_key) = 0;
-  virtual const pp::amp::PeerLink* FindLink(const std::string& peer_key) const = 0;
+  /**
+   * Poll until mux channel is open or deadline_ms (steady-clock epoch ms).
+   * Prefer over FindLink + AmpScheduleWhenChannelOpen.
+   */
+  virtual void WhenChannelOpen(const std::string& peer_key, uint32_t channel_id, int64_t deadline_ms,
+                               std::function<void(bool ok)> done) = 0;
+  /**
+   * Bind ChannelSession under strand lock; empty if link/mux missing.
+   */
+  virtual std::shared_ptr<pp::amp::ChannelSession> BindChannel(
+      const std::string& peer_key, uint32_t channel_id, pp::amp::ChannelPolicy policy,
+      pp::amp::ChannelSession::FrameHandler on_frame,
+      pp::amp::ChannelSession::ClosedCallback on_closed = {}) = 0;
 };
 
 struct MeshChatDeps {

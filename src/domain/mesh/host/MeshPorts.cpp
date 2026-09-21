@@ -139,8 +139,16 @@ public:
         [&] { return ToMeshPeerLinkSnapshot(links_.GetLinkSnapshot(peer_key)); });
   }
 
+  pp::amp::LinkSnapshotEx SnapshotByPeerId(const std::string& peer_id) const override {
+    return runtime_.WithIoLock([&] { return links_.GetSnapshotByPeerId(peer_id); });
+  }
+
   bool IsConnected(const std::string& peer_key) const override {
     return runtime_.WithIoLock([&] { return links_.IsConnected(peer_key); });
+  }
+
+  bool IsReachable(const std::string& peer_id) const override {
+    return runtime_.WithIoLock([&] { return links_.IsReachable(peer_id); });
   }
 
   void MarkWarm(const std::string& peer_key) override {
@@ -155,12 +163,20 @@ public:
     runtime_.WithIoLock([&] { links_.AbortInflightDial(peer_key); });
   }
 
-  pp::amp::PeerLink* FindLink(const std::string& peer_key) override {
-    return runtime_.WithIoLock([&] { return links_.FindLink(peer_key); });
+  void WhenChannelOpen(const std::string& peer_key, uint32_t channel_id, int64_t deadline_ms,
+                       std::function<void(bool ok)> done) override {
+    runtime_.WithIoLock(
+        [&] { links_.WhenChannelOpen(peer_key, channel_id, deadline_ms, std::move(done)); });
   }
 
-  const pp::amp::PeerLink* FindLink(const std::string& peer_key) const override {
-    return runtime_.WithIoLock([&] { return links_.FindLink(peer_key); });
+  std::shared_ptr<pp::amp::ChannelSession> BindChannel(const std::string& peer_key, uint32_t channel_id,
+                                                       pp::amp::ChannelPolicy policy,
+                                                       pp::amp::ChannelSession::FrameHandler on_frame,
+                                                       pp::amp::ChannelSession::ClosedCallback on_closed) override {
+    return runtime_.WithIoLock([&] {
+      return links_.BindChannel(peer_key, channel_id, std::move(policy), std::move(on_frame),
+                                std::move(on_closed));
+    });
   }
 
 private:

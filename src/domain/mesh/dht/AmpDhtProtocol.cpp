@@ -19,6 +19,10 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+int64_t SteadyDeadlineMs(const Clock::time_point deadline) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(deadline.time_since_epoch()).count();
+}
+
 std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
   return std::vector<uint8_t>(json_utf8.begin(), json_utf8.end());
 }
@@ -93,53 +97,61 @@ struct AmpDhtProtocol::Impl {
   std::atomic<bool> stopped{false};
 
 
-  void HandleInboundOnLink(pp::amp::PeerLink& link, const uint32_t channel_id) {
-    if (stopped.load(std::memory_order_acquire) || !links || !self) {
+  void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id,
+                           const uint32_t channel_id) {
+    if (stopped.load(std::memory_order_acquire) || !links || !self || remote_peer_id.empty()) {
       return;
     }
-    auto session = std::make_shared<pp::amp::ChannelSession>();
-    session->Bind(*link.Mux(), channel_id, pp::amp::ControlJsonChannelPolicy(),
-                  [this, session, &link](Roe<std::vector<uint8_t>> frame) {
-                    if (!frame || stopped.load(std::memory_order_acquire)) {
-                      return false;
-                    }
-                    auto body = std::move(*frame);
-                    RunWorker(post_worker, [this, session, body = std::move(body), remote_pk = link.RemoteIdentityPublicKey(),
-                                            remote_peer = link.RemotePeerId()]() mutable {
-                      if (stopped.load(std::memory_order_acquire) || !self) {
-                        return;
-                      }
-                      const std::string json_utf8(body.begin(), body.end());
-                      auto root = TryParseObject(json_utf8);
-                      if (!root) {
-                        Object resp = MakeErrorResponse("", "invalid_json", "invalid json");
-                        (void)session->EnqueueOutbound(JsonToBody(DumpJson(resp)));
-                        session->Close();
-                        return;
-                      }
-                      const std::string req_id = root->getString("req_id").value_or("");
-                      const int version = static_cast<int>(root->getIf<int64_t>("version").value_or(0));
-                      if (version != kDhtWireVersion) {
-                        Object resp = MakeErrorResponse(req_id, "bad_version", "unsupported version");
-                        (void)session->EnqueueOutbound(JsonToBody(DumpJson(resp)));
-                        session->Close();
-                        return;
-                      }
-                      const std::string op = root->getString("op").value_or("");
-                      Object response;
-                      if (op == "ping") {
-                        response.set("op", "pong");
-                        response.set("req_id", req_id);
-                        response.set("version", int64_t{kDhtWireVersion});
-                        response.set("peer_id", self->config_.local_peer_id);
-                      } else if (op == "find_peer" || op == "store") {
-                        if (!self->AllowInbound(remote_peer)) {
-                          {
-                            std::lock_guard lock(self->stats_mutex_);
-                            ++self->inbound_rate_limited_;
-                          }
-                          response = MakeErrorResponse(req_id, "rate_limited", "dht rate limited");
-                        } else if (op == "find_peer") {
+    pp::amp::ByteVector remote_pk;
+    links->WithLiveLink(handle, [&](pp::amp::PeerLink& link) {
+      remote_pk = link.RemoteIdentityPublicKey();
+    });
+    auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
+    *session_holder = links->BindChannel(
+        remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
+        [this, session_holder, remote_pk = std::move(remote_pk),
+         remote_peer = remote_peer_id](Roe<std::vector<uint8_t>> frame) mutable {
+          auto session = *session_holder;
+          if (!session || !frame || stopped.load(std::memory_order_acquire)) {
+            return false;
+          }
+          auto body = std::move(*frame);
+          RunWorker(post_worker, [this, session, body = std::move(body), remote_pk = std::move(remote_pk),
+                                  remote_peer = std::move(remote_peer)]() mutable {
+            if (stopped.load(std::memory_order_acquire) || !self) {
+              return;
+            }
+            const std::string json_utf8(body.begin(), body.end());
+            auto root = TryParseObject(json_utf8);
+            if (!root) {
+              Object resp = MakeErrorResponse("", "invalid_json", "invalid json");
+              (void)session->EnqueueOutbound(JsonToBody(DumpJson(resp)));
+              session->Close();
+              return;
+            }
+            const std::string req_id = root->getString("req_id").value_or("");
+            const int version = static_cast<int>(root->getIf<int64_t>("version").value_or(0));
+            if (version != kDhtWireVersion) {
+              Object resp = MakeErrorResponse(req_id, "bad_version", "unsupported version");
+              (void)session->EnqueueOutbound(JsonToBody(DumpJson(resp)));
+              session->Close();
+              return;
+            }
+            const std::string op = root->getString("op").value_or("");
+            Object response;
+            if (op == "ping") {
+              response.set("op", "pong");
+              response.set("req_id", req_id);
+              response.set("version", int64_t{kDhtWireVersion});
+              response.set("peer_id", self->config_.local_peer_id);
+            } else if (op == "find_peer" || op == "store") {
+              if (!self->AllowInbound(remote_peer)) {
+                {
+                  std::lock_guard lock(self->stats_mutex_);
+                  ++self->inbound_rate_limited_;
+                }
+                response = MakeErrorResponse(req_id, "rate_limited", "dht rate limited");
+              } else if (op == "find_peer") {
                           {
                             std::lock_guard lock(self->stats_mutex_);
                             ++self->inbound_find_peer_;
@@ -212,8 +224,8 @@ struct AmpDhtProtocol::Impl {
                       }
                       session->Close();
                     });
-                    return false;
-                  });
+          return false;
+        });
   }
 
   void Rpc(const std::string& peer_key, Object request, std::function<void(RpcRoe)> on_response) {
@@ -228,70 +240,74 @@ struct AmpDhtProtocol::Impl {
     const auto timeout = ControlTimeout(self->config_.tunables);
     const auto deadline = Clock::now() + timeout + std::chrono::milliseconds(2000);
     const std::string request_json = DumpJson(request);
-    auto session = std::make_shared<pp::amp::ChannelSession>();
+    auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
     auto settled = std::make_shared<std::atomic<bool>>(false);
 
-    auto finish = [settled, session, on_response = std::move(on_response)](RpcRoe value) {
+    auto finish = [settled, session_holder, on_response = std::move(on_response)](RpcRoe value) {
       if (settled->exchange(true, std::memory_order_acq_rel)) {
         return;
       }
-      session->Close();
+      if (*session_holder) {
+        (*session_holder)->Close();
+      }
       on_response(std::move(value));
     };
 
-    links->EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session, deadline,
+    links->EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session_holder, deadline,
                                         timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
       if (!assoc) {
         finish(RpcRoe::error(WrapLinkFailure(assoc.error())));
         return;
       }
       links->OpenChannel(peer_key, kDhtProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
-                         [this, peer_key, request_json, finish, session, deadline,
+                         [this, peer_key, request_json, finish, session_holder, deadline,
                           timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
                            if (!channel) {
                              finish(RpcRoe::error(WrapLinkFailure(channel.error())));
                              return;
                            }
-                           AmpScheduleWhenChannelOpen(
-                               post_io, io_pump,
-                               [this, peer_key, channel_id = *channel]() {
-                                 auto* link = links->FindLink(peer_key);
-                                 return link && link->Mux() &&
-                                        link->Mux()->State(channel_id) == pp::amp::ChannelState::Open;
-                               },
-                               deadline,
-                               [this, peer_key, channel_id = *channel, request_json, finish, session, timeout](
+                           if (stopped.load(std::memory_order_acquire)) {
+                             finish(RpcRoe::error(Failure::Of(Err::NotStarted, "dht service stopped")));
+                             return;
+                           }
+                           const uint32_t channel_id = *channel;
+                           links->WhenChannelOpen(
+                               peer_key, channel_id, SteadyDeadlineMs(deadline),
+                               [this, peer_key, channel_id, request_json, finish, session_holder, timeout](
                                    bool open) mutable {
+                                 if (stopped.load(std::memory_order_acquire)) {
+                                   finish(RpcRoe::error(Failure::Of(Err::NotStarted, "dht service stopped")));
+                                   return;
+                                 }
                                  if (!open) {
                                    finish(RpcRoe::error(
                                        Failure::Of(Err::ChannelFailed, "dht channel open failed")));
                                    return;
                                  }
-                                 auto* link = links->FindLink(peer_key);
-                                 if (!link || !link->Mux() ||
-                                     link->Mux()->State(channel_id) != pp::amp::ChannelState::Open) {
+                                 *session_holder = links->BindChannel(
+                                     peer_key, channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
+                                     [finish](Roe<std::vector<uint8_t>> frame) {
+                                       if (!frame) {
+                                         finish(RpcRoe::error(Failure::Of(
+                                             Err::ProtocolError, "dht response read failed")));
+                                         return false;
+                                       }
+                                       auto root =
+                                           TryParseObject(std::string(frame->begin(), frame->end()));
+                                       if (!root) {
+                                         finish(RpcRoe::error(Failure::Of(
+                                             Err::ProtocolError, "invalid dht response json")));
+                                         return false;
+                                       }
+                                       finish(std::move(*root));
+                                       return false;
+                                     });
+                                 if (!*session_holder) {
                                    finish(RpcRoe::error(
                                        Failure::Of(Err::ChannelFailed, "dht channel open failed")));
                                    return;
                                  }
-                                 session->Bind(*link->Mux(), channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
-                                               [finish](Roe<std::vector<uint8_t>> frame) {
-                                                 if (!frame) {
-                                                   finish(RpcRoe::error(Failure::Of(
-                                                       Err::ProtocolError, "dht response read failed")));
-                                                   return false;
-                                                 }
-                                                 auto root =
-                                                     TryParseObject(std::string(frame->begin(), frame->end()));
-                                                 if (!root) {
-                                                   finish(RpcRoe::error(Failure::Of(
-                                                       Err::ProtocolError, "invalid dht response json")));
-                                                   return false;
-                                                 }
-                                                 finish(std::move(*root));
-                                                 return false;
-                                               });
-                                 if (!session->EnqueueOutbound(JsonToBody(request_json))) {
+                                 if (!(*session_holder)->EnqueueOutbound(JsonToBody(request_json))) {
                                    finish(RpcRoe::error(
                                        Failure::Of(Err::ProtocolError, "dht request send failed")));
                                    return;
@@ -299,8 +315,7 @@ struct AmpDhtProtocol::Impl {
                                  if (io_pump) {
                                    io_pump();
                                  }
-                               },
-                               [this]() { return stopped.load(std::memory_order_acquire); });
+                               });
                          });
     });
   }
@@ -379,9 +394,11 @@ void AmpDhtProtocol::Start() {
   }
   started_ = true;
   impl_->stopped.store(false, std::memory_order_release);
-  links_.SetProtocolHandler(kDhtProtocolId, [impl = impl_.get()](pp::amp::PeerLink& link, const uint32_t channel_id) {
-    impl->HandleInboundOnLink(link, channel_id);
-  });
+  links_.SetProtocolHandler(
+      kDhtProtocolId, [impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id,
+                                           const uint32_t channel_id) {
+        impl->HandleInboundOnLink(handle, remote_peer_id, channel_id);
+      });
   if (config_.participate) {
     Tick();
   }
