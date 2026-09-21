@@ -2,8 +2,13 @@
 #include "domain/mesh/discovery/NameDirectory.h"
 
 #include "common/directory/DirectoryTypes.h"
+#include "common/ValueJson.h"
+#include "foundation/data/AtomicFileWrite.h"
 
 #include <gtest/gtest.h>
+
+#include <filesystem>
+#include <memory>
 
 namespace pbr {
 namespace {
@@ -70,6 +75,38 @@ TEST(MeshDirectoryCacheTest, SnapshotEmptyBeforeRefresh) {
     return std::vector<MeshDirectoryNode>{node};
   });
   EXPECT_TRUE(cache.Snapshot().empty());
+}
+
+TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
+  const auto* info = ::testing::UnitTest::GetInstance();
+  const std::string path = (std::filesystem::temp_directory_path() /
+                            ("pp_mesh_dir_cache_" + std::to_string(info->random_seed()) + ".json"))
+                               .string();
+  std::filesystem::remove(path);
+
+  Object root;
+  root.set("schema_version", int64_t{1});
+  Object node;
+  node.set("peer_id", "12D3KooWCached");
+  node.set("circuit_relay", true);
+  node.set("media_relay", true);
+  std::vector<Value> mas;
+  mas.emplace_back("/ip4/1.1.1.1/udp/443/adp/1.0.0/p2p/12D3KooWCached");
+  node.set("multiaddrs", makeArray(std::move(mas)));
+  std::vector<Value> rows;
+  rows.emplace_back(std::make_shared<Object>(std::move(node)));
+  root.set("nodes", makeArray(std::move(rows)));
+  ASSERT_TRUE(AtomicFileWrite::Write(path, DumpJson(root, 2)));
+
+  MeshDirectoryCache cache([]() -> Roe<std::vector<MeshDirectoryNode>> { return Error("no net"); });
+  cache.SetPersistPath(path);
+  cache.LoadPersisted();
+  const auto snap = cache.Snapshot();
+  ASSERT_EQ(snap.size(), 1u);
+  EXPECT_EQ(snap[0].peer_id, "12D3KooWCached");
+  ASSERT_EQ(snap[0].multiaddrs.size(), 1u);
+  EXPECT_TRUE(snap[0].circuit_relay);
+  std::filesystem::remove(path);
 }
 
 TEST(NameDirectoryTest, ListServiceMapsMeshNodes) {
