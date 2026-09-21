@@ -41,8 +41,15 @@ inline bool CircuitServeDialContinueWaitingForFarLeg(const bool peer_id_only, co
   }
   if (wait_deadline_ms == 0) {
     const int64_t armed = now_ms + kCircuitServeDialFarLegWaitMs;
-    wait_deadline_ms =
-        tunnel_deadline_ms > 0 ? std::min(armed, tunnel_deadline_ms) : armed;
+    if (tunnel_deadline_ms <= 0) {
+      wait_deadline_ms = armed;
+    } else {
+      // Expire slightly before tunnel deadline so hop can fail_near (ack) before dialer WaitAck timeout.
+      const int64_t slack_ms = 100;
+      const int64_t capped =
+          tunnel_deadline_ms > now_ms + slack_ms ? tunnel_deadline_ms - slack_ms : tunnel_deadline_ms;
+      wait_deadline_ms = std::min(armed, capped);
+    }
   }
   if (tunnel_deadline_ms > 0 && now_ms >= tunnel_deadline_ms) {
     return false;

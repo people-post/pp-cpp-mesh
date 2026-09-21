@@ -51,7 +51,7 @@ TEST(CircuitServeDialPolicyTest, FarLegWaitCapsToTunnelDeadline) {
   const int64_t tunnel_deadline = now + 500;
   EXPECT_TRUE(pbr::CircuitServeDialContinueWaitingForFarLeg(true, false, now, tunnel_deadline,
                                                             wait_deadline));
-  EXPECT_EQ(wait_deadline, tunnel_deadline);
-  EXPECT_FALSE(pbr::CircuitServeDialContinueWaitingForFarLeg(true, false, tunnel_deadline,
+  EXPECT_EQ(wait_deadline, tunnel_deadline - 100);
+  EXPECT_FALSE(pbr::CircuitServeDialContinueWaitingForFarLeg(true, false, wait_deadline,
                                                              tunnel_deadline, wait_deadline));
 }
