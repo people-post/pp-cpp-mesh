@@ -85,12 +85,15 @@ inline int64_t CircuitNestedEstablishTimeoutMs(const int64_t remaining_ms) {
 
 /** Hop answered quickly with a terminal miss — advance without burning WaitAck. */
 inline bool CircuitBridgeErrorIsFastFail(std::string_view message) {
+  // `bridge timed out` = dialer WaitAck with no hop ack (Preferred hang / far-leg race /
+  // lost not-reg). Sticky-once lets answerer finish seed park on the same hop (H010).
   return message.find("not registered") != std::string_view::npos ||
          message.find("not dialable") != std::string_view::npos ||
          message.find("endpoint not") != std::string_view::npos ||
          message.find("undialable") != std::string_view::npos ||
          message.find("relay is target") != std::string_view::npos ||
-         message.find("!endpoint") != std::string_view::npos;
+         message.find("!endpoint") != std::string_view::npos ||
+         message.find("bridge timed out") != std::string_view::npos;
 }
 
 /**

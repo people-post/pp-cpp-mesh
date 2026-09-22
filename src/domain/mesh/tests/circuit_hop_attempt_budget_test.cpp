@@ -48,8 +48,8 @@ TEST(CircuitHopAttemptBudgetTest, FastFailErrors) {
   EXPECT_TRUE(pbr::CircuitBridgeErrorIsFastFail("circuit hop reach failed: tunnel endpoint not registered"));
   EXPECT_TRUE(pbr::CircuitBridgeErrorIsFastFail("circuit target peer endpoint not dialable"));
   EXPECT_TRUE(pbr::CircuitBridgeErrorIsFastFail("relay preferred undialable"));
+  EXPECT_TRUE(pbr::CircuitBridgeErrorIsFastFail("circuit-relay bridge timed out"));
   EXPECT_FALSE(pbr::CircuitBridgeErrorIsFastFail("circuit hop reach failed: tunnel timeout"));
-  EXPECT_FALSE(pbr::CircuitBridgeErrorIsFastFail("circuit-relay bridge timed out"));
 }
 
 TEST(CircuitHopAttemptBudgetTest, StickyRetryOnceOnFastFail) {
