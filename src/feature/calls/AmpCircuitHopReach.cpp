@@ -103,9 +103,9 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
   // Answerer reverse-dial (allow_circuit=false): punch only and wait. Circuit StartBridge to the
   // offerer fails with "endpoint not registered" on fleet seeds that do not see the offerer
   // (dogfood 072a7425); offerer dials the reserved answerer after inbound grace instead.
-  const uint64_t gen = abort_gen_.load(std::memory_order_acquire);
-  auto aborted = [this, gen]() {
-    return abort_gen_.load(std::memory_order_acquire) != gen;
+  const uint64_t gen = deferred_.Snapshot();
+  auto aborted = [tok = deferred_.token(), gen]() {
+    return !DeferredSelf::Alive(tok, gen);
   };
   auto settled = std::make_shared<std::atomic<bool>>(false);
   auto finish = [settled, on_done = std::move(on_done)](Roe<void> result) mutable {
@@ -262,9 +262,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   auto bridges_started = std::make_shared<std::size_t>(0);
   auto sticky_retried = std::make_shared<bool>(false);
   const auto envelope_deadline = Clock::now() + std::chrono::milliseconds(kCircuitReachEnvelopeMs);
-  const uint64_t gen = abort_gen_.load(std::memory_order_acquire);
-  auto aborted = [this, gen]() {
-    return abort_gen_.load(std::memory_order_acquire) != gen;
+  const uint64_t gen = deferred_.Snapshot();
+  auto aborted = [tok = deferred_.token(), gen]() {
+    return !DeferredSelf::Alive(tok, gen);
   };
   auto try_relay = std::make_shared<std::function<void(size_t)>>();
   *try_relay = [this, target_peer_id, target_protocol, register_endpoint, nested_session, bridge_target,
@@ -449,6 +449,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
               }
               (void)hops_.Install(target_peer_id, relay_key, target_protocol, session, id);
               last_good_relay_peer_key_ = relay_key;
+              if (on_relay_chosen_) {
+                on_relay_chosen_(relay_key);
+              }
               AmpReachLog().info << "EnsureViaCircuit nested ok relay=" << relay_key
                                  << " target=" << target_peer_id;
               on_done(Roe<void>());
@@ -490,6 +493,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         return;
       }
       last_good_relay_peer_key_ = relay_key;
+      if (on_relay_chosen_) {
+        on_relay_chosen_(relay_key);
+      }
       AmpReachLog().info << "EnsureViaCircuit ok relay=" << relay_key << " target=" << target_peer_id;
       on_done(Roe<void>());
     };
@@ -567,12 +573,13 @@ CircuitTunnelId AmpCircuitHopReach::TakeInflightTunnel() {
 }
 
 void AmpCircuitHopReach::AbortPending() {
-  const uint64_t next = abort_gen_.fetch_add(1, std::memory_order_acq_rel) + 1;
+  deferred_.Invalidate();
   const CircuitTunnelId id = TakeInflightTunnel();
   if (id) {
     circuit_.CancelTunnel(id);
   }
-  AmpReachLog().info << "AbortPending gen=" << next << " cancelled_tunnel=" << (id ? 1 : 0);
+  AmpReachLog().info << "AbortPending gen=" << deferred_.Snapshot()
+                     << " cancelled_tunnel=" << (id ? 1 : 0);
 }
 
 Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
