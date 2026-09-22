@@ -31,8 +31,11 @@ inline constexpr std::string_view kCircuitTargetPeerNotRegistered =
  */
 inline constexpr int64_t kCircuitServeDialFarLegWaitMs = 6000;
 
-/** Slack before tunnel deadline so hop can fail_near(ack) before dialer WaitAck timeout. */
-inline constexpr int64_t kCircuitServeDialFarLegDeadlineSlackMs = 100;
+/**
+ * Slack before tunnel deadline so hop can fail_near(ack) before dialer WaitAck timeout.
+ * 100ms raced IoTick + UDP loss → dialer saw opaque `bridge timed out` (dogfood c44e34).
+ */
+inline constexpr int64_t kCircuitServeDialFarLegDeadlineSlackMs = 750;
 
 /**
  * Absolute steady-clock ms deadline for event-driven ServeDial far-leg wait.

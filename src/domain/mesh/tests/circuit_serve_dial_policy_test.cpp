@@ -30,9 +30,15 @@ TEST(CircuitServeDialPolicyTest, SkipPreferredAfterSeedPark) {
 
 TEST(CircuitServeDialPolicyTest, ArmFarLegWaitDeadlineCapsToTunnel) {
   const int64_t now = 1000;
-  const int64_t tunnel_deadline = now + 500;
+  const int64_t tunnel_deadline = now + 4000;
   EXPECT_EQ(pbr::CircuitServeDialArmFarLegWaitDeadlineMs(now, tunnel_deadline),
             tunnel_deadline - pbr::kCircuitServeDialFarLegDeadlineSlackMs);
+}
+
+TEST(CircuitServeDialPolicyTest, ArmFarLegWaitDeadlineUsesTunnelWhenShorterThanSlack) {
+  const int64_t now = 1000;
+  const int64_t tunnel_deadline = now + 500; // shorter than slack
+  EXPECT_EQ(pbr::CircuitServeDialArmFarLegWaitDeadlineMs(now, tunnel_deadline), tunnel_deadline);
 }
 
 TEST(CircuitServeDialPolicyTest, ArmFarLegWaitDeadlineUsesMaxWhenNoTunnel) {
