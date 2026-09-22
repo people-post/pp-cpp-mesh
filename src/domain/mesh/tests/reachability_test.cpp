@@ -80,6 +80,44 @@ TEST(ReachabilityTest, RankAmpDialMultiaddrsPrefersGlobalIpv6OverPrivateIpv4) {
   EXPECT_EQ(ranked[2], lan4);
 }
 
+TEST(ReachabilityTest, RankAmpDialMultiaddrsPrefersSameSubnetLanOverGlobalIpv6) {
+  const std::string v6 = "/ip6/2001:db8::1/udp/19001/adp/1.0.0/p2p/12D3KooWTest";
+  const std::string pub4 = "/ip4/203.0.113.10/udp/19001/adp/1.0.0/p2p/12D3KooWTest";
+  const std::string same_lan = "/ip4/192.168.0.109/udp/19001/adp/1.0.0/p2p/12D3KooWTest";
+  const std::string other_lan = "/ip4/10.68.189.3/udp/19001/adp/1.0.0/p2p/12D3KooWTest";
+  pbr::AmpDialLocalContext ctx;
+  ctx.lan_ipv4_hosts = {"192.168.0.105"};
+  ctx.has_global_ipv6 = true;
+
+  const auto ranked = pbr::RankAmpDialMultiaddrs({other_lan, v6, pub4, same_lan}, ctx);
+  ASSERT_EQ(ranked.size(), 4u);
+  EXPECT_EQ(ranked[0], same_lan);  // peer on our /24 beats everything else
+  EXPECT_EQ(ranked[1], v6);
+  EXPECT_EQ(ranked[2], pub4);
+  EXPECT_EQ(ranked[3], other_lan);
+}
+
+TEST(ReachabilityTest, RankAmpDialMultiaddrsDemotesIpv6WhenLocalHasNoGlobalIpv6) {
+  const std::string v6 = "/ip6/2001:db8::1/udp/19001/adp/1.0.0/p2p/12D3KooWTest";
+  const std::string pub4 = "/ip4/203.0.113.10/udp/19001/adp/1.0.0/p2p/12D3KooWTest";
+  const std::string lan4 = "/ip4/192.168.1.50/udp/19001/adp/1.0.0/p2p/12D3KooWTest";
+  pbr::AmpDialLocalContext ctx;
+  ctx.has_global_ipv6 = false;  // v4-only socket cannot send to /ip6 at all
+
+  const auto ranked = pbr::RankAmpDialMultiaddrs({lan4, v6, pub4}, ctx);
+  ASSERT_EQ(ranked.size(), 3u);
+  EXPECT_EQ(ranked[0], pub4);
+  EXPECT_EQ(ranked[1], lan4);
+  EXPECT_EQ(ranked[2], v6);
+}
+
+TEST(ReachabilityTest, LinkLocalIpv4IsUndialable) {
+  EXPECT_TRUE(pbr::IsLikelyUndialableLanIpv4("169.254.75.55"));
+  EXPECT_TRUE(pbr::IsLikelyUndialableLanIpv4("169.254.116.242"));
+  EXPECT_FALSE(pbr::IsLikelyUndialableLanIpv4("192.168.0.105"));
+  EXPECT_FALSE(pbr::IsLikelyUndialableLanIpv4("10.68.189.3"));
+}
+
 TEST(ReachabilityTest, BuildAmpGlobalIpv6AdvertisedAddrsFromHosts) {
   const auto addrs = pbr::BuildAmpGlobalIpv6AdvertisedAddrs(
       "/ip4/0.0.0.0/udp/19001/adp/1.0.0/p2p/12D3KooWTest", "12D3KooWTest",
