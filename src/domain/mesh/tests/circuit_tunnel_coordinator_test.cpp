@@ -284,5 +284,46 @@ TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridgePeerIdOnly) {
   }
 }
 
+TEST_F(CircuitTunnelCoordinatorTest, AbortInflightKeepsStartedAndAllowsNewReserve) {
+  // Abort Invalidates PostIo ticket only — lifetime IoTick/handler Bind must survive.
+  ASSERT_TRUE(client_->IsStarted());
+  client_->AbortInflight();
+  EXPECT_TRUE(client_->IsStarted());
+
+  std::atomic<bool> finished{false};
+  Roe<CircuitTunnelBridgeResult> result = Error("unset");
+  auto id = client_->StartReserve(
+      "relay",
+      [&](Roe<CircuitTunnelBridgeResult> r) {
+        result = std::move(r);
+        finished.store(true, std::memory_order_release);
+      },
+      8000);
+  ASSERT_TRUE(id) << "StartReserve must still post after Abort while Started";
+  harness_->PumpUntil([&] { return finished.load(std::memory_order_acquire); });
+  ASSERT_TRUE(finished.load(std::memory_order_acquire));
+  ASSERT_TRUE(result) << result.error().message;
+  EXPECT_TRUE(result->ok) << result->error;
+}
+
+TEST_F(CircuitTunnelCoordinatorTest, StopRejectsNewStartReserve) {
+  client_->Stop();
+  EXPECT_FALSE(client_->IsStarted());
+  std::atomic<bool> finished{false};
+  Roe<CircuitTunnelBridgeResult> result = Error("unset");
+  auto id = client_->StartReserve(
+      "relay",
+      [&](Roe<CircuitTunnelBridgeResult> r) {
+        result = std::move(r);
+        finished.store(true, std::memory_order_release);
+      },
+      8000);
+  EXPECT_FALSE(id);
+  harness_->PumpUntil([&] { return finished.load(std::memory_order_acquire); });
+  ASSERT_TRUE(finished.load(std::memory_order_acquire));
+  ASSERT_FALSE(result);
+  EXPECT_NE(result.error().message.find("not started"), std::string::npos);
+}
+
 } // namespace
 } // namespace pbr
