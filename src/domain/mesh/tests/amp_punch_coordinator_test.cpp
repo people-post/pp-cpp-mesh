@@ -1,6 +1,7 @@
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/reachability/PunchLogic.h"
 
+#include "amp/link/PeerLink.h"
 #include "domain/mesh/tests/support/mesh_test_harness.h"
 #include "domain/mesh/tests/support/mesh_triple_harness.h"
 
@@ -161,6 +162,152 @@ TEST(AmpPunchCoordinatorTest, ContactIntroducerColdPunchConnectsAToB) {
   ASSERT_TRUE(static_cast<bool>(punched)) << punched.error().message;
   EXPECT_TRUE(punched->ok) << punched->error;
   EXPECT_TRUE(harness->mgr_a().GetLinkSnapshot(harness->peer_id_b).has_endpoint);
+
+  punch_a.Stop();
+  punch_i.Stop();
+  punch_b.Stop();
+}
+
+/**
+ * L3.25 gap: simultaneous dual-dial (A026) under ACP — both sides accept inbound;
+ * first authenticated PeerLink wins; loser burst aliases must not leave a second
+ * Connected Session for the same PeerId (A027 parent-only drop).
+ */
+TEST(AmpPunchCoordinatorTest, DualDialRaceElectsSingleConnectedSession) {
+  auto created = pbr::test::AmpMeshTripleHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+
+  harness->ep_a->SetAcceptEnabled(true);
+  harness->ep_b->SetAcceptEnabled(true);
+
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("introducer", harness->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("introducer", harness->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_a, harness->ma_a)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_b, harness->ma_b)));
+
+  auto pump = [&]() { harness->PumpAll(); };
+  AmpPunchCoordinator punch_a(harness->mgr_a(), pump, {});
+  AmpPunchCoordinator punch_i(harness->mgr_r(), pump, {});
+  AmpPunchCoordinator punch_b(harness->mgr_b(), pump, {});
+  punch_a.SetLocalCandidateAddrs({harness->ma_a});
+  punch_i.SetLocalCandidateAddrs({harness->ma_r});
+  punch_b.SetLocalCandidateAddrs({harness->ma_b});
+  punch_a.Start();
+  punch_i.Start();
+  punch_b.Start();
+
+  bool a_ready = false;
+  bool b_ready = false;
+  harness->mgr_a().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
+    a_ready = static_cast<bool>(r);
+  });
+  harness->mgr_b().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
+    b_ready = static_cast<bool>(r);
+  });
+  harness->PumpUntil([&] { return a_ready && b_ready; }, 2000);
+  ASSERT_TRUE(a_ready);
+  ASSERT_TRUE(b_ready);
+
+  auto punched = punch_a.TryColdPunch("introducer", harness->peer_id_b, {harness->ma_a}, 3000);
+  ASSERT_TRUE(static_cast<bool>(punched)) << punched.error().message;
+  EXPECT_TRUE(punched->ok) << punched->error;
+
+  harness->PumpUntil(
+      [&] {
+        return harness->mgr_a().CountConnectedLinksForPeerId(harness->peer_id_b) >= 1 &&
+               harness->mgr_b().CountConnectedLinksForPeerId(harness->peer_id_a) >= 1;
+      },
+      5000);
+  // Extra pumps so A026 ScheduleDropLink can retire the dual-dial loser.
+  for (int i = 0; i < 40; ++i) {
+    harness->PumpAll();
+  }
+
+  EXPECT_EQ(harness->mgr_a().CountConnectedLinksForPeerId(harness->peer_id_b), 1u);
+  EXPECT_EQ(harness->mgr_b().CountConnectedLinksForPeerId(harness->peer_id_a), 1u);
+
+  // Provisional punch:burst:* aliases must not remain a second Connected Session.
+  const std::string b_prefix =
+      harness->peer_id_b.substr(0, std::min<size_t>(harness->peer_id_b.size(), 12));
+  const std::string a_prefix =
+      harness->peer_id_a.substr(0, std::min<size_t>(harness->peer_id_a.size(), 12));
+  for (size_t i = 0; i < 4; ++i) {
+    const std::string key_a = "punch:burst:" + std::to_string(i) + ":" + b_prefix;
+    const std::string key_b = "punch:burst:" + std::to_string(i) + ":" + a_prefix;
+    if (auto* link = harness->mgr_a().FindLink(key_a)) {
+      EXPECT_NE(link->Phase(), pp::amp::PeerLinkPhase::Connected)
+          << "loser burst alias still Connected on A: " << key_a;
+    }
+    if (auto* link = harness->mgr_b().FindLink(key_b)) {
+      EXPECT_NE(link->Phase(), pp::amp::PeerLinkPhase::Connected)
+          << "loser burst alias still Connected on B: " << key_b;
+    }
+  }
+
+  punch_a.Stop();
+  punch_i.Stop();
+  punch_b.Stop();
+}
+
+/**
+ * L3.25 gap: sync-window expiry — unreachable candidate addrs so burst never auths
+ * within the epoch → coded PunchFailed (caller falls through to circuit under H002).
+ */
+TEST(AmpPunchCoordinatorTest, SyncWindowExpiryReturnsPunchFailed) {
+  auto created = pbr::test::AmpMeshTripleHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+
+  // Accept stays on for A↔I / B↔I; punch candidates intentionally blackhole.
+  harness->ep_a->SetAcceptEnabled(true);
+  harness->ep_b->SetAcceptEnabled(true);
+
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("introducer", harness->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("introducer", harness->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_a, harness->ma_a)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_b, harness->ma_b)));
+
+  const std::string blackhole_a =
+      "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + harness->peer_id_a;
+  const std::string blackhole_b =
+      "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + harness->peer_id_b;
+
+  auto pump = [&]() { harness->PumpAll(); };
+  AmpPunchCoordinator punch_a(harness->mgr_a(), pump, {});
+  AmpPunchCoordinator punch_i(harness->mgr_r(), pump, {});
+  AmpPunchCoordinator punch_b(harness->mgr_b(), pump, {});
+  punch_a.SetLocalCandidateAddrs({blackhole_a});
+  punch_i.SetLocalCandidateAddrs({harness->ma_r});
+  punch_b.SetLocalCandidateAddrs({blackhole_b});
+  punch_a.Start();
+  punch_i.Start();
+  punch_b.Start();
+
+  bool a_ready = false;
+  bool b_ready = false;
+  harness->mgr_a().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
+    a_ready = static_cast<bool>(r);
+  });
+  harness->mgr_b().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
+    b_ready = static_cast<bool>(r);
+  });
+  harness->PumpUntil([&] { return a_ready && b_ready; }, 2000);
+  ASSERT_TRUE(a_ready);
+  ASSERT_TRUE(b_ready);
+  ASSERT_FALSE(harness->mgr_a().IsConnected(harness->peer_id_b));
+
+  // Short epoch: burst dials blackhole MAs and must not claim a direct PeerLink.
+  auto punched = punch_a.TryColdPunch("introducer", harness->peer_id_b, {blackhole_a}, 200);
+  ASSERT_FALSE(static_cast<bool>(punched));
+  EXPECT_EQ(punched.error().GetCode(), AmpPunchCoordinator::Err::PunchFailed);
+  const std::string& err = punched.error().message;
+  EXPECT_TRUE(err.find("window expired") != std::string::npos ||
+              err.find("timed out") != std::string::npos ||
+              err.find("punch burst") != std::string::npos)
+      << err;
+  EXPECT_FALSE(harness->mgr_a().IsConnected(harness->peer_id_b));
+  EXPECT_EQ(harness->mgr_a().CountConnectedLinksForPeerId(harness->peer_id_b), 0u);
 
   punch_a.Stop();
   punch_i.Stop();
