@@ -34,8 +34,10 @@ TEST(CircuitHopAttemptBudgetTest, StartBridgeTimeoutClampsToEnvelope) {
   EXPECT_EQ(pbr::CircuitStartBridgeTimeoutMs(10000, /*nested=*/false), pbr::kCircuitStartBridgeBaseMs);
   EXPECT_EQ(pbr::CircuitStartBridgeTimeoutMs(10000, /*nested=*/true), pbr::kCircuitStartBridgeBaseMs);
   EXPECT_EQ(pbr::CircuitStartBridgeTimeoutMs(5000, /*nested=*/true), 3000);
-  EXPECT_EQ(pbr::CircuitStartBridgeTimeoutMs(2500, /*nested=*/true), 0);
+  // Last nested slice: spend remaining instead of returning 0 (was blocking 3rd try).
+  EXPECT_EQ(pbr::CircuitStartBridgeTimeoutMs(2500, /*nested=*/true), 2500);
   EXPECT_EQ(pbr::CircuitStartBridgeTimeoutMs(1500, /*nested=*/false), 0);
+  EXPECT_EQ(pbr::CircuitStartBridgeTimeoutMs(1500, /*nested=*/true), 0);
 }
 
 TEST(CircuitHopAttemptBudgetTest, NestedEstablishClamps) {
@@ -50,6 +52,13 @@ TEST(CircuitHopAttemptBudgetTest, FastFailErrors) {
   EXPECT_TRUE(pbr::CircuitBridgeErrorIsFastFail("relay preferred undialable"));
   EXPECT_TRUE(pbr::CircuitBridgeErrorIsFastFail("circuit-relay bridge timed out"));
   EXPECT_FALSE(pbr::CircuitBridgeErrorIsFastFail("circuit hop reach failed: tunnel timeout"));
+}
+
+TEST(CircuitHopAttemptBudgetTest, NotRegRetriesSameRelayWithoutSticky) {
+  EXPECT_TRUE(pbr::CircuitShouldRetrySameRelayOnNotReg(true, 1));
+  EXPECT_TRUE(pbr::CircuitShouldRetrySameRelayOnNotReg(true, 3));
+  EXPECT_FALSE(pbr::CircuitShouldRetrySameRelayOnNotReg(true, pbr::kCircuitMaxStartBridgeAttempts));
+  EXPECT_FALSE(pbr::CircuitShouldRetrySameRelayOnNotReg(false, 1));
 }
 
 TEST(CircuitHopAttemptBudgetTest, StickyRetryOnceOnFastFail) {
