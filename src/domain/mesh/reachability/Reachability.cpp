@@ -400,6 +400,14 @@ bool SameIpv4Slash24(const std::string& a, const std::string& b) {
 
 int AmpDialMultiaddrRankWithContext(const std::string& multiaddr, const AmpDialLocalContext& ctx) {
   const std::string host = IpHostFromMultiaddrPrefix(multiaddr);
+  // Local experiment only (B28): a peer can advertise many global IPv6 addresses of which one is
+  // live; DialBook keeps one per key, so let the tester pin the prefix that answers.
+  // Not a fix — the fix is candidate probing (see DEV/BUGS.md B15/B28).
+  if (const char* prefer = std::getenv("PP_BROWSER_PREFER_PREFIX"); prefer && prefer[0] != '\0') {
+    if (host.rfind(prefer, 0) == 0) {
+      return -20;
+    }
+  }
   if (multiaddr.rfind("/ip4/", 0) == 0 && IsPrivateIpv4(host)) {
     for (const std::string& local : ctx.lan_ipv4_hosts) {
       if (SameIpv4Slash24(host, local)) {
