@@ -147,6 +147,10 @@ bool IsLikelyUndialableLanIpv4(const std::string& dotted_quad) {
   if (!ParseIpv4Octets(dotted_quad, octets)) {
     return false;
   }
+  if (octets[0] == 169 && octets[1] == 254) {
+    // Link-local / APIPA (also VPN tun interfaces such as utun*): never a dialable peer address.
+    return true;
+  }
   return octets[0] == 192 && octets[1] == 168 && octets[2] == 122;
 }
 
@@ -371,10 +375,52 @@ int AmpDialMultiaddrRank(const std::string& multiaddr) {
 }
 
 std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiaddrs) {
+  // No local knowledge: legacy ranking (global /ip6 first). Callers that know the local
+  // interfaces should pass CollectAmpDialLocalContext().
+  AmpDialLocalContext legacy;
+  legacy.has_global_ipv6 = true;
+  return RankAmpDialMultiaddrs(std::move(multiaddrs), legacy);
+}
+
+AmpDialLocalContext CollectAmpDialLocalContext() {
+  AmpDialLocalContext ctx;
+  ctx.lan_ipv4_hosts = EnumerateDialableLanIpv4Hosts();
+  ctx.has_global_ipv6 = !reachability_netif::GlobalIpv6Addresses().empty();
+  return ctx;
+}
+
+namespace {
+
+bool SameIpv4Slash24(const std::string& a, const std::string& b) {
+  std::array<int, 4> oa{};
+  std::array<int, 4> ob{};
+  return ParseIpv4Octets(a, oa) && ParseIpv4Octets(b, ob) && oa[0] == ob[0] && oa[1] == ob[1] &&
+         oa[2] == ob[2];
+}
+
+int AmpDialMultiaddrRankWithContext(const std::string& multiaddr, const AmpDialLocalContext& ctx) {
+  const std::string host = IpHostFromMultiaddrPrefix(multiaddr);
+  if (multiaddr.rfind("/ip4/", 0) == 0 && IsPrivateIpv4(host)) {
+    for (const std::string& local : ctx.lan_ipv4_hosts) {
+      if (SameIpv4Slash24(host, local)) {
+        return -10;  // peer on our own subnet: best possible path, no NAT involved
+      }
+    }
+  }
+  if (multiaddr.rfind("/ip6/", 0) == 0 && !ctx.has_global_ipv6) {
+    return 70;  // we cannot send to it from a v4 socket; keep it only as a last resort
+  }
+  return AmpDialMultiaddrRank(multiaddr);
+}
+
+} // namespace
+
+std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiaddrs,
+                                               const AmpDialLocalContext& ctx) {
   std::stable_sort(multiaddrs.begin(), multiaddrs.end(),
-                   [](const std::string& a, const std::string& b) {
-                     const int ra = AmpDialMultiaddrRank(a);
-                     const int rb = AmpDialMultiaddrRank(b);
+                   [&ctx](const std::string& a, const std::string& b) {
+                     const int ra = AmpDialMultiaddrRankWithContext(a, ctx);
+                     const int rb = AmpDialMultiaddrRankWithContext(b, ctx);
                      if (ra != rb) {
                        return ra < rb;
                      }
