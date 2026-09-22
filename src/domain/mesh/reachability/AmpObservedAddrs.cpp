@@ -16,6 +16,8 @@ void AppendUnique(std::vector<std::string>& out, std::unordered_set<std::string>
   out.push_back(ma);
 }
 
+} // namespace
+
 bool IsUsableAdpListen(const std::string& ma) {
   if (ma.empty() || !pp::amp::ParseAdpMultiaddr(ma)) {
     return false;
@@ -24,8 +26,17 @@ bool IsUsableAdpListen(const std::string& ma) {
   if (host.empty() || host == "0.0.0.0" || host == "::" || host == "127.0.0.1" || host == "::1") {
     return false;
   }
+  // Link-local / APIPA / virbr dogfood nets — never publish or dial (B13).
+  if (IsLikelyUndialableLanIpv4(host)) {
+    return false;
+  }
+  if (host.rfind("fe80:", 0) == 0 || host.rfind("FE80:", 0) == 0) {
+    return false;
+  }
   return true;
 }
+
+namespace {
 
 std::vector<std::string> MergeAll(const AmpObservedAddrSet& set) {
   std::vector<std::string> out;

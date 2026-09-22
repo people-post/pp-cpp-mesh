@@ -3,6 +3,8 @@
 #include "amp/link/AdpMultiaddr.h"
 #include "common/PbrCompat.h"
 
+#include <unordered_set>
+
 namespace pbr {
 namespace {
 
@@ -209,10 +211,11 @@ void PublishPunchWinnerAddrs(pp::amp::PeerLinkManager& links, const std::string&
 std::optional<std::string> PickPunchIntroducer(
     const std::vector<std::string>& contact_peer_ids, const std::vector<std::string>& seed_peer_ids,
     const std::string& exclude_peer_id, const std::function<bool(const std::string&)>& has_endpoint,
-    const std::function<bool(const std::string&)>& is_connected) {
+    const std::function<bool(const std::string&)>& is_connected,
+    const std::unordered_set<std::string>& also_exclude) {
   auto pick = [&](const std::vector<std::string>& ids, bool require_connected) -> std::optional<std::string> {
     for (const std::string& id : ids) {
-      if (id.empty() || id == exclude_peer_id) {
+      if (id.empty() || id == exclude_peer_id || also_exclude.count(id) > 0) {
         continue;
       }
       if (!has_endpoint(id)) {

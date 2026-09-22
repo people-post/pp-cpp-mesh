@@ -7,6 +7,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace pbr {
@@ -38,12 +39,13 @@ void PublishPunchWinnerAddrs(pp::amp::PeerLinkManager& links, const std::string&
 
 /**
  * Prefer a connected contact with an endpoint, else any contact with endpoint,
- * then the same for seeds. Skips exclude_peer_id.
+ * then the same for seeds. Skips exclude_peer_id and any ids in also_exclude (B29).
  */
 std::optional<std::string> PickPunchIntroducer(
     const std::vector<std::string>& contact_peer_ids, const std::vector<std::string>& seed_peer_ids,
     const std::string& exclude_peer_id, const std::function<bool(const std::string&)>& has_endpoint,
-    const std::function<bool(const std::string&)>& is_connected);
+    const std::function<bool(const std::string&)>& is_connected,
+    const std::unordered_set<std::string>& also_exclude = {});
 
 
 } // namespace pbr

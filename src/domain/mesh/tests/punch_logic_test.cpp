@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <unordered_set>
+
 namespace pbr {
 namespace {
 
@@ -112,6 +114,17 @@ TEST(PunchLogicTest, PickPunchIntroducerSkipsExcludedPeer) {
   auto is_connected = [](const std::string&) { return true; };
   auto picked = PickPunchIntroducer(contacts, seeds, "peer-x", has_endpoint, is_connected);
   EXPECT_FALSE(picked.has_value());
+}
+
+TEST(PunchLogicTest, PickPunchIntroducerSkipsAlsoExclude) {
+  const std::vector<std::string> contacts = {"contact-a", "contact-b"};
+  const std::vector<std::string> seeds = {"seed-1"};
+  auto has_endpoint = [](const std::string&) { return true; };
+  auto is_connected = [](const std::string&) { return true; };
+  auto picked = PickPunchIntroducer(contacts, seeds, "target", has_endpoint, is_connected,
+                                    std::unordered_set<std::string>{"contact-a"});
+  ASSERT_TRUE(picked.has_value());
+  EXPECT_EQ(*picked, "contact-b");
 }
 
 } // namespace
