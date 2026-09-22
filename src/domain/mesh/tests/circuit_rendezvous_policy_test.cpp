@@ -19,6 +19,19 @@ TEST(CircuitRendezvousPolicyTest, ParkOrderConnectedFirstStable) {
   EXPECT_EQ(out[3], "d");
 }
 
+TEST(CircuitRendezvousPolicyTest, ParkOrderStickyThenConnected) {
+  const std::vector<std::string> in = {"a", "b", "c", "d"};
+  const std::unordered_set<std::string> connected = {"c"};
+  const auto out = pbr::OrderRendezvousParkAttempts(in, "b", [&](const std::string& key) {
+    return connected.count(key) > 0;
+  });
+  ASSERT_EQ(out.size(), 4u);
+  EXPECT_EQ(out[0], "b");
+  EXPECT_EQ(out[1], "c");
+  EXPECT_EQ(out[2], "a");
+  EXPECT_EQ(out[3], "d");
+}
+
 TEST(CircuitRendezvousPolicyTest, ParkOrderWithoutConnectedKeepsInputOrder) {
   const std::vector<std::string> in = {"a", "b", "c"};
   const auto out = pbr::OrderRendezvousParkAttempts(in, [](const std::string&) { return false; });

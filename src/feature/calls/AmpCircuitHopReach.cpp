@@ -449,6 +449,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
               }
               (void)hops_.Install(target_peer_id, relay_key, target_protocol, session, id);
               last_good_relay_peer_key_ = relay_key;
+              if (on_relay_chosen_) {
+                on_relay_chosen_(relay_key);
+              }
               AmpReachLog().info << "EnsureViaCircuit nested ok relay=" << relay_key
                                  << " target=" << target_peer_id;
               on_done(Roe<void>());
@@ -490,6 +493,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         return;
       }
       last_good_relay_peer_key_ = relay_key;
+      if (on_relay_chosen_) {
+        on_relay_chosen_(relay_key);
+      }
       AmpReachLog().info << "EnsureViaCircuit ok relay=" << relay_key << " target=" << target_peer_id;
       on_done(Roe<void>());
     };

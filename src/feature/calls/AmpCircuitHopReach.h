@@ -49,6 +49,14 @@ public:
   Roe<void> TryEnsureCallMediaReachable(const std::string& peer_key) override;
   Roe<void> TryUpgradeToDirect(const std::string& peer_key) override;
   void AbortPending() override;
+  std::string LastGoodRelayPeerKey() const override { return last_good_relay_peer_key_; }
+
+  /**
+   * H011 L3.1c: invoked on Amp IO after a successful bridge Install (chosen R1).
+   * CallMediaPlane uses this for sticky cache / optional late-reserve announce path.
+   */
+  using OnRelayChosen = std::function<void(const std::string& relay_peer_key)>;
+  void SetOnRelayChosen(OnRelayChosen cb) { on_relay_chosen_ = std::move(cb); }
 
 private:
   void EnsureViaCircuitAsync(const std::string& target_peer_id, const std::string& target_protocol,
@@ -67,6 +75,7 @@ private:
   CollectRelays collect_relays_;
   TryPunchAsync try_punch_;
   TryPunchViaIntroducerAsync try_punch_via_introducer_;
+  OnRelayChosen on_relay_chosen_;
   std::atomic<uint64_t> abort_gen_{0};
   /** Active StartBridge id for this reach chain; AbortPending CancelTunnel's it (hard cancel). */
   std::atomic<uint64_t> inflight_tunnel_value_{0};

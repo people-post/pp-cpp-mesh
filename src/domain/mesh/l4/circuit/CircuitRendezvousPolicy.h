@@ -16,30 +16,21 @@ namespace pbr {
 inline constexpr std::size_t kCircuitRendezvousParkCoverage = kCircuitMaxStartBridgeAttempts;
 
 /**
- * Answerer park order over the shared rendezvous surface: Connected first, then the
- * rest (stable within bands). Dialer-local sticky reorder stays in OrderCircuitRelayAttempts.
+ * Answerer park order over the shared rendezvous surface (H011 L3.1a/b):
+ * optional sticky last-good R1 first, then Connected, then the rest (stable within bands).
+ * Same banding as dialer `OrderCircuitRelayAttempts` so park covers dialer sticky reorder.
  */
+inline std::vector<std::string> OrderRendezvousParkAttempts(
+    std::vector<std::string> surface, const std::string& sticky,
+    const std::function<bool(const std::string&)>& is_connected) {
+  return OrderCircuitRelayAttempts(std::move(surface), sticky, is_connected);
+}
+
+/** Overload without sticky (Connected-first only). */
 inline std::vector<std::string> OrderRendezvousParkAttempts(
     std::vector<std::string> surface,
     const std::function<bool(const std::string&)>& is_connected) {
-  if (surface.empty()) {
-    return surface;
-  }
-  std::vector<std::string> ordered;
-  ordered.reserve(surface.size());
-  std::vector<std::string> rest;
-  rest.reserve(surface.size());
-  for (std::string& key : surface) {
-    if (is_connected && is_connected(key)) {
-      ordered.push_back(std::move(key));
-    } else {
-      rest.push_back(std::move(key));
-    }
-  }
-  for (std::string& key : rest) {
-    ordered.push_back(std::move(key));
-  }
-  return ordered;
+  return OrderRendezvousParkAttempts(std::move(surface), {}, is_connected);
 }
 
 /**
