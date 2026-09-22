@@ -227,23 +227,14 @@ TEST(AmpPunchCoordinatorTest, DualDialRaceElectsSingleConnectedSession) {
   EXPECT_EQ(harness->mgr_a().CountConnectedLinksForPeerId(harness->peer_id_b), 1u);
   EXPECT_EQ(harness->mgr_b().CountConnectedLinksForPeerId(harness->peer_id_a), 1u);
 
-  // Provisional punch:burst:* aliases must not remain a second Connected Session.
-  const std::string b_prefix =
-      harness->peer_id_b.substr(0, std::min<size_t>(harness->peer_id_b.size(), 12));
-  const std::string a_prefix =
-      harness->peer_id_a.substr(0, std::min<size_t>(harness->peer_id_a.size(), 12));
-  for (size_t i = 0; i < 4; ++i) {
-    const std::string key_a = "punch:burst:" + std::to_string(i) + ":" + b_prefix;
-    const std::string key_b = "punch:burst:" + std::to_string(i) + ":" + a_prefix;
-    if (auto* link = harness->mgr_a().FindLink(key_a)) {
-      EXPECT_NE(link->Phase(), pp::amp::PeerLinkPhase::Connected)
-          << "loser burst alias still Connected on A: " << key_a;
-    }
-    if (auto* link = harness->mgr_b().FindLink(key_b)) {
-      EXPECT_NE(link->Phase(), pp::amp::PeerLinkPhase::Connected)
-          << "loser burst alias still Connected on B: " << key_b;
-    }
-  }
+  // Winner may live under peer_id or a provisional punch:burst:* key after A026 elect —
+  // only one Connected Session per PeerId either way.
+  auto* link_a = harness->mgr_a().FindLinkByPeerId(harness->peer_id_b);
+  auto* link_b = harness->mgr_b().FindLinkByPeerId(harness->peer_id_a);
+  ASSERT_NE(link_a, nullptr);
+  ASSERT_NE(link_b, nullptr);
+  EXPECT_EQ(link_a->Phase(), pp::amp::PeerLinkPhase::Connected);
+  EXPECT_EQ(link_b->Phase(), pp::amp::PeerLinkPhase::Connected);
 
   punch_a.Stop();
   punch_i.Stop();
