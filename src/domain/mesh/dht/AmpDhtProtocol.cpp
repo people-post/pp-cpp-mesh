@@ -5,6 +5,7 @@
 #include "domain/mesh/dht/DhtRecordCodec.h"
 #include "common/Utilities.h"
 #include "common/ValueJson.h"
+#include "foundation/runtime/DeferredSelf.h"
 
 #include <atomic>
 #include <chrono>
@@ -92,7 +93,8 @@ struct AmpDhtProtocol::Impl {
   WorkerPost post_worker;
   IoPost post_io;
   std::atomic<bool> stopped{false};
-
+  /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
+  DeferredSelf deferred;
 
   void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id,
                            const uint32_t channel_id) {
@@ -392,10 +394,12 @@ void AmpDhtProtocol::Start() {
   started_ = true;
   impl_->stopped.store(false, std::memory_order_release);
   links_.SetProtocolHandler(
-      kDhtProtocolId, [impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id,
-                                           const uint32_t channel_id) {
+      kDhtProtocolId,
+      impl_->deferred.Bind([impl = impl_.get()](pp::amp::LinkHandle handle,
+                                                const std::string& remote_peer_id,
+                                                const uint32_t channel_id) {
         impl->HandleInboundOnLink(handle, remote_peer_id, channel_id);
-      });
+      }));
   if (config_.participate) {
     Tick();
   }
@@ -408,6 +412,7 @@ void AmpDhtProtocol::Stop() {
   started_ = false;
   impl_->stopped.store(true, std::memory_order_release);
   links_.RemoveProtocolHandler(kDhtProtocolId);
+  impl_->deferred.Invalidate();
 }
 
 void AmpDhtProtocol::Tick() {

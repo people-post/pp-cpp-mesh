@@ -5,6 +5,7 @@
 #include "domain/mesh/discovery/MeshNodeHitCodec.h"
 #include "common/Utilities.h"
 #include "common/ValueJson.h"
+#include "foundation/runtime/DeferredSelf.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -83,7 +84,8 @@ struct AmpDirectoryProtocol::Impl {
   WorkerPost post_worker;
   IoPost post_io;
   std::atomic<bool> stopped{false};
-
+  /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
+  DeferredSelf deferred;
 
   void HandleInboundOnLink(pp::amp::LinkHandle /*handle*/, const std::string& remote_peer_id,
                            const uint32_t channel_id) {
@@ -296,10 +298,11 @@ void AmpDirectoryProtocol::Start() {
   impl_->stopped.store(false, std::memory_order_release);
   links_.SetProtocolHandler(
       kDirectoryProtocolId,
-      [impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id,
-                           const uint32_t channel_id) {
+      impl_->deferred.Bind([impl = impl_.get()](pp::amp::LinkHandle handle,
+                                                const std::string& remote_peer_id,
+                                                const uint32_t channel_id) {
         impl->HandleInboundOnLink(handle, remote_peer_id, channel_id);
-      });
+      }));
 }
 
 void AmpDirectoryProtocol::Stop() {
@@ -309,6 +312,7 @@ void AmpDirectoryProtocol::Stop() {
   started_ = false;
   impl_->stopped.store(true, std::memory_order_release);
   links_.RemoveProtocolHandler(kDirectoryProtocolId);
+  impl_->deferred.Invalidate();
 }
 
 void AmpDirectoryProtocol::ListMeshNodesAsync(std::function<void(ListRoe)> on_done) {

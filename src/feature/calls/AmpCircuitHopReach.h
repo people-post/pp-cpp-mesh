@@ -4,6 +4,7 @@
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 #include "domain/mesh/host/MeshPorts.h"
 #include "feature/calls/CallTopologyRelayDeps.h"
+#include "foundation/runtime/DeferredSelf.h"
 
 #include <atomic>
 #include <functional>
@@ -76,7 +77,8 @@ private:
   TryPunchAsync try_punch_;
   TryPunchViaIntroducerAsync try_punch_via_introducer_;
   OnRelayChosen on_relay_chosen_;
-  std::atomic<uint64_t> abort_gen_{0};
+  /** AbortPending Invalidates — in-flight EnsureViaCircuit / punch cbs no-op. */
+  DeferredSelf deferred_;
   /** Active StartBridge id for this reach chain; AbortPending CancelTunnel's it (hard cancel). */
   std::atomic<uint64_t> inflight_tunnel_value_{0};
   /** Last relay that completed a bridge Install (sticky first try — H010). */
