@@ -67,9 +67,13 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
 
   bootstrap_peers_ = config.bootstrap_peers;
   reachability_ = std::make_unique<ReachabilityEngine>();
-  if (config.on_reachability_updated) {
-    reachability_->SetOnUpdated(config.on_reachability_updated);
-  }
+  // B26: always refresh ch0 / punch candidates when dial-back or UPnP lands, then notify product.
+  reachability_->SetOnUpdated([this, product_cb = config.on_reachability_updated]() {
+    RefreshAdvertisedListenAddrs();
+    if (product_cb) {
+      product_cb();
+    }
+  });
   if (config.start_reachability_probe) {
     StartReachabilityProbe(config.try_upnp_first);
   }

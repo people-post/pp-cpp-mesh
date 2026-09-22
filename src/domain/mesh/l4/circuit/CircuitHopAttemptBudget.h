@@ -104,13 +104,12 @@ inline bool CircuitBridgeErrorIsFastFail(std::string_view message) {
 
 /**
  * `not registered`: hop event-waited and answerer still parking — retry **this** relay
- * immediately. Do not require sticky (first dual-NAT call often has empty sticky; advancing
- * burned the budget across hops while answerer parked on the first — dogfood bb3fbfab).
- * `bridges_started` already includes the failed attempt.
+ * once, then advance so a second seed can be tried (B27). `bridges_started` already
+ * includes the failed attempt (1 after first miss → allow one same-relay retry).
  */
 inline bool CircuitShouldRetrySameRelayOnNotReg(const bool not_reg,
                                                 const std::size_t bridges_started) {
-  return not_reg && bridges_started < kCircuitMaxStartBridgeAttempts;
+  return not_reg && bridges_started == 1;
 }
 
 /**
