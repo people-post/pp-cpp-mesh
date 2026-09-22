@@ -17,6 +17,7 @@ set(PP_DOMAIN_MESH_REACHABILITY_SOURCES
   reachability/AmpDialBackProtocol.cpp
   reachability/AmpObservedAddrs.cpp
   reachability/PunchLogic.cpp
+  reachability/PunchBurst.cpp
   reachability/AmpPunchCoordinator.cpp
   reachability/MobileEphemeralListenGate.cpp
 )

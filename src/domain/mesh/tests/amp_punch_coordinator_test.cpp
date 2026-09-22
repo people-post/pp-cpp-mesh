@@ -1,14 +1,62 @@
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
+#include "domain/mesh/reachability/PunchBurst.h"
 #include "domain/mesh/reachability/PunchLogic.h"
+#include "domain/mesh/reachability/PunchTypes.h"
 
+#include "amp/L3/ChannelPolicy.h"
 #include "amp/link/PeerLink.h"
+#include "common/SettledWait.h"
 #include "domain/mesh/tests/support/mesh_test_harness.h"
 #include "domain/mesh/tests/support/mesh_triple_harness.h"
 
 #include <gtest/gtest.h>
 
+#include <functional>
+#include <vector>
+
 namespace pbr {
 namespace {
+
+/** Shared prelude for SyncWindowExpiry stage tests: A↔R↔B associated, no A↔B. */
+struct PunchExpiryStageFixture {
+  std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness;
+  std::string blackhole_a;
+  std::string blackhole_b;
+
+  static testing::AssertionResult Create(PunchExpiryStageFixture* out) {
+    auto created = pbr::test::AmpMeshTripleHarness::Create();
+    if (!created) {
+      return testing::AssertionFailure() << created.error().message;
+    }
+    out->harness = std::move(*created);
+    out->harness->ep_a->SetAcceptEnabled(true);
+    out->harness->ep_b->SetAcceptEnabled(true);
+    if (!out->harness->mgr_a().RegisterEndpoint("introducer", out->harness->ma_r) ||
+        !out->harness->mgr_b().RegisterEndpoint("introducer", out->harness->ma_r) ||
+        !out->harness->mgr_r().RegisterEndpoint(out->harness->peer_id_a, out->harness->ma_a) ||
+        !out->harness->mgr_r().RegisterEndpoint(out->harness->peer_id_b, out->harness->ma_b)) {
+      return testing::AssertionFailure() << "RegisterEndpoint failed";
+    }
+    out->blackhole_a = "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + out->harness->peer_id_a;
+    out->blackhole_b = "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + out->harness->peer_id_b;
+    return testing::AssertionSuccess();
+  }
+
+  void PumpAll() { harness->PumpAll(); }
+
+  bool AssocAAndBToIntroducer() {
+    bool a_ready = false;
+    bool b_ready = false;
+    harness->mgr_a().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
+      a_ready = static_cast<bool>(r);
+    });
+    harness->mgr_b().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
+      b_ready = static_cast<bool>(r);
+    });
+    harness->PumpUntil([&] { return a_ready && b_ready; }, 2000);
+    return a_ready && b_ready;
+  }
+};
 
 TEST(AmpPunchCoordinatorTest, NotStartedReturnsCodedFailure) {
   auto created = pbr::test::AmpMeshHarness::Create();
@@ -239,6 +287,168 @@ TEST(AmpPunchCoordinatorTest, DualDialRaceElectsSingleConnectedSession) {
   punch_a.Stop();
   punch_i.Stop();
   punch_b.Stop();
+}
+
+/**
+ * Staged coverage for SyncWindowExpiry (Windows SEH bisect). Keep the end-to-end test below.
+ *
+ * 1 AssocAAndBToIntroducerOnly
+ * 2 PunchCoordinatorsStartWithBlackholeAddrs
+ * 3 OpenPunchChannelToIntroducer
+ * 4 IntroducerOpensPunchChannelToTarget
+ * 5 RegisterBlackholePeerAddrsWithoutBurst
+ * 6 BurstDialBlackholeAlone (no mux callback on stack)
+ * 7 BurstDialAfterDeferredDrain (ScheduleOffMux-shaped)
+ * 8 SyncWindowExpiryReturnsPunchFailed (full TryColdPunch)
+ */
+
+TEST(AmpPunchCoordinatorTest, Stage1_AssocAAndBToIntroducerOnly) {
+  PunchExpiryStageFixture fx;
+  ASSERT_TRUE(PunchExpiryStageFixture::Create(&fx));
+  ASSERT_TRUE(fx.AssocAAndBToIntroducer());
+  EXPECT_TRUE(fx.harness->mgr_a().IsConnected("introducer"));
+  EXPECT_TRUE(fx.harness->mgr_b().IsConnected("introducer"));
+  EXPECT_FALSE(fx.harness->mgr_a().IsConnected(fx.harness->peer_id_b));
+  EXPECT_EQ(fx.harness->mgr_a().CountConnectedLinksForPeerId(fx.harness->peer_id_b), 0u);
+}
+
+TEST(AmpPunchCoordinatorTest, Stage2_PunchCoordinatorsStartWithBlackholeAddrs) {
+  PunchExpiryStageFixture fx;
+  ASSERT_TRUE(PunchExpiryStageFixture::Create(&fx));
+  ASSERT_TRUE(fx.AssocAAndBToIntroducer());
+
+  auto pump = [&]() { fx.PumpAll(); };
+  AmpPunchCoordinator punch_a(fx.harness->mgr_a(), pump, {});
+  AmpPunchCoordinator punch_i(fx.harness->mgr_r(), pump, {});
+  AmpPunchCoordinator punch_b(fx.harness->mgr_b(), pump, {});
+  punch_a.SetLocalCandidateAddrs({fx.blackhole_a});
+  punch_i.SetLocalCandidateAddrs({fx.harness->ma_r});
+  punch_b.SetLocalCandidateAddrs({fx.blackhole_b});
+  punch_a.Start();
+  punch_i.Start();
+  punch_b.Start();
+  EXPECT_TRUE(punch_a.IsStarted());
+  EXPECT_TRUE(punch_i.IsStarted());
+  EXPECT_TRUE(punch_b.IsStarted());
+  ASSERT_EQ(punch_a.LocalCandidateAddrs().size(), 1u);
+  EXPECT_EQ(punch_a.LocalCandidateAddrs().front(), fx.blackhole_a);
+  ASSERT_EQ(punch_b.LocalCandidateAddrs().size(), 1u);
+  EXPECT_EQ(punch_b.LocalCandidateAddrs().front(), fx.blackhole_b);
+  punch_a.Stop();
+  punch_i.Stop();
+  punch_b.Stop();
+}
+
+TEST(AmpPunchCoordinatorTest, Stage3_OpenPunchChannelToIntroducer) {
+  PunchExpiryStageFixture fx;
+  ASSERT_TRUE(PunchExpiryStageFixture::Create(&fx));
+  ASSERT_TRUE(fx.AssocAAndBToIntroducer());
+
+  auto pump = [&]() { fx.PumpAll(); };
+  AmpPunchCoordinator punch_i(fx.harness->mgr_r(), pump, {});
+  punch_i.Start();
+
+  SettledWait<uint32_t, Error> wait;
+  auto policy = pp::amp::ControlJsonChannelPolicy(std::chrono::milliseconds{2000});
+  policy.read_once = false;
+  fx.harness->mgr_a().OpenChannel(
+      "introducer", kAmpPunchProtocolId, policy,
+      [wait](pp::amp::PeerLinkManager::ChannelRoe ch) {
+        if (ch) {
+          wait.Finish(*ch);
+        } else {
+          wait.Finish(Error(ch.error().message));
+        }
+      });
+  fx.harness->PumpUntil([&] { return wait.IsSettled(); }, 2000);
+  auto opened = wait.Wait(std::chrono::milliseconds(1), Error("punch channel open timed out"));
+  ASSERT_TRUE(static_cast<bool>(opened)) << opened.error().message;
+  EXPECT_NE(*opened, 0u);
+  punch_i.Stop();
+}
+
+TEST(AmpPunchCoordinatorTest, Stage4_IntroducerOpensPunchChannelToTarget) {
+  PunchExpiryStageFixture fx;
+  ASSERT_TRUE(PunchExpiryStageFixture::Create(&fx));
+  ASSERT_TRUE(fx.AssocAAndBToIntroducer());
+
+  auto pump = [&]() { fx.PumpAll(); };
+  AmpPunchCoordinator punch_b(fx.harness->mgr_b(), pump, {});
+  punch_b.SetLocalCandidateAddrs({fx.blackhole_b});
+  punch_b.Start();
+
+  SettledWait<uint32_t, Error> wait;
+  auto policy = pp::amp::ControlJsonChannelPolicy(std::chrono::milliseconds{2000});
+  policy.read_once = false;
+  fx.harness->mgr_r().OpenChannel(
+      fx.harness->peer_id_b, kAmpPunchProtocolId, policy,
+      [wait](pp::amp::PeerLinkManager::ChannelRoe ch) {
+        if (ch) {
+          wait.Finish(*ch);
+        } else {
+          wait.Finish(Error(ch.error().message));
+        }
+      });
+  fx.harness->PumpUntil([&] { return wait.IsSettled(); }, 2000);
+  auto opened = wait.Wait(std::chrono::milliseconds(1), Error("introducer→target punch channel timed out"));
+  ASSERT_TRUE(static_cast<bool>(opened)) << opened.error().message;
+  EXPECT_NE(*opened, 0u);
+  punch_b.Stop();
+}
+
+TEST(AmpPunchCoordinatorTest, Stage5_RegisterBlackholePeerAddrsWithoutBurst) {
+  PunchExpiryStageFixture fx;
+  ASSERT_TRUE(PunchExpiryStageFixture::Create(&fx));
+  ASSERT_TRUE(fx.AssocAAndBToIntroducer());
+
+  // Mirror sync-handler bookkeeping: RegisterEndpoint under PeerId, no dial yet.
+  ASSERT_TRUE(static_cast<bool>(
+      fx.harness->mgr_a().RegisterEndpoint(fx.harness->peer_id_b, fx.blackhole_b)));
+  EXPECT_TRUE(fx.harness->mgr_a().GetLinkSnapshot(fx.harness->peer_id_b).has_endpoint);
+  auto pref = fx.harness->mgr_a().PreferredMultiaddr(fx.harness->peer_id_b);
+  ASSERT_TRUE(pref.has_value());
+  EXPECT_EQ(*pref, fx.blackhole_b);
+  EXPECT_FALSE(fx.harness->mgr_a().IsConnected(fx.harness->peer_id_b));
+}
+
+TEST(AmpPunchCoordinatorTest, Stage6_BurstDialBlackholeAlone) {
+  PunchExpiryStageFixture fx;
+  ASSERT_TRUE(PunchExpiryStageFixture::Create(&fx));
+  ASSERT_TRUE(fx.AssocAAndBToIntroducer());
+
+  // Critical isolation: BurstDial + Pump with no ChannelMux frame on the stack.
+  auto pump = [&]() { fx.PumpAll(); };
+  auto burst = BurstDialCandidates(fx.harness->mgr_a(), pump, {fx.blackhole_b}, 200);
+  EXPECT_FALSE(burst.ok);
+  EXPECT_FALSE(burst.error.empty()) << "expected dial/window failure message";
+  EXPECT_TRUE(burst.error.find("timed out") != std::string::npos ||
+              burst.error.find("window expired") != std::string::npos ||
+              burst.error.find("punch burst") != std::string::npos ||
+              burst.error.find("dial") != std::string::npos)
+      << burst.error;
+  EXPECT_FALSE(fx.harness->mgr_a().IsConnected(fx.harness->peer_id_b));
+  EXPECT_EQ(fx.harness->mgr_a().CountConnectedLinksForPeerId(fx.harness->peer_id_b), 0u);
+}
+
+TEST(AmpPunchCoordinatorTest, Stage7_BurstDialAfterDeferredDrain) {
+  PunchExpiryStageFixture fx;
+  ASSERT_TRUE(PunchExpiryStageFixture::Create(&fx));
+  ASSERT_TRUE(fx.AssocAAndBToIntroducer());
+
+  // Mirrors ScheduleOffMux: queue burst work, run user pump, then drain — never under mux.
+  std::vector<std::function<void()>> deferred;
+  PunchBurstResult burst;
+  deferred.push_back([&] {
+    burst = BurstDialCandidates(fx.harness->mgr_a(), [&] { fx.PumpAll(); }, {fx.blackhole_b}, 200);
+  });
+  fx.PumpAll();
+  ASSERT_FALSE(deferred.empty());
+  auto work = std::move(deferred.back());
+  deferred.pop_back();
+  work();
+  EXPECT_FALSE(burst.ok);
+  EXPECT_FALSE(burst.error.empty()) << burst.error;
+  EXPECT_FALSE(fx.harness->mgr_a().IsConnected(fx.harness->peer_id_b));
 }
 
 /**
