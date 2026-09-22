@@ -7,6 +7,9 @@
 
 namespace pbr {
 
+/** True when `ma` is a parseable ADP multiaddr with a dialable host (not wildcard/loopback/link-local). */
+bool IsUsableAdpListen(const std::string& ma);
+
 /** Observed Amp ADP listen candidates used for ch0 advertise and punch. */
 struct AmpObservedAddrSet {
   std::vector<std::string> listen;     // bind + LAN expansion

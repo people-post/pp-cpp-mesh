@@ -59,5 +59,14 @@ TEST(AmpObservedAddrsTest, PrefersGlobalIpv6BeforePrivateLan) {
       << "global /ip6 must precede private /ip4 for PreferredMultiaddr ingest";
 }
 
+TEST(AmpObservedAddrsTest, IsUsableAdpListenRejectsWildcardAndLinkLocal) {
+  EXPECT_FALSE(IsUsableAdpListen("/ip4/0.0.0.0/udp/48599/adp/1.0.0/p2p/12D3KooWPeer"));
+  EXPECT_FALSE(IsUsableAdpListen("/ip6/::/udp/48599/adp/1.0.0/p2p/12D3KooWPeer"));
+  EXPECT_FALSE(IsUsableAdpListen("/ip4/127.0.0.1/udp/48599/adp/1.0.0/p2p/12D3KooWPeer"));
+  EXPECT_FALSE(IsUsableAdpListen("/ip4/169.254.75.55/udp/48599/adp/1.0.0/p2p/12D3KooWPeer"));
+  EXPECT_FALSE(IsUsableAdpListen("/ip4/192.168.122.1/udp/48599/adp/1.0.0/p2p/12D3KooWPeer"));
+  EXPECT_TRUE(IsUsableAdpListen("/ip4/192.168.0.105/udp/60581/adp/1.0.0/p2p/12D3KooWPeer"));
+}
+
 } // namespace
 } // namespace pbr
