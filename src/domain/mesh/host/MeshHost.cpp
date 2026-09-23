@@ -218,7 +218,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
   auto post_io = MakeL4IoPost();
   auto post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   if (!amp_dial_back_) {
-    amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Links(), io_pump, post_worker, post_io);
+    amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Runtime(), io_pump, post_worker);
   }
   if (!amp_punch_) {
     amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Runtime(), io_pump);
