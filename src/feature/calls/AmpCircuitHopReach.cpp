@@ -32,10 +32,12 @@ logging::Logger& AmpReachLog() {
 AmpCircuitHopReach::AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops,
                                        IChatPeerLinks& links, IoPump io_pump,
                                        CollectRelays collect_relays, TryPunchAsync try_punch,
-                                       TryPunchViaIntroducerAsync try_punch_via_introducer, IoPost post_io)
+                                       TryPunchViaIntroducerAsync try_punch_via_introducer, IoPost post_io,
+                                       IoAfter post_after)
     : circuit_(circuit), hops_(hops), links_(links), io_pump_(std::move(io_pump)),
-      post_io_(std::move(post_io)), collect_relays_(std::move(collect_relays)),
-      try_punch_(std::move(try_punch)), try_punch_via_introducer_(std::move(try_punch_via_introducer)) {}
+      post_io_(std::move(post_io)), post_after_(std::move(post_after)),
+      collect_relays_(std::move(collect_relays)), try_punch_(std::move(try_punch)),
+      try_punch_via_introducer_(std::move(try_punch_via_introducer)) {}
 
 void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_id,
                                                     std::function<void(Roe<void>)> on_done) {
@@ -471,7 +473,8 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                                   AmpReachLog().info << "EnsureViaCircuit nested timeout relay=" << relay_key
                                                      << " cancelling tunnel before next relay";
                                   (*advance_relay)(index + 1, id);
-                                });
+                                },
+                                post_after_);
         return;
       }
 
@@ -538,7 +541,8 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                                                  << " cancelling tunnel before next relay";
                               // Timeouts are not sticky-retry — hop was dialing / hung.
                               (*advance_relay)(index + 1, *tunnel_id);
-                            });
+                            },
+                            post_after_);
   };
   (*try_relay)(0);
   };

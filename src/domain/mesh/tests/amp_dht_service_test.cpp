@@ -16,10 +16,8 @@ TEST(AmpDhtProtocolTest, FindPeerReturnsBootstrapRecord) {
   ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
   ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("client", harness->ma_a)));
 
-  auto pump = [&]() { harness->PumpBoth(); };
-
-  AmpDhtProtocol seed(*harness->runtime_b, pump);
-  AmpDhtProtocol client(*harness->runtime_a, pump);
+  AmpDhtProtocol seed(*harness->runtime_b);
+  AmpDhtProtocol client(*harness->runtime_a);
 
   AmpDhtProtocolConfig seed_cfg;
   seed_cfg.local_peer_id = harness->peer_id_b;
@@ -71,10 +69,8 @@ TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
   ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("b", harness->ma_b)));
   ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("a", harness->ma_a)));
 
-  auto pump = [&]() { harness->PumpBoth(); };
-
-  AmpDhtProtocol node_a(*harness->runtime_a, pump);
-  AmpDhtProtocol node_b(*harness->runtime_b, pump);
+  AmpDhtProtocol node_a(*harness->runtime_a);
+  AmpDhtProtocol node_b(*harness->runtime_b);
 
   AmpDhtProtocolConfig cfg_a;
   cfg_a.local_peer_id = harness->peer_id_a;

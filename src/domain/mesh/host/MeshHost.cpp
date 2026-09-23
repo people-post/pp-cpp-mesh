@@ -200,6 +200,15 @@ std::function<void(std::function<void()>)> MeshHost::MakeL4IoPost() const {
   };
 }
 
+std::function<void(std::chrono::milliseconds, std::function<void()>)> MeshHost::MakeL4IoAfter() const {
+  return [self = const_cast<MeshHost*>(this)](std::chrono::milliseconds delay,
+                                              std::function<void()> task) {
+    if (self->amp_ && task) {
+      self->amp_->Runtime().PostAfter(delay, std::move(task));
+    }
+  };
+}
+
 void MeshHost::EnsureAmpL4Coordinators() {
   if (!amp_) {
     return;
@@ -223,7 +232,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
     amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Runtime(), io_pump);
   }
   if (!amp_dht_) {
-    amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Runtime(), io_pump, post_worker);
+    amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Runtime(), post_worker);
   }
   if (!amp_directory_) {
     amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Runtime(), io_pump, post_worker);
@@ -487,6 +496,7 @@ AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) con
   deps.io_pump = MakeL4IoPump();
   deps.post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   deps.post_io = MakeL4IoPost();
+  deps.post_after = MakeL4IoAfter();
   deps.try_upnp_first = try_upnp_first;
   return deps;
 }
@@ -515,6 +525,7 @@ std::optional<MeshChatDeps> MeshHost::ChatDeps() {
   io.io_pump = MakeL4IoPump();
   io.post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   io.post_io = MakeL4IoPost();
+  io.post_after = MakeL4IoAfter();
   io.local_peer_id = amp_->LocalPeerId();
   // Keep raw bind here (hot path). Dialable advertise lives in AdvertisedListenMultiaddrs().
   io.listen_multiaddr = amp_listen_multiaddr_;

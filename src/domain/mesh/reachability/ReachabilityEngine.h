@@ -3,6 +3,7 @@
 #include "domain/mesh/reachability/Reachability.h"
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -28,6 +29,8 @@ struct AmpReachabilityProbeDeps {
   std::function<void(std::function<void()>)> post_worker;
   /** MeshRuntime::PostToIo — prefer ProbeAsync + callbacks over parking MeshControl. */
   std::function<void(std::function<void()>)> post_io;
+  /** MeshRuntime::PostAfter — Amp-clock seed dial deadline. */
+  std::function<void(std::chrono::milliseconds, std::function<void()>)> post_after;
   bool try_upnp_first = false;
 };
 

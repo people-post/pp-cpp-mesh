@@ -149,6 +149,8 @@ private:
   /** Always empty — exclusive Amp Drive (MeshPump or harness Tick). L4 must not Tick. */
   std::function<void()> MakeL4IoPump() const;
   std::function<void(std::function<void()>)> MakeL4IoPost() const;
+  /** MeshRuntime::PostAfter — Amp-clock delayed work (deadlines). */
+  std::function<void(std::chrono::milliseconds, std::function<void()>)> MakeL4IoAfter() const;
 
   std::unique_ptr<ReachabilityEngine> reachability_;
   MeshPumpThread pump_;

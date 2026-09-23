@@ -8,9 +8,9 @@
 #include "foundation/runtime/DeferredSelf.h"
 
 #include <chrono>
-#include <condition_variable>
 #include <optional>
-#include <thread>
+
+#include "common/SettledWait.h"
 #include "common/PbrCompat.h"
 #include "domain/mesh/shared/AmpChannelOpen.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
@@ -80,7 +80,6 @@ AmpDirectoryProtocol::Failure AmpDirectoryProtocol::WrapLinkFailure(
 struct AmpDirectoryProtocol::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
   AmpDirectoryProtocol* self = nullptr;
-  IoPump io_pump;
   WorkerPost post_worker;
   std::atomic<bool> stopped{false};
   /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
@@ -246,7 +245,6 @@ AmpDirectoryProtocol::AmpDirectoryProtocol(pp::amp::MeshRuntime& runtime, IoPump
     : impl_(std::make_unique<Impl>()), runtime_(runtime), io_pump_(std::move(io_pump)),
       post_worker_(std::move(post_worker)) {
   impl_->runtime = &runtime_;
-  impl_->io_pump = io_pump_;
   impl_->post_worker = post_worker_;
   impl_->self = this;
 }
@@ -387,41 +385,13 @@ AmpDirectoryProtocol::ListRoe AmpDirectoryProtocol::ListMeshNodes() {
   if (!started_) {
     return ListRoe::error(Failure::Of(Err::NotStarted, "directory service not started"));
   }
-  std::mutex mutex;
-  std::condition_variable cv;
-  bool settled = false;
-  ListRoe result = ListRoe::error(Failure::Of(Err::Timeout, "directory list timed out"));
-
-  ListMeshNodesAsync([&](ListRoe value) {
-    {
-      std::lock_guard lock(mutex);
-      result = std::move(value);
-      settled = true;
-    }
-    cv.notify_one();
-  });
+  SettledWait<std::vector<MeshNodeHit>, Failure> wait;
+  ListMeshNodesAsync([&](ListRoe value) { wait.Finish(std::move(value)); });
 
   const auto timeout = ControlTimeout(config_) + std::chrono::milliseconds(3000);
   const auto deadline = Clock::now() + timeout;
-  while (true) {
-    {
-      std::unique_lock lock(mutex);
-      if (settled) {
-        return result;
-      }
-    }
-    if (Clock::now() >= deadline) {
-      break;
-    }
-    if (io_pump_) {
-      io_pump_();
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    std::unique_lock lock(mutex);
-    cv.wait_for(lock, std::chrono::milliseconds(1), [&] { return settled; });
-  }
-  return ListRoe::error(Failure::Of(Err::Timeout, "directory list timed out"));
+  AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
+  return wait.Wait(std::chrono::milliseconds(1), Failure::Of(Err::Timeout, "directory list timed out"));
 }
 
 AmpDirectoryClient::AmpDirectoryClient(AmpDirectoryProtocol& service) : service_(service) {}

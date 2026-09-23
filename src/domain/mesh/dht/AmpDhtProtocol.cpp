@@ -11,10 +11,8 @@
 #include <chrono>
 #include <ctime>
 #include <mutex>
-#include <thread>
 #include "common/PbrCompat.h"
 #include "domain/mesh/shared/AmpChannelOpen.h"
-#include "domain/mesh/shared/AmpParkUntil.h"
 
 namespace pbr {
 namespace {
@@ -89,7 +87,6 @@ AmpDhtProtocol::Failure AmpDhtProtocol::WrapLinkFailure(const pp::amp::PeerLinkM
 struct AmpDhtProtocol::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
   AmpDhtProtocol* self = nullptr;
-  IoPump io_pump;
   WorkerPost post_worker;
   std::atomic<bool> stopped{false};
   /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
@@ -315,11 +312,9 @@ struct AmpDhtProtocol::Impl {
   }
 };
 
-AmpDhtProtocol::AmpDhtProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump, WorkerPost post_worker)
-    : impl_(std::make_unique<Impl>()), runtime_(runtime), io_pump_(std::move(io_pump)),
-      post_worker_(std::move(post_worker)) {
+AmpDhtProtocol::AmpDhtProtocol(pp::amp::MeshRuntime& runtime, WorkerPost post_worker)
+    : impl_(std::make_unique<Impl>()), runtime_(runtime), post_worker_(std::move(post_worker)) {
   impl_->runtime = &runtime_;
-  impl_->io_pump = io_pump_;
   impl_->post_worker = post_worker_;
   impl_->self = this;
 }

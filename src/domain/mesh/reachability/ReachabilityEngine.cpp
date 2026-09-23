@@ -215,8 +215,8 @@ void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
             8000);
       });
 
-  // Product: MeshPump + PostToIo — do not park MeshControl on seed dial.
-  // Harness without post_io: AmpParkUntil + Tick until seed settles (then ProbeAsync continues).
+  // Product: MeshPump + PostAfter — do not park MeshControl on seed dial.
+  // Harness without post_after/post_io: AmpParkUntil + Tick until seed settles.
   AmpScheduleUntilSettled(
       deps.post_io, deps.io_pump, seed_settled, seed_deadline,
       [result, seed_settled, finish_once]() mutable {
@@ -225,7 +225,8 @@ void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
         }
         result.signals.seed_dial_error = "seed dial timed out";
         finish_once(std::move(result));
-      });
+      },
+      deps.post_after);
 }
 
 std::string ReachabilityEngine::FormatOpsStatusJson() const {

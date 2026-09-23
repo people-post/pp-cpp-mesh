@@ -49,10 +49,9 @@ public:
   /** Map immediate link-manager failure → DHT Err (never inspect ADP/PeerLink codes). */
   static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
 
-  using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
 
-  AmpDhtProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump = {}, WorkerPost post_worker = {});
+  AmpDhtProtocol(pp::amp::MeshRuntime& runtime, WorkerPost post_worker = {});
   ~AmpDhtProtocol();
 
   AmpDhtProtocol(const AmpDhtProtocol&) = delete;
@@ -78,7 +77,6 @@ private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
   pp::amp::MeshRuntime& runtime_;
-  IoPump io_pump_;
   WorkerPost post_worker_;
   DhtRecordStore store_;
   DhtRateLimiter inbound_limiter_;

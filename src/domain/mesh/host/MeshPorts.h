@@ -54,6 +54,8 @@ struct MeshIoContext {
   MeshWorkerPost post_worker;
   /** MeshRuntime::PostToIo — L4 SM / channel-open polls. */
   MeshWorkerPost post_io;
+  /** MeshRuntime::PostAfter — Amp-clock deadlines (AmpScheduleUntilSettled preferred path). */
+  std::function<void(std::chrono::milliseconds, std::function<void()>)> post_after;
   std::string local_peer_id;
   std::string listen_multiaddr;
 };
