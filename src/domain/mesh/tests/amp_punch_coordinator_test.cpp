@@ -1,5 +1,4 @@
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
-#include "domain/mesh/reachability/PunchBurst.h"
 #include "domain/mesh/reachability/PunchLogic.h"
 #include "domain/mesh/reachability/PunchTypes.h"
 

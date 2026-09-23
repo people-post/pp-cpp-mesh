@@ -200,23 +200,6 @@ std::function<void(std::function<void()>)> MeshHost::MakeL4IoPost() const {
   };
 }
 
-std::function<void(std::function<void()>)> MeshHost::MakeL4IoDeferred() const {
-  return [self = const_cast<MeshHost*>(this)](std::function<void()> task) {
-    if (self->amp_ && task) {
-      self->amp_->Runtime().PostDeferred(std::move(task));
-    }
-  };
-}
-
-std::function<void(std::chrono::milliseconds, std::function<void()>)> MeshHost::MakeL4IoAfter() const {
-  return [self = const_cast<MeshHost*>(this)](std::chrono::milliseconds delay,
-                                              std::function<void()> task) {
-    if (self->amp_ && task) {
-      self->amp_->Runtime().PostAfter(delay, std::move(task));
-    }
-  };
-}
-
 void MeshHost::EnsureAmpL4Coordinators() {
   if (!amp_) {
     return;
