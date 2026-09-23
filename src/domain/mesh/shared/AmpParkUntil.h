@@ -81,10 +81,12 @@ inline void AmpScheduleWhenChannelOpen(const std::function<void(std::function<vo
 /**
  * Fire `on_timeout` once if still unsettled at `deadline`.
  * Prefer `io_after` (MeshRuntime::PostAfter) — one Amp-clock timer, no busy PostToIo poll.
- * Else with `post_io`, re-queues until deadline (legacy). Else AmpParkUntil (harness Tick).
+ * Else with `post_io`, re-queues until deadline (legacy).
+ * Do **not** AmpParkUntil here: this helper is invoked from channel/Open callbacks on the
+ * Drive stack; parking+io_pump would nest Drive (refused). Sync facades AmpParkUntil outside.
  */
 inline void AmpScheduleUntilSettled(const std::function<void(std::function<void()>)>& post_io,
-                                    const std::function<void()>& io_pump,
+                                    const std::function<void()>& /*io_pump*/,
                                     const std::shared_ptr<std::atomic<bool>>& settled,
                                     const std::chrono::steady_clock::time_point deadline,
                                     std::function<void()> on_timeout,
@@ -128,10 +130,6 @@ inline void AmpScheduleUntilSettled(const std::function<void(std::function<void(
     };
     post_io([poll]() { (*poll)(); });
     return;
-  }
-  AmpParkUntil([settled] { return settled->load(std::memory_order_acquire); }, deadline, io_pump);
-  if (!settled->load(std::memory_order_acquire) && on_timeout) {
-    on_timeout();
   }
 }
 
