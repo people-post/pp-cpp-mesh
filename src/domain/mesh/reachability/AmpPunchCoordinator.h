@@ -79,6 +79,13 @@ public:
                             const std::vector<std::string>& my_addrs, std::function<void(PunchRoe)> on_done,
                             int window_ms = 2000);
 
+  /**
+   * H012 / L3.25d: burst-dial peer candidates without an Amp introducer Session.
+   * Caller exchanged addrs + window over call-control (`call_punch_*`).
+   */
+  void TrySignalingPunchBurstAsync(const std::vector<std::string>& peer_addrs,
+                                   std::function<void(PunchRoe)> on_done, int window_ms = 2000);
+
   PunchRoe TryColdPunch(const std::string& introducer_peer_key, const std::string& target_peer_id,
                         const std::vector<std::string>& my_addrs, int window_ms = 2000);
 
