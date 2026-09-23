@@ -19,7 +19,7 @@ namespace pbr {
 namespace {
 
 TEST(AmpIpv6DialTest, PreferGlobalIpv6WhenRegisteringMixedAddrs) {
-  // Mirrors CallStack RegisterCallPeerListenMultiaddrs: last RegisterEndpoint wins.
+  // Mirrors CallMediaPlane RegisterCallPeerListenMultiaddrs: RegisterEndpoints(best-first).
   ASSERT_GE(sodium_init(), 0);
   auto clock = std::make_shared<pp::adp::VirtualClock>(1'000'000);
   auto hub = pp::adp::MemoryDatagramIo::MakeHub();
@@ -46,12 +46,16 @@ TEST(AmpIpv6DialTest, PreferGlobalIpv6WhenRegisteringMixedAddrs) {
   ASSERT_GE(ranked.size(), 2u);
   EXPECT_EQ(ranked.front().find("/ip6/"), 0u);
 
-  for (auto it = ranked.rbegin(); it != ranked.rend(); ++it) {
-    ASSERT_TRUE(static_cast<bool>(mgr.RegisterEndpoint("remote", *it)));
-  }
+  ASSERT_TRUE(static_cast<bool>(mgr.RegisterEndpoints("remote", ranked)));
   auto preferred = mgr.PreferredMultiaddr("remote");
   ASSERT_TRUE(preferred.has_value());
   EXPECT_EQ(preferred->find("/ip6/"), 0u) << *preferred;
+  const auto* rec = mgr.Book().Find("remote");
+  ASSERT_NE(rec, nullptr);
+  ASSERT_EQ(rec->candidates.size(), 2u);
+  EXPECT_EQ(rec->candidates.front().find("/ip6/"), 0u);
+  EXPECT_TRUE(mgr.Book().AdvanceDialCandidate("remote"));
+  EXPECT_EQ(mgr.Book().Find("remote")->multiaddr, lan);
 }
 
 TEST(AmpIpv6DialTest, EnsureAssociationOverMemoryIoIpv6) {

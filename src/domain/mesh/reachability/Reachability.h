@@ -28,6 +28,8 @@ struct ReachabilitySignals {
   std::string upnp_external_ip;
   int upnp_external_port = 0;
   std::string dial_back_dialed;
+  /** Seed-observed reflexive Amp multiaddr for this client (B26); may be set when dial_back_ok is false. */
+  std::string dial_back_observed;
   std::string seed_dial_error;
   std::string dial_back_error;
 };

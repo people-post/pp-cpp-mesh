@@ -100,6 +100,23 @@ AmpObservedAddrSet CollectAmpObservedAddrs(const std::string& amp_listen_multiad
       IsUsableAdpListen(snapshot.signals.dial_back_dialed)) {
     out.dial_back.push_back(snapshot.signals.dial_back_dialed);
   }
+  // B26: seed-observed reflexive endpoint is required for cross-net IPv4 when UPnP/global
+  // listen are absent. Prefer it even when the seed could not dial our LAN advertise targets.
+  if (!snapshot.signals.dial_back_observed.empty() &&
+      IsUsableAdpListen(snapshot.signals.dial_back_observed)) {
+    const std::string host = IpHostFromMultiaddrPrefix(snapshot.signals.dial_back_observed);
+    const bool usable_public_v4 =
+        snapshot.signals.dial_back_observed.rfind("/ip4/", 0) == 0 && IsPublicIpv4(host);
+    const bool usable_global_v6 =
+        snapshot.signals.dial_back_observed.rfind("/ip6/", 0) == 0 && IsGlobalIpv6(host);
+    if (usable_public_v4 || usable_global_v6) {
+      if (std::find(out.dial_back.begin(), out.dial_back.end(), snapshot.signals.dial_back_observed) ==
+          out.dial_back.end()) {
+        // Reflexive first so MergedForAdvertise ranks public before LAN.
+        out.dial_back.insert(out.dial_back.begin(), snapshot.signals.dial_back_observed);
+      }
+    }
+  }
   return out;
 }
 

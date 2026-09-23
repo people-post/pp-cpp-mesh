@@ -14,7 +14,7 @@ bool IsUsableAdpListen(const std::string& ma);
 struct AmpObservedAddrSet {
   std::vector<std::string> listen;     // bind + LAN expansion
   std::vector<std::string> upnp;       // UPnP external mapping (if any)
-  std::vector<std::string> dial_back;  // successful dial-back dialed addr
+  std::vector<std::string> dial_back;  // dialed target and/or seed-observed reflexive (B26)
 
   /** Ordered unique ADP multiaddrs for ch0 / SetLocalListenMultiaddrs. */
   std::vector<std::string> MergedForAdvertise() const;
@@ -24,7 +24,8 @@ struct AmpObservedAddrSet {
 
 /**
  * Collect listen / UPnP / dial-back observed ADP multiaddrs.
- * Skips wildcards and loopback; requires parseable ADP multiaddrs when validating.
+ * Includes seed-observed reflexive public IPv4/IPv6 (B26) when dial-back probe reports it —
+ * required for cross-net when LAN-only listen + no UPnP.
  */
 AmpObservedAddrSet CollectAmpObservedAddrs(const std::string& amp_listen_multiaddr,
                                            const std::string& local_peer_id,

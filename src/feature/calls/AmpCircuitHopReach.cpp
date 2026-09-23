@@ -394,6 +394,10 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         if (CircuitShouldRetrySameRelayOnNotReg(not_reg, *bridges_started)) {
           AmpReachLog().info << "EnsureViaCircuit not-reg retry same relay=" << relay_key
                              << " bridges=" << *bridges_started;
+          // B27: announce this R1 so answerer PreferLateReserve re-parks while we retry once.
+          if (on_relay_chosen_) {
+            on_relay_chosen_(relay_key);
+          }
           go_same();
           return;
         }

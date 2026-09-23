@@ -113,6 +113,22 @@ public:
 
   virtual std::optional<std::string> PreferredMultiaddr(const std::string& peer_id) const = 0;
   virtual Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) = 0;
+  /**
+   * Replace dial candidates for `peer_key` (best-first). Amp DialBook probes with
+   * short per-attempt timeouts (B28). Default: reverse RegisterEndpoint so Preferred
+   * lands on multiaddrs.front().
+   */
+  virtual Roe<void> RegisterEndpoints(const std::string& peer_key,
+                                      const std::vector<std::string>& multiaddrs) {
+    if (multiaddrs.empty()) {
+      return Error("amp dial book: no multiaddrs");
+    }
+    Roe<void> last = {};
+    for (auto it = multiaddrs.rbegin(); it != multiaddrs.rend(); ++it) {
+      last = RegisterEndpoint(peer_key, *it);
+    }
+    return last;
+  }
 
   virtual void EnsureAssociation(const std::string& peer_key, LinkCb on_complete) = 0;
   virtual void OpenChannel(const std::string& peer_key, const std::string& protocol_id, pp::amp::ChannelPolicy policy,
