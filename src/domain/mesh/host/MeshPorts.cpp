@@ -99,6 +99,11 @@ public:
     return runtime_.WithIoLock([&] { return links_.RegisterEndpoint(peer_key, multiaddr); });
   }
 
+  Roe<void> RegisterEndpoints(const std::string& peer_key,
+                              const std::vector<std::string>& multiaddrs) override {
+    return runtime_.WithIoLock([&] { return links_.RegisterEndpoints(peer_key, multiaddrs); });
+  }
+
   void EnsureAssociation(const std::string& peer_key, LinkCb on_complete) override {
     runtime_.WithIoLock([&] {
       links_.EnsureAssociation(peer_key, [on_complete = std::move(on_complete)](
