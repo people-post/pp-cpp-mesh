@@ -18,10 +18,21 @@ struct PunchBurstResult {
 /**
  * Dial sanitized peer ADP multiaddrs within a wall-clock window.
  * Uses ephemeral DialKeys (`punch:burst:N:…`) so inbound adopt can own PeerId (A026).
- * Safe to call outside ChannelMux data callbacks (Windows SEH / nested Pump).
+ *
+ * Nesting rule: must not run under ChannelMux or MeshRuntime::DrainPostedIo (Windows SEH).
+ * Prefer SchedulePark → waiter IoPump, or BurstDialCandidatesAsync when IoPump is empty.
  */
 PunchBurstResult BurstDialCandidates(pp::amp::PeerLinkManager& links, std::function<void()> io_pump,
                                      const std::vector<std::string>& targets, int window_ms);
+
+/**
+ * Async burst for product MeshPump (empty IoPump): PostToIo polls, no nested Pump.
+ * Settles only on PeerId-visible non-carrier Connected (FindLinkByPeerId).
+ */
+void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
+                              std::function<void(std::function<void()>)> post_io,
+                              const std::vector<std::string>& targets, int window_ms,
+                              std::function<void(PunchBurstResult)> on_done);
 
 /** True when a non-carrier Connected PeerLink exists for peer_id. */
 bool PeerAlreadyConnectedDirect(pp::amp::PeerLinkManager& links, const std::string& peer_id);
