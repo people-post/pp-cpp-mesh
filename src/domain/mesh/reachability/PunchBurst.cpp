@@ -219,11 +219,19 @@ void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
     // Mark settled on the PostToIo poll stack, but Abort + on_done must leave DrainPostedIo
     // (nested Tick / session teardown SEHs on Windows). Prefer SchedulePark when available.
     auto deliver = [state, links_ptr, result = std::move(result)]() mutable {
-      for (const std::string& key : state->keys) {
-        auto* link = links_ptr->FindLink(key);
-        if (!result.ok || !link || link->Phase() != pp::amp::PeerLinkPhase::Connected) {
-          links_ptr->AbortInflightDial(key);
+      for (size_t i = 0; i < state->keys.size(); ++i) {
+        const std::string& key = state->keys[i];
+        // After PeerId adopt the winner may no longer live under punch:burst:*. Deferred
+        // settle (SchedulePark) must not Abort that peer — only losers / still-inflight keys.
+        if (result.ok && i < state->peer_ids.size() &&
+            PeerAlreadyConnectedDirect(*links_ptr, state->peer_ids[i])) {
+          continue;
         }
+        auto* link = links_ptr->FindLink(key);
+        if (result.ok && link && link->Phase() == pp::amp::PeerLinkPhase::Connected) {
+          continue;
+        }
+        links_ptr->AbortInflightDial(key);
       }
       if (state->on_done) {
         state->on_done(std::move(result));
