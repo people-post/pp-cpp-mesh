@@ -49,7 +49,7 @@ protected:
     circuit_a_->Start();
     circuit_a_->SetServeInbound(false);
 
-    // Drain SchedulePark on A/R/B then PumpAll so target/introducer burst runs while A parks.
+    // Drain SchedulePark on A/R/B then PumpAll so Abort+complete settle while A parks.
     auto pump = [this]() {
       if (punch_a_) {
         punch_a_->DrainParkWork();
