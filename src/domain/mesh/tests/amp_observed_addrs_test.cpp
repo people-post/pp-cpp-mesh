@@ -44,6 +44,34 @@ TEST(AmpObservedAddrsTest, SkipsUnusableDialBack) {
 }
 
 
+TEST(AmpObservedAddrsTest, PrefersSeedObservedReflexiveIpv4OverLanOnly) {
+  ReachabilitySnapshot snap;
+  // Probe dial of LAN targets failed, but seed reported reflexive public IPv4 (B26).
+  snap.signals.dial_back_ok = false;
+  snap.signals.dial_back_error = "dial timed out";
+  snap.signals.dial_back_observed =
+      "/ip4/203.0.113.77/udp/19001/adp/1.0.0/p2p/12D3KooWObservedPeer";
+
+  const auto set = CollectAmpObservedAddrs(
+      "/ip4/192.168.0.105/udp/19001/adp/1.0.0/p2p/12D3KooWObservedPeer", "12D3KooWObservedPeer", snap);
+  const auto merged = set.MergedForAdvertise();
+  ASSERT_FALSE(merged.empty());
+  size_t reflexive_i = merged.size();
+  size_t lan_i = merged.size();
+  for (size_t i = 0; i < merged.size(); ++i) {
+    if (merged[i].find("203.0.113.77") != std::string::npos) {
+      reflexive_i = i;
+    }
+    if (merged[i].find("192.168.0.105") != std::string::npos) {
+      lan_i = i;
+    }
+  }
+  EXPECT_LT(reflexive_i, merged.size()) << "reflexive public IPv4 must be advertised";
+  if (lan_i < merged.size()) {
+    EXPECT_LT(reflexive_i, lan_i) << "public reflexive must rank ahead of LAN";
+  }
+}
+
 TEST(AmpObservedAddrsTest, PrefersGlobalIpv6BeforePrivateLan) {
   ReachabilitySnapshot snap;
   // Inject via listen list directly: CollectAmpObservedAddrs enumerates host ifaces;
