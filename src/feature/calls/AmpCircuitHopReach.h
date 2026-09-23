@@ -7,6 +7,7 @@
 #include "foundation/runtime/DeferredSelf.h"
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <string>
 #include <vector>
@@ -25,6 +26,7 @@ class AmpCircuitHopReach final : public ICircuitHopReach {
 public:
   using IoPump = std::function<void()>;
   using IoPost = std::function<void(std::function<void()>)>;
+  using IoAfter = std::function<void(std::chrono::milliseconds, std::function<void()>)>;
   using CollectRelays = std::function<std::vector<std::string>(const std::string& exclude_peer_id)>;
   /** Optional L3.25b: Amp punch before circuit (H002). */
   using TryPunchAsync =
@@ -36,7 +38,8 @@ public:
 
   AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops, IChatPeerLinks& links,
                      IoPump io_pump, CollectRelays collect_relays, TryPunchAsync try_punch = {},
-                     TryPunchViaIntroducerAsync try_punch_via_introducer = {}, IoPost post_io = {});
+                     TryPunchViaIntroducerAsync try_punch_via_introducer = {}, IoPost post_io = {},
+                     IoAfter post_after = {});
 
   void TryEnsureHopReachableAsync(const std::string& hop_peer_id,
                                   std::function<void(Roe<void>)> on_done) override;
@@ -73,6 +76,7 @@ private:
   IChatPeerLinks& links_;
   IoPump io_pump_;
   IoPost post_io_;
+  IoAfter post_after_;
   CollectRelays collect_relays_;
   TryPunchAsync try_punch_;
   TryPunchViaIntroducerAsync try_punch_via_introducer_;

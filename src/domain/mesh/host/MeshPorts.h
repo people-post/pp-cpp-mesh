@@ -49,10 +49,13 @@ MeshPeerLinkSnapshot ToMeshPeerLinkSnapshot(const pp::amp::PeerLinkSnapshot& sna
 using MeshWorkerPost = std::function<void(std::function<void()>)>;
 
 struct MeshIoContext {
+  /** Always empty under exclusive Amp Drive (MeshPump / harness Tick). AmpParkUntil only. */
   std::function<void()> io_pump;
   MeshWorkerPost post_worker;
-  /** MeshRuntime::PostToIo for A022-style channel-open polls (optional). */
+  /** MeshRuntime::PostToIo — L4 SM / channel-open polls. */
   MeshWorkerPost post_io;
+  /** MeshRuntime::PostAfter — Amp-clock deadlines (AmpScheduleUntilSettled preferred path). */
+  std::function<void(std::chrono::milliseconds, std::function<void()>)> post_after;
   std::string local_peer_id;
   std::string listen_multiaddr;
 };
@@ -63,8 +66,8 @@ struct MeshIoContext {
  *
  * Affinity: PeerLinkManager mutations run under MeshRuntime::io_mu_ (Drive/PostToIo).
  * AmpChatPeerLinks takes the same lock via WithIoLock for every call — Coordinator/UI
- * may read IsConnected safely. Prefer post_io for multi-step dial/circuit work.
- * See THREADING.md § Thread affinity.
+ * may read IsConnected safely. Prefer post_io for multi-step dial/circuit work; never
+ * call Tick/Drive from L4 (exclusive Amp Drive — THREADING.md).
  *
  * Prefer BindChannel / WhenChannelOpen / SnapshotByPeerId / IsReachable over raw PeerLink*.
  */

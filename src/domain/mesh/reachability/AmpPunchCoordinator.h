@@ -1,6 +1,7 @@
 #pragma once
 
-#include "amp/link/PeerLinkManager.h"
+#include "amp/link/MeshRuntime.h"
+#include "domain/mesh/reachability/PunchBurst.h"
 #include "domain/mesh/reachability/PunchTypes.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
@@ -22,12 +23,13 @@ namespace pbr {
  * L3.25a–c: cold/upgrade punch — connect/offer/candidates/sync + burst; upgrade uses circuit R1 as introducer.
  * Dual-dial election is PeerLinkManager A026; loser teardown is parent-owned A027.
  *
- * Strand model (THREADING.md Amp PeerLink strand):
- * - Mux / ChannelSession frame handlers only enqueue via IoPost (MeshRuntime::PostToIo).
- * - Burst dials via BurstDialCandidatesAsync when IoPost is set; Abort + complete settle on
- *   SchedulePark (waiter IoPump) when IoPump is present — never under DrainPostedIo.
- * - Prefer TryColdPunchAsync / TryUpgradePunchAsync. Sync Try* may AmpParkUntil outside mux with IoPump.
- * - IoPost is required for correct multi-peer / product use; empty IoPost is test-only and unsafe under mux.
+ * Strand model (THREADING.md — exclusive Amp Drive):
+ * - Constructed on MeshRuntime&; PostToIo / PostDeferred / PostAfter / BurstDial come from runtime.
+ * - Mux frame handlers only PostToIo. Never call Tick/Drive/IoPump from SM work.
+ * - Sync-window burst via MeshRuntime::BurstDial.
+ * - AbortInflightDial + session Close + on_done via PostDeferred.
+ * - Prefer TryColdPunchAsync. Sync Try* may AmpParkUntil on a waiter that is the sole Amp driver
+ *   (test harness); IoPump must not be invoked from punch SM callbacks.
  */
 class AmpPunchCoordinator {
 public:
@@ -49,12 +51,10 @@ public:
 
   static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
 
+  /** Only for AmpParkUntil in sync Try* (harness sole driver). Empty when MeshPump owns Drive. */
   using IoPump = std::function<void()>;
-  using WorkerPost = std::function<void(std::function<void()>)>;
-  using IoPost = std::function<void(std::function<void()>)>;
 
-  AmpPunchCoordinator(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {},
-                      IoPost post_io = {});
+  AmpPunchCoordinator(pp::amp::MeshRuntime& runtime, IoPump io_pump = {});
   ~AmpPunchCoordinator();
 
   AmpPunchCoordinator(const AmpPunchCoordinator&) = delete;
@@ -67,12 +67,6 @@ public:
   void SetProbeInbound(ProbeInbound handler);
   void Stop();
   bool IsStarted() const { return started_; }
-
-  /**
-   * Drain SchedulePark (Abort + burst complete) work. Multi-coordinator tests must call this on
-   * A/I/B from the shared IoPump so settle runs while the initiator AmpParkUntil.
-   */
-  void DrainParkWork();
 
   void SetLocalCandidateAddrs(std::vector<std::string> addrs);
   const std::vector<std::string>& LocalCandidateAddrs() const { return local_addrs_; }
@@ -100,10 +94,8 @@ private:
                     const std::vector<std::string>& my_addrs, int window_ms, const std::string& reason);
   struct Impl;
   std::unique_ptr<Impl> impl_;
-  pp::amp::PeerLinkManager& links_;
+  pp::amp::MeshRuntime& runtime_;
   IoPump io_pump_;
-  WorkerPost post_worker_;
-  IoPost post_io_;
   std::vector<std::string> local_addrs_;
   bool started_ = false;
 };

@@ -11,10 +11,8 @@
 #include <chrono>
 #include <ctime>
 #include <mutex>
-#include <thread>
 #include "common/PbrCompat.h"
 #include "domain/mesh/shared/AmpChannelOpen.h"
-#include "domain/mesh/shared/AmpParkUntil.h"
 
 namespace pbr {
 namespace {
@@ -87,26 +85,26 @@ AmpDhtProtocol::Failure AmpDhtProtocol::WrapLinkFailure(const pp::amp::PeerLinkM
 }
 
 struct AmpDhtProtocol::Impl {
-  pp::amp::PeerLinkManager* links = nullptr;
+  pp::amp::MeshRuntime* runtime = nullptr;
   AmpDhtProtocol* self = nullptr;
-  IoPump io_pump;
   WorkerPost post_worker;
-  IoPost post_io;
   std::atomic<bool> stopped{false};
   /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
   DeferredSelf deferred;
 
+  pp::amp::PeerLinkManager& Links() { return runtime->Links(); }
+
   void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id,
                            const uint32_t channel_id) {
-    if (stopped.load(std::memory_order_acquire) || !links || !self || remote_peer_id.empty()) {
+    if (stopped.load(std::memory_order_acquire) || !runtime || !self || remote_peer_id.empty()) {
       return;
     }
     pp::amp::ByteVector remote_pk;
-    links->WithLiveLink(handle, [&](pp::amp::PeerLink& link) {
+    Links().WithLiveLink(handle, [&](pp::amp::PeerLink& link) {
       remote_pk = link.RemoteIdentityPublicKey();
     });
     auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
-    *session_holder = links->BindChannel(
+    *session_holder = Links().BindChannel(
         remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
         [this, session_holder, remote_pk = std::move(remote_pk),
          remote_peer = remote_peer_id](Roe<std::vector<uint8_t>> frame) mutable {
@@ -218,9 +216,6 @@ struct AmpDhtProtocol::Impl {
                         response = MakeErrorResponse(req_id, "unsupported_op", "unsupported op");
                       }
                       (void)session->EnqueueOutbound(JsonToBody(DumpJson(response)));
-                      if (io_pump) {
-                        io_pump();
-                      }
                       session->Close();
                     });
           return false;
@@ -228,11 +223,11 @@ struct AmpDhtProtocol::Impl {
   }
 
   void Rpc(const std::string& peer_key, Object request, std::function<void(RpcRoe)> on_response) {
-    if (stopped.load(std::memory_order_acquire) || !links) {
+    if (stopped.load(std::memory_order_acquire) || !runtime) {
       on_response(RpcRoe::error(Failure::Of(Err::NotStarted, "dht service stopped")));
       return;
     }
-    if (!links->GetLinkSnapshot(peer_key).has_endpoint) {
+    if (!Links().GetLinkSnapshot(peer_key).has_endpoint) {
       on_response(RpcRoe::error(Failure::Of(Err::EndpointNotRegistered, "dht peer endpoint not registered")));
       return;
     }
@@ -252,13 +247,13 @@ struct AmpDhtProtocol::Impl {
       on_response(std::move(value));
     };
 
-    links->EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session_holder, deadline,
+    Links().EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session_holder, deadline,
                                         timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
       if (!assoc) {
         finish(RpcRoe::error(WrapLinkFailure(assoc.error())));
         return;
       }
-      links->OpenChannel(peer_key, kDhtProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
+      Links().OpenChannel(peer_key, kDhtProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
                          [this, peer_key, request_json, finish, session_holder, deadline,
                           timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
                            if (!channel) {
@@ -271,7 +266,7 @@ struct AmpDhtProtocol::Impl {
                            }
                            const uint32_t channel_id = *channel;
                            AmpWhenChannelOpen(
-                               *links, peer_key, channel_id, deadline,
+                               Links(), peer_key, channel_id, deadline,
                                [this, peer_key, channel_id, request_json, finish, session_holder, timeout](
                                    bool open) mutable {
                                  if (stopped.load(std::memory_order_acquire)) {
@@ -283,7 +278,7 @@ struct AmpDhtProtocol::Impl {
                                        Failure::Of(Err::ChannelFailed, "dht channel open failed")));
                                    return;
                                  }
-                                 *session_holder = links->BindChannel(
+                                 *session_holder = Links().BindChannel(
                                      peer_key, channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
                                      [finish](Roe<std::vector<uint8_t>> frame) {
                                        if (!frame) {
@@ -311,22 +306,16 @@ struct AmpDhtProtocol::Impl {
                                        Failure::Of(Err::ProtocolError, "dht request send failed")));
                                    return;
                                  }
-                                 if (io_pump) {
-                                   io_pump();
-                                 }
                                });
                          });
     });
   }
 };
 
-AmpDhtProtocol::AmpDhtProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump, WorkerPost post_worker, IoPost post_io)
-    : impl_(std::make_unique<Impl>()), links_(links), io_pump_(std::move(io_pump)),
-      post_worker_(std::move(post_worker)), post_io_(std::move(post_io)) {
-  impl_->links = &links_;
-  impl_->io_pump = io_pump_;
+AmpDhtProtocol::AmpDhtProtocol(pp::amp::MeshRuntime& runtime, WorkerPost post_worker)
+    : impl_(std::make_unique<Impl>()), runtime_(runtime), post_worker_(std::move(post_worker)) {
+  impl_->runtime = &runtime_;
   impl_->post_worker = post_worker_;
-  impl_->post_io = post_io_;
   impl_->self = this;
 }
 
@@ -393,7 +382,7 @@ void AmpDhtProtocol::Start() {
   }
   started_ = true;
   impl_->stopped.store(false, std::memory_order_release);
-  links_.SetProtocolHandler(
+  runtime_.Links().SetProtocolHandler(
       kDhtProtocolId,
       impl_->deferred.Bind([impl = impl_.get()](pp::amp::LinkHandle handle,
                                                 const std::string& remote_peer_id,
@@ -411,7 +400,7 @@ void AmpDhtProtocol::Stop() {
   }
   started_ = false;
   impl_->stopped.store(true, std::memory_order_release);
-  links_.RemoveProtocolHandler(kDhtProtocolId);
+  runtime_.Links().RemoveProtocolHandler(kDhtProtocolId);
   impl_->deferred.Invalidate();
 }
 

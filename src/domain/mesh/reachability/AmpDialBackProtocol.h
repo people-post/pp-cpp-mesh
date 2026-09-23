@@ -1,6 +1,6 @@
 #pragma once
 
-#include "amp/link/PeerLinkManager.h"
+#include "amp/link/MeshRuntime.h"
 #include "domain/mesh/reachability/DialBackTypes.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
@@ -21,7 +21,7 @@ namespace pbr {
  * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
  *
  * Prefer ProbeAsync (A022-style). Sync Probe parks until done; with MeshPump running leave IoPump
- * empty so waiters do not Tick. Optional IoPost schedules channel-open polls on MeshRuntime.
+ * empty so waiters do not Tick. Channel-open / deadline polls use MeshRuntime::PostToIo / PostAfter.
  */
 class AmpDialBackProtocol {
 public:
@@ -45,11 +45,8 @@ public:
 
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
-  /** Queue work for MeshRuntime::PostToIo (channel-open poll). */
-  using IoPost = std::function<void(std::function<void()>)>;
 
-  AmpDialBackProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {},
-                      IoPost post_io = {});
+  AmpDialBackProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump = {}, WorkerPost post_worker = {});
   ~AmpDialBackProtocol();
 
   AmpDialBackProtocol(const AmpDialBackProtocol&) = delete;
@@ -73,10 +70,9 @@ public:
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
-  pp::amp::PeerLinkManager& links_;
+  pp::amp::MeshRuntime& runtime_;
   IoPump io_pump_;
   WorkerPost post_worker_;
-  IoPost post_io_;
   bool started_ = false;
 };
 

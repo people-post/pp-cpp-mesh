@@ -8,9 +8,9 @@
 #include "foundation/runtime/DeferredSelf.h"
 
 #include <chrono>
-#include <condition_variable>
 #include <optional>
-#include <thread>
+
+#include "common/SettledWait.h"
 #include "common/PbrCompat.h"
 #include "domain/mesh/shared/AmpChannelOpen.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
@@ -78,23 +78,23 @@ AmpDirectoryProtocol::Failure AmpDirectoryProtocol::WrapLinkFailure(
 }
 
 struct AmpDirectoryProtocol::Impl {
-  pp::amp::PeerLinkManager* links = nullptr;
+  pp::amp::MeshRuntime* runtime = nullptr;
   AmpDirectoryProtocol* self = nullptr;
-  IoPump io_pump;
   WorkerPost post_worker;
-  IoPost post_io;
   std::atomic<bool> stopped{false};
   /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
   DeferredSelf deferred;
 
+  pp::amp::PeerLinkManager& Links() { return runtime->Links(); }
+
   void HandleInboundOnLink(pp::amp::LinkHandle /*handle*/, const std::string& remote_peer_id,
                            const uint32_t channel_id) {
-    if (stopped.load(std::memory_order_acquire) || !links || !self || remote_peer_id.empty()) {
+    if (stopped.load(std::memory_order_acquire) || !runtime || !self || remote_peer_id.empty()) {
       return;
     }
     const std::string remote_peer = remote_peer_id;
     auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
-    *session_holder = links->BindChannel(
+    *session_holder = Links().BindChannel(
         remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
         [this, session_holder, remote_peer](Roe<std::vector<uint8_t>> frame) {
           auto session = *session_holder;
@@ -142,9 +142,6 @@ struct AmpDirectoryProtocol::Impl {
                         response = MakeErrorResponse(req_id, "unsupported_op", "unsupported op");
                       }
                       (void)session->EnqueueOutbound(JsonToBody(DumpJson(response)));
-                      if (io_pump) {
-                        io_pump();
-                      }
                       session->Close();
                     });
           return false;
@@ -152,11 +149,11 @@ struct AmpDirectoryProtocol::Impl {
   }
 
   void Rpc(const std::string& peer_key, Object request, std::function<void(RpcRoe)> on_response) {
-    if (stopped.load(std::memory_order_acquire) || !links) {
+    if (stopped.load(std::memory_order_acquire) || !runtime) {
       on_response(RpcRoe::error(Failure::Of(Err::NotStarted, "directory service stopped")));
       return;
     }
-    if (!links->GetLinkSnapshot(peer_key).has_endpoint) {
+    if (!Links().GetLinkSnapshot(peer_key).has_endpoint) {
       on_response(
           RpcRoe::error(Failure::Of(Err::EndpointNotRegistered, "directory peer endpoint not registered")));
       return;
@@ -177,13 +174,13 @@ struct AmpDirectoryProtocol::Impl {
       on_response(std::move(value));
     };
 
-    links->EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session_holder, deadline,
+    Links().EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session_holder, deadline,
                                         timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
       if (!assoc) {
         finish(RpcRoe::error(WrapLinkFailure(assoc.error())));
         return;
       }
-      links->OpenChannel(peer_key, kDirectoryProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
+      Links().OpenChannel(peer_key, kDirectoryProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
                          [this, peer_key, request_json, finish, session_holder, deadline,
                           timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
                            if (!channel) {
@@ -196,7 +193,7 @@ struct AmpDirectoryProtocol::Impl {
                            }
                            const uint32_t channel_id = *channel;
                            AmpWhenChannelOpen(
-                               *links, peer_key, channel_id, deadline,
+                               Links(), peer_key, channel_id, deadline,
                                [this, peer_key, channel_id, request_json, finish, session_holder, timeout](
                                    bool open) mutable {
                                  if (stopped.load(std::memory_order_acquire)) {
@@ -209,7 +206,7 @@ struct AmpDirectoryProtocol::Impl {
                                        Failure::Of(Err::ChannelFailed, "directory channel open failed")));
                                    return;
                                  }
-                                 *session_holder = links->BindChannel(
+                                 *session_holder = Links().BindChannel(
                                      peer_key, channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
                                      [finish](Roe<std::vector<uint8_t>> frame) {
                                        if (!frame) {
@@ -237,23 +234,18 @@ struct AmpDirectoryProtocol::Impl {
                                        Failure::Of(Err::ProtocolError, "directory request send failed")));
                                    return;
                                  }
-                                 if (io_pump) {
-                                   io_pump();
-                                 }
                                });
                          });
     });
   }
 };
 
-AmpDirectoryProtocol::AmpDirectoryProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump,
-                                         WorkerPost post_worker, IoPost post_io)
-    : impl_(std::make_unique<Impl>()), links_(links), io_pump_(std::move(io_pump)),
-      post_worker_(std::move(post_worker)), post_io_(std::move(post_io)) {
-  impl_->links = &links_;
-  impl_->io_pump = io_pump_;
+AmpDirectoryProtocol::AmpDirectoryProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump,
+                                         WorkerPost post_worker)
+    : impl_(std::make_unique<Impl>()), runtime_(runtime), io_pump_(std::move(io_pump)),
+      post_worker_(std::move(post_worker)) {
+  impl_->runtime = &runtime_;
   impl_->post_worker = post_worker_;
-  impl_->post_io = post_io_;
   impl_->self = this;
 }
 
@@ -296,7 +288,7 @@ void AmpDirectoryProtocol::Start() {
   }
   started_ = true;
   impl_->stopped.store(false, std::memory_order_release);
-  links_.SetProtocolHandler(
+  runtime_.Links().SetProtocolHandler(
       kDirectoryProtocolId,
       impl_->deferred.Bind([impl = impl_.get()](pp::amp::LinkHandle handle,
                                                 const std::string& remote_peer_id,
@@ -311,7 +303,7 @@ void AmpDirectoryProtocol::Stop() {
   }
   started_ = false;
   impl_->stopped.store(true, std::memory_order_release);
-  links_.RemoveProtocolHandler(kDirectoryProtocolId);
+  runtime_.Links().RemoveProtocolHandler(kDirectoryProtocolId);
   impl_->deferred.Invalidate();
 }
 
@@ -393,41 +385,13 @@ AmpDirectoryProtocol::ListRoe AmpDirectoryProtocol::ListMeshNodes() {
   if (!started_) {
     return ListRoe::error(Failure::Of(Err::NotStarted, "directory service not started"));
   }
-  std::mutex mutex;
-  std::condition_variable cv;
-  bool settled = false;
-  ListRoe result = ListRoe::error(Failure::Of(Err::Timeout, "directory list timed out"));
-
-  ListMeshNodesAsync([&](ListRoe value) {
-    {
-      std::lock_guard lock(mutex);
-      result = std::move(value);
-      settled = true;
-    }
-    cv.notify_one();
-  });
+  SettledWait<std::vector<MeshNodeHit>, Failure> wait;
+  ListMeshNodesAsync([&](ListRoe value) { wait.Finish(std::move(value)); });
 
   const auto timeout = ControlTimeout(config_) + std::chrono::milliseconds(3000);
   const auto deadline = Clock::now() + timeout;
-  while (true) {
-    {
-      std::unique_lock lock(mutex);
-      if (settled) {
-        return result;
-      }
-    }
-    if (Clock::now() >= deadline) {
-      break;
-    }
-    if (io_pump_) {
-      io_pump_();
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    std::unique_lock lock(mutex);
-    cv.wait_for(lock, std::chrono::milliseconds(1), [&] { return settled; });
-  }
-  return ListRoe::error(Failure::Of(Err::Timeout, "directory list timed out"));
+  AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
+  return wait.Wait(std::chrono::milliseconds(1), Failure::Of(Err::Timeout, "directory list timed out"));
 }
 
 AmpDirectoryClient::AmpDirectoryClient(AmpDirectoryProtocol& service) : service_(service) {}

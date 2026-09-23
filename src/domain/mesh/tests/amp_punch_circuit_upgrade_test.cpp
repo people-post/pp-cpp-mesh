@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -49,29 +50,11 @@ protected:
     circuit_a_->Start();
     circuit_a_->SetServeInbound(false);
 
-    // Drain SchedulePark on A/R/B then PumpAll so Abort+complete settle while A parks.
-    auto pump = [this]() {
-      if (punch_a_) {
-        punch_a_->DrainParkWork();
-      }
-      if (punch_r_) {
-        punch_r_->DrainParkWork();
-      }
-      if (punch_b_) {
-        punch_b_->DrainParkWork();
-      }
-      harness_->PumpAll();
-    };
-    auto post_io = [](pp::amp::MeshRuntime& rt) -> AmpPunchCoordinator::IoPost {
-      return [&rt](std::function<void()> task) { rt.PostToIo(std::move(task)); };
-    };
-    const AmpPunchCoordinator::WorkerPost no_worker{};
-    punch_a_ = std::make_unique<AmpPunchCoordinator>(harness_->mgr_a(), pump, no_worker,
-                                                     post_io(*harness_->runtime_a));
-    punch_r_ = std::make_unique<AmpPunchCoordinator>(harness_->mgr_r(), pump, no_worker,
-                                                     post_io(*harness_->runtime_r));
-    punch_b_ = std::make_unique<AmpPunchCoordinator>(harness_->mgr_b(), pump, no_worker,
-                                                     post_io(*harness_->runtime_b));
+    // Exclusive Drive: AmpParkUntil calls PumpAll only (no nested Tick from punch SM).
+    auto pump = [this]() { harness_->PumpAll(); };
+    punch_a_ = std::make_unique<AmpPunchCoordinator>(*harness_->runtime_a, pump);
+    punch_r_ = std::make_unique<AmpPunchCoordinator>(*harness_->runtime_r, pump);
+    punch_b_ = std::make_unique<AmpPunchCoordinator>(*harness_->runtime_b, pump);
     punch_a_->SetLocalCandidateAddrs({harness_->ma_a});
     punch_r_->SetLocalCandidateAddrs({harness_->ma_r});
     punch_b_->SetLocalCandidateAddrs({harness_->ma_b});

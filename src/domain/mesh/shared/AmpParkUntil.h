@@ -8,12 +8,16 @@
 
 namespace pbr {
 
+/** MeshRuntime::PostAfter — Amp-clock delayed work (deadlines / sync windows). */
+using MeshIoAfter = std::function<void(std::chrono::milliseconds, std::function<void()>)>;
+
 /**
  * Park until `done` or `deadline`.
  *
- * Product MeshPump drives Amp — pass an empty `io_pump` so waiters sleep instead of
- * contending on `MeshHost::Tick` / `Drive`. Harnesses without a pump supply `io_pump`
- * (typically `Tick` / `PumpBoth`) so callbacks still progress.
+ * Exclusive Amp Drive: pass an empty `io_pump` so waiters sleep while MeshPump (or the
+ * harness Tick/Drive loop acting as Amp) progresses. Do not pass a callback that calls
+ * Tick/Drive from L4 SM / PostToIo work — nested Drive is refused.
+ * Harness sync facades may pass PumpAll only when the waiter thread *is* the sole Amp driver.
  */
 inline void AmpParkUntil(const std::function<bool()>& done,
                          const std::chrono::steady_clock::time_point deadline,
@@ -75,15 +79,35 @@ inline void AmpScheduleWhenChannelOpen(const std::function<void(std::function<vo
 }
 
 /**
- * Keep polling until `settled` or `deadline`. With `post_io`, schedules on MeshPump;
- * otherwise AmpParkUntil (harness Tick). Invokes `on_timeout` once if still unsettled.
+ * Fire `on_timeout` once if still unsettled at `deadline`.
+ * Prefer `io_after` (MeshRuntime::PostAfter) — one Amp-clock timer, no busy PostToIo poll.
+ * Else with `post_io`, re-queues until deadline (legacy).
+ * Do **not** AmpParkUntil here: this helper is invoked from channel/Open callbacks on the
+ * Drive stack; parking+io_pump would nest Drive (refused). Sync facades AmpParkUntil outside.
  */
 inline void AmpScheduleUntilSettled(const std::function<void(std::function<void()>)>& post_io,
-                                    const std::function<void()>& io_pump,
+                                    const std::function<void()>& /*io_pump*/,
                                     const std::shared_ptr<std::atomic<bool>>& settled,
                                     const std::chrono::steady_clock::time_point deadline,
-                                    std::function<void()> on_timeout) {
+                                    std::function<void()> on_timeout,
+                                    const MeshIoAfter& io_after = {}) {
   if (!settled) {
+    return;
+  }
+  if (io_after) {
+    const auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+    if (remaining.count() <= 0) {
+      if (!settled->load(std::memory_order_acquire) && on_timeout) {
+        on_timeout();
+      }
+      return;
+    }
+    io_after(remaining, [settled, on_timeout = std::move(on_timeout)]() mutable {
+      if (!settled->load(std::memory_order_acquire) && on_timeout) {
+        on_timeout();
+      }
+    });
     return;
   }
   if (post_io) {
@@ -106,10 +130,6 @@ inline void AmpScheduleUntilSettled(const std::function<void(std::function<void(
     };
     post_io([poll]() { (*poll)(); });
     return;
-  }
-  AmpParkUntil([settled] { return settled->load(std::memory_order_acquire); }, deadline, io_pump);
-  if (!settled->load(std::memory_order_acquire) && on_timeout) {
-    on_timeout();
   }
 }
 

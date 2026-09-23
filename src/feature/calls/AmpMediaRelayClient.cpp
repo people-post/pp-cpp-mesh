@@ -15,9 +15,9 @@ using Clock = std::chrono::steady_clock;
 } // namespace
 
 AmpMediaRelayClient::AmpMediaRelayClient(AmpMediaRelayCoordinator& coordinator, IoPump io_pump,
-                                         std::string local_peer_id, IoPost post_io)
+                                         std::string local_peer_id, IoPost post_io, IoAfter post_after)
     : coordinator_(coordinator), io_pump_(std::move(io_pump)), post_io_(std::move(post_io)),
-      local_peer_id_(std::move(local_peer_id)) {}
+      post_after_(std::move(post_after)), local_peer_id_(std::move(local_peer_id)) {}
 
 Roe<std::string> AmpMediaRelayClient::LocalPeerIdBase58() const {
   if (local_peer_id_.empty()) {
@@ -60,7 +60,8 @@ void AmpMediaRelayClient::RequestQuoteAsync(const std::string& hop_peer_key,
   }
   AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline, [finish_once, hop_peer_key]() {
     (*finish_once)(Error(std::string("media-relay quote timed out (hop=") + hop_peer_key + ")"));
-  });
+  },
+                          post_after_);
 }
 
 Roe<MediaRelayQuote> AmpMediaRelayClient::RequestQuote(const std::string& hop_peer_key,
@@ -109,7 +110,8 @@ void AmpMediaRelayClient::AcceptAndAttachAsync(const std::string& hop_peer_key, 
   }
   AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline, [finish_once, hop_peer_key]() {
     (*finish_once)(Error(std::string("media-relay attach timed out (hop=") + hop_peer_key + ")"));
-  });
+  },
+                          post_after_);
 }
 
 Roe<MediaRelayAttachResult> AmpMediaRelayClient::AcceptAndAttach(

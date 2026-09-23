@@ -1,5 +1,4 @@
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
-#include "domain/mesh/reachability/PunchBurst.h"
 #include "domain/mesh/reachability/PunchLogic.h"
 #include "domain/mesh/reachability/PunchTypes.h"
 
@@ -11,7 +10,9 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <functional>
+#include <optional>
 #include <vector>
 
 namespace pbr {
@@ -58,27 +59,9 @@ struct PunchExpiryStageFixture {
   }
 };
 
-/** MeshRuntime::PostToIo — punch frame handlers enqueue strand work; PumpAll drains it. */
-AmpPunchCoordinator::IoPost PostIo(pp::amp::MeshRuntime& rt) {
-  return [&rt](std::function<void()> task) { rt.PostToIo(std::move(task)); };
-}
-
-/** Shared IoPump: drain SchedulePark (Abort + burst complete) on A/I/B then PumpAll. */
-std::function<void()> MakeTriplePunchPump(pbr::test::AmpMeshTripleHarness& harness,
-                                          AmpPunchCoordinator* punch_a, AmpPunchCoordinator* punch_i,
-                                          AmpPunchCoordinator* punch_b) {
-  return [&harness, punch_a, punch_i, punch_b]() {
-    if (punch_a) {
-      punch_a->DrainParkWork();
-    }
-    if (punch_i) {
-      punch_i->DrainParkWork();
-    }
-    if (punch_b) {
-      punch_b->DrainParkWork();
-    }
-    harness.PumpAll();
-  };
+/** Shared IoPump for AmpParkUntil: exclusive Drive via harness PumpAll (no nested Tick from SM). */
+std::function<void()> MakeTriplePunchPump(pbr::test::AmpMeshTripleHarness& harness) {
+  return [&harness]() { harness.PumpAll(); };
 }
 
 TEST(AmpPunchCoordinatorTest, NotStartedReturnsCodedFailure) {
@@ -86,7 +69,7 @@ TEST(AmpPunchCoordinatorTest, NotStartedReturnsCodedFailure) {
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
-  AmpPunchCoordinator punch(harness->mgr_a(), {}, {});
+  AmpPunchCoordinator punch(*harness->runtime_a);
   auto punched = punch.TryColdPunch("introducer", harness->peer_id_b, {harness->ma_a}, 1000);
   ASSERT_FALSE(static_cast<bool>(punched));
   EXPECT_EQ(punched.error().GetCode(), AmpPunchCoordinator::Err::NotStarted);
@@ -98,7 +81,7 @@ TEST(AmpPunchCoordinatorTest, StartedRequiresIntroducerEndpoint) {
   auto harness = std::move(*created);
 
   auto pump = [&]() { harness->PumpBoth(); };
-  AmpPunchCoordinator punch(harness->mgr_a(), pump, {});
+  AmpPunchCoordinator punch(*harness->runtime_a, pump);
   punch.Start();
   auto punched = punch.TryColdPunch("introducer", harness->peer_id_b, {harness->ma_a}, 1000);
   ASSERT_FALSE(static_cast<bool>(punched));
@@ -130,10 +113,10 @@ TEST(AmpPunchCoordinatorTest, SeedIntroducerColdPunchConnectsAToB) {
       harness->PumpAll();
     }
   };
-  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a));
-  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r));
-  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b));
-  shared_pump = MakeTriplePunchPump(*harness, &punch_a, &punch_i, &punch_b);
+  AmpPunchCoordinator punch_a(*harness->runtime_a, pump_bridge);
+  AmpPunchCoordinator punch_i(*harness->runtime_r, pump_bridge);
+  AmpPunchCoordinator punch_b(*harness->runtime_b, pump_bridge);
+  shared_pump = MakeTriplePunchPump(*harness);
   punch_a.SetLocalCandidateAddrs({harness->ma_a});
   punch_i.SetLocalCandidateAddrs({harness->ma_r});
   punch_b.SetLocalCandidateAddrs({harness->ma_b});
@@ -213,10 +196,10 @@ TEST(AmpPunchCoordinatorTest, ContactIntroducerColdPunchConnectsAToB) {
       harness->PumpAll();
     }
   };
-  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a));
-  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r));
-  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b));
-  shared_pump = MakeTriplePunchPump(*harness, &punch_a, &punch_i, &punch_b);
+  AmpPunchCoordinator punch_a(*harness->runtime_a, pump_bridge);
+  AmpPunchCoordinator punch_i(*harness->runtime_r, pump_bridge);
+  AmpPunchCoordinator punch_b(*harness->runtime_b, pump_bridge);
+  shared_pump = MakeTriplePunchPump(*harness);
   punch_a.SetLocalCandidateAddrs({harness->ma_a});
   punch_i.SetLocalCandidateAddrs({harness->ma_r});
   punch_b.SetLocalCandidateAddrs({harness->ma_b});
@@ -281,10 +264,10 @@ TEST(AmpPunchCoordinatorTest, DualDialRaceElectsSingleConnectedSession) {
       harness->PumpAll();
     }
   };
-  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a));
-  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r));
-  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b));
-  shared_pump = MakeTriplePunchPump(*harness, &punch_a, &punch_i, &punch_b);
+  AmpPunchCoordinator punch_a(*harness->runtime_a, pump_bridge);
+  AmpPunchCoordinator punch_i(*harness->runtime_r, pump_bridge);
+  AmpPunchCoordinator punch_b(*harness->runtime_b, pump_bridge);
+  shared_pump = MakeTriplePunchPump(*harness);
   punch_a.SetLocalCandidateAddrs({harness->ma_a});
   punch_i.SetLocalCandidateAddrs({harness->ma_r});
   punch_b.SetLocalCandidateAddrs({harness->ma_b});
@@ -372,10 +355,10 @@ TEST(AmpPunchCoordinatorTest, Stage2_PunchCoordinatorsStartWithBlackholeAddrs) {
       fx.PumpAll();
     }
   };
-  AmpPunchCoordinator punch_a(fx.harness->mgr_a(), pump_bridge, {}, PostIo(*fx.harness->runtime_a));
-  AmpPunchCoordinator punch_i(fx.harness->mgr_r(), pump_bridge, {}, PostIo(*fx.harness->runtime_r));
-  AmpPunchCoordinator punch_b(fx.harness->mgr_b(), pump_bridge, {}, PostIo(*fx.harness->runtime_b));
-  shared_pump = MakeTriplePunchPump(*fx.harness, &punch_a, &punch_i, &punch_b);
+  AmpPunchCoordinator punch_a(*fx.harness->runtime_a, pump_bridge);
+  AmpPunchCoordinator punch_i(*fx.harness->runtime_r, pump_bridge);
+  AmpPunchCoordinator punch_b(*fx.harness->runtime_b, pump_bridge);
+  shared_pump = MakeTriplePunchPump(*fx.harness);
   punch_a.SetLocalCandidateAddrs({fx.blackhole_a});
   punch_i.SetLocalCandidateAddrs({fx.harness->ma_r});
   punch_b.SetLocalCandidateAddrs({fx.blackhole_b});
@@ -400,7 +383,7 @@ TEST(AmpPunchCoordinatorTest, Stage3_OpenPunchChannelToIntroducer) {
   ASSERT_TRUE(fx.AssocAAndBToIntroducer());
 
   auto pump = [&]() { fx.PumpAll(); };
-  AmpPunchCoordinator punch_i(fx.harness->mgr_r(), pump, {}, PostIo(*fx.harness->runtime_r));
+  AmpPunchCoordinator punch_i(*fx.harness->runtime_r, pump);
   punch_i.Start();
 
   SettledWait<uint32_t, Error> wait;
@@ -428,7 +411,7 @@ TEST(AmpPunchCoordinatorTest, Stage4_IntroducerOpensPunchChannelToTarget) {
   ASSERT_TRUE(fx.AssocAAndBToIntroducer());
 
   auto pump = [&]() { fx.PumpAll(); };
-  AmpPunchCoordinator punch_b(fx.harness->mgr_b(), pump, {}, PostIo(*fx.harness->runtime_b));
+  AmpPunchCoordinator punch_b(*fx.harness->runtime_b, pump);
   punch_b.SetLocalCandidateAddrs({fx.blackhole_b});
   punch_b.Start();
 
@@ -471,16 +454,22 @@ TEST(AmpPunchCoordinatorTest, Stage6_BurstDialBlackholeAlone) {
   ASSERT_TRUE(PunchExpiryStageFixture::Create(&fx));
   ASSERT_TRUE(fx.AssocAAndBToIntroducer());
 
-  // Critical isolation: BurstDial + Pump with no ChannelMux frame on the stack.
-  auto pump = [&]() { fx.PumpAll(); };
-  auto burst = BurstDialCandidates(fx.harness->mgr_a(), pump, {fx.blackhole_b}, 200);
-  EXPECT_FALSE(burst.ok);
-  EXPECT_FALSE(burst.error.empty()) << "expected dial/window failure message";
-  EXPECT_TRUE(burst.error.find("timed out") != std::string::npos ||
-              burst.error.find("window expired") != std::string::npos ||
-              burst.error.find("punch burst") != std::string::npos ||
-              burst.error.find("dial") != std::string::npos)
-      << burst.error;
+  // Critical isolation: MeshRuntime::BurstDial with no ChannelMux frame on the stack.
+  std::optional<pp::amp::BurstDialResult> done;
+  fx.harness->runtime_a->BurstDial({fx.blackhole_b}, std::chrono::milliseconds(200),
+                                   [&](pp::amp::BurstDialResult r) { done = std::move(r); });
+  for (size_t i = 0; i < 80 && !done; ++i) {
+    fx.PumpAll();
+    fx.harness->clock->Advance(5);
+  }
+  ASSERT_TRUE(done.has_value());
+  EXPECT_FALSE(done->ok);
+  EXPECT_FALSE(done->error.empty()) << "expected dial/window failure message";
+  EXPECT_TRUE(done->error.find("timed out") != std::string::npos ||
+              done->error.find("window expired") != std::string::npos ||
+              done->error.find("punch burst") != std::string::npos ||
+              done->error.find("dial") != std::string::npos)
+      << done->error;
   EXPECT_FALSE(fx.harness->mgr_a().IsConnected(fx.harness->peer_id_b));
   EXPECT_EQ(fx.harness->mgr_a().CountConnectedLinksForPeerId(fx.harness->peer_id_b), 0u);
 }
@@ -491,18 +480,18 @@ TEST(AmpPunchCoordinatorTest, Stage7_BurstDialAfterDeferredDrain) {
   ASSERT_TRUE(fx.AssocAAndBToIntroducer());
 
   // Mirrors PostStrand: queue burst work, then drain via pump — never under mux.
-  std::vector<std::function<void()>> deferred;
-  PunchBurstResult burst;
-  deferred.push_back([&] {
-    burst = BurstDialCandidates(fx.harness->mgr_a(), [&] { fx.PumpAll(); }, {fx.blackhole_b}, 200);
+  std::optional<pp::amp::BurstDialResult> done;
+  fx.harness->runtime_a->PostToIo([&] {
+    fx.harness->runtime_a->BurstDial({fx.blackhole_b}, std::chrono::milliseconds(200),
+                                     [&](pp::amp::BurstDialResult r) { done = std::move(r); });
   });
-  fx.PumpAll();
-  ASSERT_FALSE(deferred.empty());
-  auto work = std::move(deferred.back());
-  deferred.pop_back();
-  work();
-  EXPECT_FALSE(burst.ok);
-  EXPECT_FALSE(burst.error.empty()) << burst.error;
+  for (size_t i = 0; i < 80 && !done; ++i) {
+    fx.PumpAll();
+    fx.harness->clock->Advance(5);
+  }
+  ASSERT_TRUE(done.has_value());
+  EXPECT_FALSE(done->ok);
+  EXPECT_FALSE(done->error.empty()) << done->error;
   EXPECT_FALSE(fx.harness->mgr_a().IsConnected(fx.harness->peer_id_b));
 }
 
@@ -537,10 +526,10 @@ TEST(AmpPunchCoordinatorTest, SyncWindowExpiryReturnsPunchFailed) {
       harness->PumpAll();
     }
   };
-  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a));
-  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r));
-  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b));
-  shared_pump = MakeTriplePunchPump(*harness, &punch_a, &punch_i, &punch_b);
+  AmpPunchCoordinator punch_a(*harness->runtime_a, pump_bridge);
+  AmpPunchCoordinator punch_i(*harness->runtime_r, pump_bridge);
+  AmpPunchCoordinator punch_b(*harness->runtime_b, pump_bridge);
+  shared_pump = MakeTriplePunchPump(*harness);
   punch_a.SetLocalCandidateAddrs({blackhole_a});
   punch_i.SetLocalCandidateAddrs({harness->ma_r});
   punch_b.SetLocalCandidateAddrs({blackhole_b});

@@ -20,8 +20,8 @@ TEST(AmpDialBackProtocolTest, ProbeRoundTripOk) {
   ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("client", harness->ma_a)));
 
   auto pump = [&]() { harness->PumpBoth(); };
-  AmpDialBackProtocol seed(harness->mgr_b(), pump, {});
-  AmpDialBackProtocol client(harness->mgr_a(), pump, {});
+  AmpDialBackProtocol seed(*harness->runtime_b, pump);
+  AmpDialBackProtocol client(*harness->runtime_a, pump);
   seed.Start();
   client.Start();
 
@@ -40,7 +40,7 @@ TEST(AmpDialBackProtocolTest, ProbeNotStartedReturnsCodedFailure) {
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
-  AmpDialBackProtocol client(harness->mgr_a(), {}, {});
+  AmpDialBackProtocol client(*harness->runtime_a);
   auto probed = client.Probe("seed", {harness->ma_a}, 1000);
   ASSERT_FALSE(static_cast<bool>(probed));
   EXPECT_EQ(probed.error().GetCode(), AmpDialBackProtocol::Err::NotStarted);
@@ -78,8 +78,8 @@ TEST(AmpDialBackProtocolTest, ProbeRejectsNonAdpTarget) {
   ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
 
   auto pump = [&]() { harness->PumpBoth(); };
-  AmpDialBackProtocol seed(harness->mgr_b(), pump, {});
-  AmpDialBackProtocol client(harness->mgr_a(), pump, {});
+  AmpDialBackProtocol seed(*harness->runtime_b, pump);
+  AmpDialBackProtocol client(*harness->runtime_a, pump);
   seed.Start();
   client.Start();
 
