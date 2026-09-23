@@ -3,7 +3,7 @@
 #include "domain/mesh/dht/DhtRateLimiter.h"
 #include "domain/mesh/discovery/DirectoryTypes.h"
 #include "common/directory/IDirectoryClient.h"
-#include "amp/link/PeerLinkManager.h"
+#include "amp/link/MeshRuntime.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
 
@@ -46,9 +46,8 @@ public:
 
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
-  using IoPost = std::function<void(std::function<void()>)>;
 
-  AmpDirectoryProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {}, IoPost post_io = {});
+  AmpDirectoryProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump = {}, WorkerPost post_worker = {});
   ~AmpDirectoryProtocol();
 
   AmpDirectoryProtocol(const AmpDirectoryProtocol&) = delete;
@@ -71,10 +70,9 @@ private:
   friend struct Impl;
   struct Impl;
   std::unique_ptr<Impl> impl_;
-  pp::amp::PeerLinkManager& links_;
+  pp::amp::MeshRuntime& runtime_;
   IoPump io_pump_;
   WorkerPost post_worker_;
-  IoPost post_io_;
   AmpDirectoryProtocolConfig config_;
   AmpDirectoryNodesProvider nodes_provider_;
   std::vector<MeshNodeHit> nodes_snapshot_;

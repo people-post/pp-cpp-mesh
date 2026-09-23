@@ -9,6 +9,7 @@
 #include "domain/mesh/host/MeshPorts.h"
 #include "domain/mesh/tests/support/mesh_harness_support.h"
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -40,6 +41,36 @@ struct AmpMeshHarness {
   pp::amp::PeerLinkManager& mgr_b() { return runtime_b->Links(); }
   pbr::IChatPeerLinks& chat_a() { return *chat_links_a; }
   pbr::IChatPeerLinks& chat_b() { return *chat_links_b; }
+
+  /** MeshRuntime::PostToIo / PostAfter binders for L4 transport harnesses. */
+  std::function<void(std::function<void()>)> MakePostIoA() {
+    return [this](std::function<void()> task) {
+      if (runtime_a && task) {
+        runtime_a->PostToIo(std::move(task));
+      }
+    };
+  }
+  std::function<void(std::function<void()>)> MakePostIoB() {
+    return [this](std::function<void()> task) {
+      if (runtime_b && task) {
+        runtime_b->PostToIo(std::move(task));
+      }
+    };
+  }
+  std::function<void(std::chrono::milliseconds, std::function<void()>)> MakePostAfterA() {
+    return [this](std::chrono::milliseconds delay, std::function<void()> task) {
+      if (runtime_a && task) {
+        runtime_a->PostAfter(delay, std::move(task));
+      }
+    };
+  }
+  std::function<void(std::chrono::milliseconds, std::function<void()>)> MakePostAfterB() {
+    return [this](std::chrono::milliseconds delay, std::function<void()> task) {
+      if (runtime_b && task) {
+        runtime_b->PostAfter(delay, std::move(task));
+      }
+    };
+  }
 
   static pp::Roe<std::unique_ptr<AmpMeshHarness>> Create();
 

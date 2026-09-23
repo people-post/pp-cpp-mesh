@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -49,10 +50,11 @@ protected:
     circuit_a_->Start();
     circuit_a_->SetServeInbound(false);
 
+    // Exclusive Drive: AmpParkUntil calls PumpAll only (no nested Tick from punch SM).
     auto pump = [this]() { harness_->PumpAll(); };
-    punch_a_ = std::make_unique<AmpPunchCoordinator>(harness_->mgr_a(), pump);
-    punch_r_ = std::make_unique<AmpPunchCoordinator>(harness_->mgr_r(), pump);
-    punch_b_ = std::make_unique<AmpPunchCoordinator>(harness_->mgr_b(), pump);
+    punch_a_ = std::make_unique<AmpPunchCoordinator>(*harness_->runtime_a, pump);
+    punch_r_ = std::make_unique<AmpPunchCoordinator>(*harness_->runtime_r, pump);
+    punch_b_ = std::make_unique<AmpPunchCoordinator>(*harness_->runtime_b, pump);
     punch_a_->SetLocalCandidateAddrs({harness_->ma_a});
     punch_r_->SetLocalCandidateAddrs({harness_->ma_r});
     punch_b_->SetLocalCandidateAddrs({harness_->ma_b});

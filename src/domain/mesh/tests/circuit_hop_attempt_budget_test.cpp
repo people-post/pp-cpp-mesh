@@ -54,9 +54,10 @@ TEST(CircuitHopAttemptBudgetTest, FastFailErrors) {
   EXPECT_FALSE(pbr::CircuitBridgeErrorIsFastFail("circuit hop reach failed: tunnel timeout"));
 }
 
-TEST(CircuitHopAttemptBudgetTest, NotRegRetriesSameRelayWithoutSticky) {
+TEST(CircuitHopAttemptBudgetTest, NotRegRetriesSameRelayOnceThenAdvances) {
   EXPECT_TRUE(pbr::CircuitShouldRetrySameRelayOnNotReg(true, 1));
-  EXPECT_TRUE(pbr::CircuitShouldRetrySameRelayOnNotReg(true, 3));
+  EXPECT_FALSE(pbr::CircuitShouldRetrySameRelayOnNotReg(true, 2));
+  EXPECT_FALSE(pbr::CircuitShouldRetrySameRelayOnNotReg(true, 3));
   EXPECT_FALSE(pbr::CircuitShouldRetrySameRelayOnNotReg(true, pbr::kCircuitMaxStartBridgeAttempts));
   EXPECT_FALSE(pbr::CircuitShouldRetrySameRelayOnNotReg(false, 1));
 }

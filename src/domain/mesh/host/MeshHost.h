@@ -16,6 +16,7 @@
 #include "domain/mesh/reachability/ReachabilityEngine.h"
 #include "common/Error.h"
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -145,9 +146,11 @@ private:
   AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
   void StartOwnedThreads();
   void StopOwnedThreads();
-  /** Empty when MeshPump owns Drive; Tick otherwise (AttachAmpStack / VirtualClock). */
+  /** Empty under MeshPump; AttachAmpStack harnesses return Tick for sync AmpParkUntil. */
   std::function<void()> MakeL4IoPump() const;
   std::function<void(std::function<void()>)> MakeL4IoPost() const;
+  /** MeshRuntime::PostAfter — Amp-clock delayed work (deadlines). */
+  std::function<void(std::chrono::milliseconds, std::function<void()>)> MakeL4IoAfter() const;
 
   std::unique_ptr<ReachabilityEngine> reachability_;
   MeshPumpThread pump_;

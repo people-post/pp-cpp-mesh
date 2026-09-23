@@ -3,6 +3,7 @@
 #include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
 #include "feature/calls/CallTopologyRelayDeps.h"
 
+#include <chrono>
 #include <functional>
 #include <string>
 
@@ -17,9 +18,10 @@ class AmpMediaRelayClient final : public IMediaRelayClient {
 public:
   using IoPump = std::function<void()>;
   using IoPost = std::function<void(std::function<void()>)>;
+  using IoAfter = std::function<void(std::chrono::milliseconds, std::function<void()>)>;
 
   AmpMediaRelayClient(AmpMediaRelayCoordinator& coordinator, IoPump io_pump, std::string local_peer_id,
-                      IoPost post_io = {});
+                      IoPost post_io = {}, IoAfter post_after = {});
 
   Roe<std::string> LocalPeerIdBase58() const override;
   bool IsStarted() const override;
@@ -55,6 +57,7 @@ private:
   AmpMediaRelayCoordinator& coordinator_;
   IoPump io_pump_;
   IoPost post_io_;
+  IoAfter post_after_;
   std::string local_peer_id_;
 };
 
