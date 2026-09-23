@@ -63,7 +63,7 @@ AmpPunchCoordinator::IoPost PostIo(pp::amp::MeshRuntime& rt) {
   return [&rt](std::function<void()> task) { rt.PostToIo(std::move(task)); };
 }
 
-/** Shared IoPump: drain SchedulePark (BurstDial) on A/I/B then PumpAll. */
+/** Shared IoPump: drain SchedulePark (Abort + burst complete) on A/I/B then PumpAll. */
 std::function<void()> MakeTriplePunchPump(pbr::test::AmpMeshTripleHarness& harness,
                                           AmpPunchCoordinator* punch_a, AmpPunchCoordinator* punch_i,
                                           AmpPunchCoordinator* punch_b) {

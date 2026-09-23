@@ -163,9 +163,18 @@ PunchBurstResult BurstDialCandidates(pp::amp::PeerLinkManager& links, std::funct
 void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
                               std::function<void(std::function<void()>)> post_io,
                               const std::vector<std::string>& targets, int window_ms,
-                              std::function<void(PunchBurstResult)> on_done) {
+                              std::function<void(PunchBurstResult)> on_done,
+                              std::function<void(std::function<void()>)> settle_on) {
   if (!post_io) {
-    if (on_done) {
+    if (!on_done) {
+      return;
+    }
+    // No PostToIo: sync dial; still honor settle_on for Abort/complete stacking.
+    if (settle_on) {
+      settle_on([links_ptr = &links, targets, window_ms, on_done = std::move(on_done)]() mutable {
+        on_done(BurstDialCandidates(*links_ptr, {}, targets, window_ms));
+      });
+    } else {
       on_done(BurstDialCandidates(links, {}, targets, window_ms));
     }
     return;
@@ -174,7 +183,14 @@ void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
   if (addrs.empty()) {
     PunchBurstResult early;
     early.error = "no peer_addrs";
-    if (on_done) {
+    if (!on_done) {
+      return;
+    }
+    if (settle_on) {
+      settle_on([on_done = std::move(on_done), early = std::move(early)]() mutable {
+        on_done(std::move(early));
+      });
+    } else {
       on_done(std::move(early));
     }
     return;
@@ -189,23 +205,34 @@ void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
     std::vector<std::string> multiaddrs;
     std::string last_error;
     std::function<void(PunchBurstResult)> on_done;
+    std::function<void(std::function<void()>)> settle_on;
   };
   auto state = std::make_shared<State>();
   state->deadline = Clock::now() + std::chrono::milliseconds(window_ms > 0 ? window_ms : 2000);
   state->on_done = std::move(on_done);
+  state->settle_on = std::move(settle_on);
 
   auto finish = [state, links_ptr](PunchBurstResult result) {
     if (state->settled.exchange(true, std::memory_order_acq_rel)) {
       return;
     }
-    for (const std::string& key : state->keys) {
-      auto* link = links_ptr->FindLink(key);
-      if (!result.ok || !link || link->Phase() != pp::amp::PeerLinkPhase::Connected) {
-        links_ptr->AbortInflightDial(key);
+    // Mark settled on the PostToIo poll stack, but Abort + on_done must leave DrainPostedIo
+    // (nested Tick / session teardown SEHs on Windows). Prefer SchedulePark when available.
+    auto deliver = [state, links_ptr, result = std::move(result)]() mutable {
+      for (const std::string& key : state->keys) {
+        auto* link = links_ptr->FindLink(key);
+        if (!result.ok || !link || link->Phase() != pp::amp::PeerLinkPhase::Connected) {
+          links_ptr->AbortInflightDial(key);
+        }
       }
-    }
-    if (state->on_done) {
-      state->on_done(std::move(result));
+      if (state->on_done) {
+        state->on_done(std::move(result));
+      }
+    };
+    if (state->settle_on) {
+      state->settle_on(std::move(deliver));
+    } else {
+      deliver();
     }
   };
 

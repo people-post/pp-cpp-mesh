@@ -24,7 +24,8 @@ namespace pbr {
  *
  * Strand model (THREADING.md Amp PeerLink strand):
  * - Mux / ChannelSession frame handlers only enqueue via IoPost (MeshRuntime::PostToIo).
- * - Dial, burst, and introducer continuation run on the IO strand — never nested under ChannelMux.
+ * - Burst dials via BurstDialCandidatesAsync when IoPost is set; Abort + complete settle on
+ *   SchedulePark (waiter IoPump) when IoPump is present — never under DrainPostedIo.
  * - Prefer TryColdPunchAsync / TryUpgradePunchAsync. Sync Try* may AmpParkUntil outside mux with IoPump.
  * - IoPost is required for correct multi-peer / product use; empty IoPost is test-only and unsafe under mux.
  */
@@ -68,8 +69,8 @@ public:
   bool IsStarted() const { return started_; }
 
   /**
-   * Drain SchedulePark (BurstDial) work. Multi-coordinator tests must call this on A/I/B from
-   * the shared IoPump so the introducer/target park queues run while the initiator AmpParkUntil.
+   * Drain SchedulePark (Abort + burst complete) work. Multi-coordinator tests must call this on
+   * A/I/B from the shared IoPump so settle runs while the initiator AmpParkUntil.
    */
   void DrainParkWork();
 
