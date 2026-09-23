@@ -64,6 +64,9 @@ public:
   void Stop();
   bool IsStarted() const { return started_; }
 
+  /** Drain ScheduleOffMux work when IoPost is unset (multi-coordinator test pumps). */
+  void DrainDeferred();
+
   void SetLocalCandidateAddrs(std::vector<std::string> addrs);
   const std::vector<std::string>& LocalCandidateAddrs() const { return local_addrs_; }
 
