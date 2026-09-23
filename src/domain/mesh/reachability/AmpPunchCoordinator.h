@@ -67,6 +67,12 @@ public:
   void Stop();
   bool IsStarted() const { return started_; }
 
+  /**
+   * Drain SchedulePark (BurstDial) work. Multi-coordinator tests must call this on A/I/B from
+   * the shared IoPump so the introducer/target park queues run while the initiator AmpParkUntil.
+   */
+  void DrainParkWork();
+
   void SetLocalCandidateAddrs(std::vector<std::string> addrs);
   const std::vector<std::string>& LocalCandidateAddrs() const { return local_addrs_; }
 
