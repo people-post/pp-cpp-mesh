@@ -22,8 +22,11 @@ namespace pbr {
  * L3.25a–c: cold/upgrade punch — connect/offer/candidates/sync + burst; upgrade uses circuit R1 as introducer.
  * Dual-dial election is PeerLinkManager A026; loser teardown is parent-owned A027.
  *
- * Prefer TryColdPunchAsync / TryUpgradePunchAsync. Sync Try* parks until done; with MeshPump leave
- * IoPump empty. Optional IoPost schedules channel-open polls on MeshRuntime.
+ * Strand model (THREADING.md Amp PeerLink strand):
+ * - Mux / ChannelSession frame handlers only enqueue via IoPost (MeshRuntime::PostToIo).
+ * - Dial, burst, and introducer continuation run on the IO strand — never nested under ChannelMux.
+ * - Prefer TryColdPunchAsync / TryUpgradePunchAsync. Sync Try* may AmpParkUntil outside mux with IoPump.
+ * - IoPost is required for correct multi-peer / product use; empty IoPost is test-only and unsafe under mux.
  */
 class AmpPunchCoordinator {
 public:
@@ -63,9 +66,6 @@ public:
   void SetProbeInbound(ProbeInbound handler);
   void Stop();
   bool IsStarted() const { return started_; }
-
-  /** Drain ScheduleOffMux work when IoPost is unset (multi-coordinator test pumps). */
-  void DrainDeferred();
 
   void SetLocalCandidateAddrs(std::vector<std::string> addrs);
   const std::vector<std::string>& LocalCandidateAddrs() const { return local_addrs_; }
