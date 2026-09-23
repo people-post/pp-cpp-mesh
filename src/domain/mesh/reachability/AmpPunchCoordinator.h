@@ -1,6 +1,7 @@
 #pragma once
 
 #include "amp/link/PeerLinkManager.h"
+#include "domain/mesh/reachability/PunchBurst.h"
 #include "domain/mesh/reachability/PunchTypes.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
@@ -58,9 +59,10 @@ public:
    *                 MeshPump owns Drive. Never invoked from punch SM / PostToIo work.
    * @param post_io  MeshRuntime::PostToIo — required for product / multi-peer.
    * @param post_deferred  MeshRuntime::PostDeferred — Abort/Close/complete settle lane.
+   * @param post_after  MeshRuntime::PostAfter — Amp-clock sync window (optional).
    */
   AmpPunchCoordinator(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {},
-                      IoPost post_io = {}, IoPost post_deferred = {});
+                      IoPost post_io = {}, IoPost post_deferred = {}, IoAfter post_after = {});
   ~AmpPunchCoordinator();
 
   AmpPunchCoordinator(const AmpPunchCoordinator&) = delete;
@@ -105,6 +107,7 @@ private:
   WorkerPost post_worker_;
   IoPost post_io_;
   IoPost post_deferred_;
+  IoAfter post_after_;
   std::vector<std::string> local_addrs_;
   bool started_ = false;
 };

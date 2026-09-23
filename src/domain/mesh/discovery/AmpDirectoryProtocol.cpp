@@ -142,9 +142,6 @@ struct AmpDirectoryProtocol::Impl {
                         response = MakeErrorResponse(req_id, "unsupported_op", "unsupported op");
                       }
                       (void)session->EnqueueOutbound(JsonToBody(DumpJson(response)));
-                      if (io_pump) {
-                        io_pump();
-                      }
                       session->Close();
                     });
           return false;
@@ -236,9 +233,6 @@ struct AmpDirectoryProtocol::Impl {
                                    finish(RpcRoe::error(
                                        Failure::Of(Err::ProtocolError, "directory request send failed")));
                                    return;
-                                 }
-                                 if (io_pump) {
-                                   io_pump();
                                  }
                                });
                          });

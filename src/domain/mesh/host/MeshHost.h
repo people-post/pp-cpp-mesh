@@ -16,6 +16,7 @@
 #include "domain/mesh/reachability/ReachabilityEngine.h"
 #include "common/Error.h"
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -150,6 +151,8 @@ private:
   std::function<void(std::function<void()>)> MakeL4IoPost() const;
   /** MeshRuntime::PostDeferred — Abort/Close/on_done settle lane. */
   std::function<void(std::function<void()>)> MakeL4IoDeferred() const;
+  /** MeshRuntime::PostAfter — Amp-clock delayed work (punch window, deadlines). */
+  std::function<void(std::chrono::milliseconds, std::function<void()>)> MakeL4IoAfter() const;
 
   std::unique_ptr<ReachabilityEngine> reachability_;
   MeshPumpThread pump_;

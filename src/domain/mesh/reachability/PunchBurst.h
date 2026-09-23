@@ -2,6 +2,7 @@
 
 #include "amp/link/PeerLinkManager.h"
 
+#include <chrono>
 #include <functional>
 #include <string>
 #include <vector>
@@ -25,18 +26,21 @@ struct PunchBurstResult {
 PunchBurstResult BurstDialCandidates(pp::amp::PeerLinkManager& links, std::function<void()> io_pump,
                                      const std::vector<std::string>& targets, int window_ms);
 
+/** Amp-clock delayed task — typically MeshRuntime::PostAfter. */
+using IoAfter = std::function<void(std::chrono::milliseconds, std::function<void()>)>;
+
 /**
- * Async burst: PostToIo polls, no nested Pump during the window.
+ * Async burst: PostToIo polls for wins; optional PostAfter arms the sync window on Amp clock.
  * Settles only on PeerId-visible non-carrier Connected (FindLinkByPeerId).
  *
  * AbortInflightDial + on_done run via settle_on when provided (MeshRuntime::PostDeferred).
- * Never Abort or complete under DrainPostedIo — exclusive Amp Drive / deferred teardown lane.
  */
 void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
                               std::function<void(std::function<void()>)> post_io,
                               const std::vector<std::string>& targets, int window_ms,
                               std::function<void(PunchBurstResult)> on_done,
-                              std::function<void(std::function<void()>)> settle_on = {});
+                              std::function<void(std::function<void()>)> settle_on = {},
+                              IoAfter post_after = {});
 
 /** True when a non-carrier Connected PeerLink exists for peer_id. */
 bool PeerAlreadyConnectedDirect(pp::amp::PeerLinkManager& links, const std::string& peer_id);

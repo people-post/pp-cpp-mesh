@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -57,16 +58,24 @@ protected:
     auto post_deferred = [](pp::amp::MeshRuntime& rt) -> AmpPunchCoordinator::IoPost {
       return [&rt](std::function<void()> task) { rt.PostDeferred(std::move(task)); };
     };
+    auto post_after = [](pp::amp::MeshRuntime& rt) -> IoAfter {
+      return [&rt](std::chrono::milliseconds delay, std::function<void()> task) {
+        rt.PostAfter(delay, std::move(task));
+      };
+    };
     const AmpPunchCoordinator::WorkerPost no_worker{};
     punch_a_ = std::make_unique<AmpPunchCoordinator>(harness_->mgr_a(), pump, no_worker,
                                                      post_io(*harness_->runtime_a),
-                                                     post_deferred(*harness_->runtime_a));
+                                                     post_deferred(*harness_->runtime_a),
+                                                     post_after(*harness_->runtime_a));
     punch_r_ = std::make_unique<AmpPunchCoordinator>(harness_->mgr_r(), pump, no_worker,
                                                      post_io(*harness_->runtime_r),
-                                                     post_deferred(*harness_->runtime_r));
+                                                     post_deferred(*harness_->runtime_r),
+                                                     post_after(*harness_->runtime_r));
     punch_b_ = std::make_unique<AmpPunchCoordinator>(harness_->mgr_b(), pump, no_worker,
                                                      post_io(*harness_->runtime_b),
-                                                     post_deferred(*harness_->runtime_b));
+                                                     post_deferred(*harness_->runtime_b),
+                                                     post_after(*harness_->runtime_b));
     punch_a_->SetLocalCandidateAddrs({harness_->ma_a});
     punch_r_->SetLocalCandidateAddrs({harness_->ma_r});
     punch_b_->SetLocalCandidateAddrs({harness_->ma_b});

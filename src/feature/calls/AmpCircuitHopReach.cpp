@@ -356,9 +356,6 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
             // MeshPump owns Drive — defer next StartBridge; do not nested-Tick.
             post_io_(std::move(go));
           } else {
-            if (io_pump_) {
-              io_pump_();
-            }
             go();
           }
         };

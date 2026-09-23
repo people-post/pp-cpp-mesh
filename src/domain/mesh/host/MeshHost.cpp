@@ -208,6 +208,15 @@ std::function<void(std::function<void()>)> MeshHost::MakeL4IoDeferred() const {
   };
 }
 
+std::function<void(std::chrono::milliseconds, std::function<void()>)> MeshHost::MakeL4IoAfter() const {
+  return [self = const_cast<MeshHost*>(this)](std::chrono::milliseconds delay,
+                                              std::function<void()> task) {
+    if (self->amp_ && task) {
+      self->amp_->Runtime().PostAfter(delay, std::move(task));
+    }
+  };
+}
+
 void MeshHost::EnsureAmpL4Coordinators() {
   if (!amp_) {
     return;
@@ -225,13 +234,14 @@ void MeshHost::EnsureAmpL4Coordinators() {
   auto io_pump = MakeL4IoPump();
   auto post_io = MakeL4IoPost();
   auto post_deferred = MakeL4IoDeferred();
+  auto post_after = MakeL4IoAfter();
   auto post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   if (!amp_dial_back_) {
     amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Links(), io_pump, post_worker, post_io);
   }
   if (!amp_punch_) {
     amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Links(), io_pump, post_worker, post_io,
-                                                       post_deferred);
+                                                       post_deferred, post_after);
   }
   if (!amp_dht_) {
     amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Links(), io_pump, post_worker, post_io);

@@ -164,7 +164,8 @@ void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
                               std::function<void(std::function<void()>)> post_io,
                               const std::vector<std::string>& targets, int window_ms,
                               std::function<void(PunchBurstResult)> on_done,
-                              std::function<void(std::function<void()>)> settle_on) {
+                              std::function<void(std::function<void()>)> settle_on,
+                              IoAfter post_after) {
   if (!post_io) {
     if (!on_done) {
       return;
@@ -200,6 +201,7 @@ void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
   struct State {
     std::atomic<bool> settled{false};
     Clock::time_point deadline{};
+    bool use_amp_timer = false;
     std::vector<std::string> keys;
     std::vector<std::string> peer_ids;
     std::vector<std::string> multiaddrs;
@@ -208,7 +210,9 @@ void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
     std::function<void(std::function<void()>)> settle_on;
   };
   auto state = std::make_shared<State>();
-  state->deadline = Clock::now() + std::chrono::milliseconds(window_ms > 0 ? window_ms : 2000);
+  const int window = window_ms > 0 ? window_ms : 2000;
+  state->deadline = Clock::now() + std::chrono::milliseconds(window);
+  state->use_amp_timer = static_cast<bool>(post_after);
   state->on_done = std::move(on_done);
   state->settle_on = std::move(settle_on);
 
@@ -293,6 +297,20 @@ void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
     return;
   }
 
+  if (post_after) {
+    post_after(std::chrono::milliseconds(window), [finish, state]() {
+      if (state->settled.load(std::memory_order_acquire)) {
+        return;
+      }
+      PunchBurstResult fail;
+      fail.error = state->last_error.empty() ? "punch burst window expired" : state->last_error;
+      if (!state->multiaddrs.empty()) {
+        fail.dialed = state->multiaddrs.back();
+      }
+      finish(std::move(fail));
+    });
+  }
+
   auto poll = std::make_shared<std::function<void()>>();
   *poll = [state, post_io, finish, poll, links_ptr]() {
     if (state->settled.load(std::memory_order_acquire)) {
@@ -308,13 +326,16 @@ void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
         return;
       }
     }
-    if (Clock::now() >= state->deadline) {
+    if (!state->use_amp_timer && Clock::now() >= state->deadline) {
       PunchBurstResult fail;
       fail.error = state->last_error.empty() ? "punch burst window expired" : state->last_error;
       if (!state->multiaddrs.empty()) {
         fail.dialed = state->multiaddrs.back();
       }
       finish(std::move(fail));
+      return;
+    }
+    if (state->settled.load(std::memory_order_acquire)) {
       return;
     }
     post_io([poll, state]() {
