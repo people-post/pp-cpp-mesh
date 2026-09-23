@@ -240,7 +240,7 @@ void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
     state->keys.push_back(key);
     state->peer_ids.push_back(peer_id);
     state->multiaddrs.push_back(ma);
-    links_ptr->EnsureAssociation(key, [state, links_ptr](pp::amp::PeerLinkManager::LinkRoe result) {
+    links_ptr->EnsureAssociation(key, [state](pp::amp::PeerLinkManager::LinkRoe result) {
       if (state->settled.load(std::memory_order_acquire)) {
         return;
       }
