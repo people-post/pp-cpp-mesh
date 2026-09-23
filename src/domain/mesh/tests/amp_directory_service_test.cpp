@@ -19,8 +19,8 @@ TEST(AmpDirectoryProtocolTest, ListMeshNodesReturnsSeedSnapshot) {
 
   auto pump = [&]() { harness->PumpBoth(); };
 
-  AmpDirectoryProtocol seed(harness->mgr_b(), pump, {});
-  AmpDirectoryProtocol client(harness->mgr_a(), pump, {});
+  AmpDirectoryProtocol seed(*harness->runtime_b, pump);
+  AmpDirectoryProtocol client(*harness->runtime_a, pump);
 
   AmpDirectoryProtocolConfig seed_cfg;
   seed_cfg.local_peer_id = harness->peer_id_b;

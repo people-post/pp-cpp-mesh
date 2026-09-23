@@ -4,7 +4,7 @@
 #include "domain/mesh/dht/DhtRecordStore.h"
 #include "domain/mesh/dht/DhtTypes.h"
 
-#include "amp/link/PeerLinkManager.h"
+#include "amp/link/MeshRuntime.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
 
@@ -51,9 +51,8 @@ public:
 
   using IoPump = std::function<void()>;
   using WorkerPost = std::function<void(std::function<void()>)>;
-  using IoPost = std::function<void(std::function<void()>)>;
 
-  AmpDhtProtocol(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {}, IoPost post_io = {});
+  AmpDhtProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump = {}, WorkerPost post_worker = {});
   ~AmpDhtProtocol();
 
   AmpDhtProtocol(const AmpDhtProtocol&) = delete;
@@ -78,10 +77,9 @@ private:
   friend struct Impl;
   struct Impl;
   std::unique_ptr<Impl> impl_;
-  pp::amp::PeerLinkManager& links_;
+  pp::amp::MeshRuntime& runtime_;
   IoPump io_pump_;
   WorkerPost post_worker_;
-  IoPost post_io_;
   DhtRecordStore store_;
   DhtRateLimiter inbound_limiter_;
   AmpDhtProtocolConfig config_;

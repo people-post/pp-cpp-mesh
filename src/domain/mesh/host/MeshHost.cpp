@@ -215,7 +215,6 @@ void MeshHost::EnsureAmpL4Coordinators() {
   }
   amp_media_relay_->SetCircuitHopRegistry(amp_circuit_hops_.get());
   auto io_pump = MakeL4IoPump();
-  auto post_io = MakeL4IoPost();
   auto post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   if (!amp_dial_back_) {
     amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Runtime(), io_pump, post_worker);
@@ -224,10 +223,10 @@ void MeshHost::EnsureAmpL4Coordinators() {
     amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Runtime(), io_pump);
   }
   if (!amp_dht_) {
-    amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Links(), io_pump, post_worker, post_io);
+    amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Runtime(), io_pump, post_worker);
   }
   if (!amp_directory_) {
-    amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Links(), io_pump, post_worker, post_io);
+    amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Runtime(), io_pump, post_worker);
   }
 }
 

@@ -18,8 +18,8 @@ TEST(AmpDhtProtocolTest, FindPeerReturnsBootstrapRecord) {
 
   auto pump = [&]() { harness->PumpBoth(); };
 
-  AmpDhtProtocol seed(harness->mgr_b(), pump, {});
-  AmpDhtProtocol client(harness->mgr_a(), pump, {});
+  AmpDhtProtocol seed(*harness->runtime_b, pump);
+  AmpDhtProtocol client(*harness->runtime_a, pump);
 
   AmpDhtProtocolConfig seed_cfg;
   seed_cfg.local_peer_id = harness->peer_id_b;
@@ -73,8 +73,8 @@ TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
 
   auto pump = [&]() { harness->PumpBoth(); };
 
-  AmpDhtProtocol node_a(harness->mgr_a(), pump, {});
-  AmpDhtProtocol node_b(harness->mgr_b(), pump, {});
+  AmpDhtProtocol node_a(*harness->runtime_a, pump);
+  AmpDhtProtocol node_b(*harness->runtime_b, pump);
 
   AmpDhtProtocolConfig cfg_a;
   cfg_a.local_peer_id = harness->peer_id_a;
