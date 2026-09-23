@@ -1,6 +1,6 @@
 #pragma once
 
-#include "amp/link/PeerLinkManager.h"
+#include "amp/link/MeshRuntime.h"
 #include "domain/mesh/reachability/PunchBurst.h"
 #include "domain/mesh/reachability/PunchTypes.h"
 #include "common/CodedFailure.h"
@@ -24,9 +24,10 @@ namespace pbr {
  * Dual-dial election is PeerLinkManager A026; loser teardown is parent-owned A027.
  *
  * Strand model (THREADING.md — exclusive Amp Drive):
+ * - Constructed on MeshRuntime&; PostToIo / PostDeferred / PostAfter / BurstDial come from runtime.
  * - Mux frame handlers only PostToIo. Never call Tick/Drive/IoPump from SM work.
- * - Burst via BurstDialCandidatesAsync when IoPost is set.
- * - AbortInflightDial + session Close + on_done via PostDeferred (MeshRuntime teardown lane).
+ * - Sync-window burst via MeshRuntime::BurstDial.
+ * - AbortInflightDial + session Close + on_done via PostDeferred.
  * - Prefer TryColdPunchAsync. Sync Try* may AmpParkUntil on a waiter that is the sole Amp driver
  *   (test harness); IoPump must not be invoked from punch SM callbacks.
  */
@@ -50,19 +51,10 @@ public:
 
   static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
 
+  /** Only for AmpParkUntil in sync Try* (harness sole driver). Empty when MeshPump owns Drive. */
   using IoPump = std::function<void()>;
-  using WorkerPost = std::function<void(std::function<void()>)>;
-  using IoPost = std::function<void(std::function<void()>)>;
 
-  /**
-   * @param io_pump  Only for AmpParkUntil in sync Try* (harness sole driver). Must be empty when
-   *                 MeshPump owns Drive. Never invoked from punch SM / PostToIo work.
-   * @param post_io  MeshRuntime::PostToIo — required for product / multi-peer.
-   * @param post_deferred  MeshRuntime::PostDeferred — Abort/Close/complete settle lane.
-   * @param post_after  MeshRuntime::PostAfter — Amp-clock sync window (optional).
-   */
-  AmpPunchCoordinator(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {},
-                      IoPost post_io = {}, IoPost post_deferred = {}, IoAfter post_after = {});
+  AmpPunchCoordinator(pp::amp::MeshRuntime& runtime, IoPump io_pump = {});
   ~AmpPunchCoordinator();
 
   AmpPunchCoordinator(const AmpPunchCoordinator&) = delete;
@@ -102,12 +94,8 @@ private:
                     const std::vector<std::string>& my_addrs, int window_ms, const std::string& reason);
   struct Impl;
   std::unique_ptr<Impl> impl_;
-  pp::amp::PeerLinkManager& links_;
+  pp::amp::MeshRuntime& runtime_;
   IoPump io_pump_;
-  WorkerPost post_worker_;
-  IoPost post_io_;
-  IoPost post_deferred_;
-  IoAfter post_after_;
   std::vector<std::string> local_addrs_;
   bool started_ = false;
 };

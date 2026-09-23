@@ -6,9 +6,7 @@
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/reachability/PunchLogic.h"
 
-#include <atomic>
 #include <chrono>
-#include <memory>
 #include <thread>
 
 namespace pbr {
@@ -23,10 +21,7 @@ bool PeerAlreadyConnectedDirect(pp::amp::PeerLinkManager& links, const std::stri
     return false;
   }
   // Nested/circuit carrier links must not short-circuit punch (L3.25c upgrade-from-circuit).
-  if (auto* link = links.FindLinkByPeerId(peer_id)) {
-    return link->Phase() == pp::amp::PeerLinkPhase::Connected && !link->IsCarrierBacked();
-  }
-  return false;
+  return links.IsConnectedToPeerId(peer_id);
 }
 
 PunchBurstResult BurstDialCandidates(pp::amp::PeerLinkManager& links, std::function<void()> io_pump,
@@ -158,193 +153,6 @@ PunchBurstResult BurstDialCandidates(pp::amp::PeerLinkManager& links, std::funct
     out.error = "punch burst window expired";
   }
   return out;
-}
-
-void BurstDialCandidatesAsync(pp::amp::PeerLinkManager& links,
-                              std::function<void(std::function<void()>)> post_io,
-                              const std::vector<std::string>& targets, int window_ms,
-                              std::function<void(PunchBurstResult)> on_done,
-                              std::function<void(std::function<void()>)> settle_on,
-                              IoAfter post_after) {
-  if (!post_io) {
-    if (!on_done) {
-      return;
-    }
-    // No PostToIo: sync dial; still honor settle_on for Abort/complete stacking.
-    if (settle_on) {
-      settle_on([links_ptr = &links, targets, window_ms, on_done = std::move(on_done)]() mutable {
-        on_done(BurstDialCandidates(*links_ptr, {}, targets, window_ms));
-      });
-    } else {
-      on_done(BurstDialCandidates(links, {}, targets, window_ms));
-    }
-    return;
-  }
-  const auto addrs = SanitizePunchAddrs(targets);
-  if (addrs.empty()) {
-    PunchBurstResult early;
-    early.error = "no peer_addrs";
-    if (!on_done) {
-      return;
-    }
-    if (settle_on) {
-      settle_on([on_done = std::move(on_done), early = std::move(early)]() mutable {
-        on_done(std::move(early));
-      });
-    } else {
-      on_done(std::move(early));
-    }
-    return;
-  }
-
-  pp::amp::PeerLinkManager* links_ptr = &links;
-  struct State {
-    std::atomic<bool> settled{false};
-    Clock::time_point deadline{};
-    bool use_amp_timer = false;
-    std::vector<std::string> keys;
-    std::vector<std::string> peer_ids;
-    std::vector<std::string> multiaddrs;
-    std::string last_error;
-    std::function<void(PunchBurstResult)> on_done;
-    std::function<void(std::function<void()>)> settle_on;
-  };
-  auto state = std::make_shared<State>();
-  const int window = window_ms > 0 ? window_ms : 2000;
-  state->deadline = Clock::now() + std::chrono::milliseconds(window);
-  state->use_amp_timer = static_cast<bool>(post_after);
-  state->on_done = std::move(on_done);
-  state->settle_on = std::move(settle_on);
-
-  auto finish = [state, links_ptr](PunchBurstResult result) {
-    if (state->settled.exchange(true, std::memory_order_acq_rel)) {
-      return;
-    }
-    // Mark settled on the PostToIo poll stack, but Abort + on_done must leave DrainPostedIo
-    // (nested Tick / session teardown SEHs on Windows). Prefer PostDeferred when available.
-    auto deliver = [state, links_ptr, result = std::move(result)]() mutable {
-      for (size_t i = 0; i < state->keys.size(); ++i) {
-        const std::string& key = state->keys[i];
-        // After PeerId adopt the winner may no longer live under punch:burst:*. Deferred
-        // settle (PostDeferred) must not Abort that peer — only losers / still-inflight keys.
-        if (result.ok && i < state->peer_ids.size() &&
-            PeerAlreadyConnectedDirect(*links_ptr, state->peer_ids[i])) {
-          continue;
-        }
-        auto* link = links_ptr->FindLink(key);
-        if (result.ok && link && link->Phase() == pp::amp::PeerLinkPhase::Connected) {
-          continue;
-        }
-        links_ptr->AbortInflightDial(key);
-      }
-      if (state->on_done) {
-        state->on_done(std::move(result));
-      }
-    };
-    if (state->settle_on) {
-      state->settle_on(std::move(deliver));
-    } else {
-      deliver();
-    }
-  };
-
-  for (size_t i = 0; i < addrs.size(); ++i) {
-    const std::string& ma = addrs[i];
-    auto parsed = pp::amp::ParseAdpMultiaddr(ma);
-    if (!parsed) {
-      state->last_error = "peer addr is not an ADP multiaddr";
-      continue;
-    }
-    const std::string peer_id = parsed->peer_id;
-    if (PeerAlreadyConnectedDirect(*links_ptr, peer_id)) {
-      PunchBurstResult ok;
-      ok.ok = true;
-      ok.dialed = ma;
-      finish(std::move(ok));
-      return;
-    }
-    const std::string key = "punch:burst:" + std::to_string(i) + ":" +
-                            peer_id.substr(0, std::min<size_t>(peer_id.size(), 12));
-    if (auto registered = links_ptr->RegisterEndpoint(key, ma); !registered) {
-      if (PeerAlreadyConnectedDirect(*links_ptr, peer_id)) {
-        PunchBurstResult ok;
-        ok.ok = true;
-        ok.dialed = ma;
-        finish(std::move(ok));
-        return;
-      }
-      state->last_error = registered.error().message;
-      continue;
-    }
-    state->keys.push_back(key);
-    state->peer_ids.push_back(peer_id);
-    state->multiaddrs.push_back(ma);
-    links_ptr->EnsureAssociation(key, [state](pp::amp::PeerLinkManager::LinkRoe result) {
-      if (state->settled.load(std::memory_order_acquire)) {
-        return;
-      }
-      if (!result) {
-        state->last_error = AmpPunchCoordinator::WrapLinkFailure(result.error()).message;
-      }
-      // Wins are observed on the PostToIo poll (PeerId adopt / non-carrier Connected).
-    });
-  }
-
-  if (state->keys.empty()) {
-    PunchBurstResult fail;
-    fail.error = state->last_error.empty() ? "no peer_addrs" : state->last_error;
-    finish(std::move(fail));
-    return;
-  }
-
-  if (post_after) {
-    post_after(std::chrono::milliseconds(window), [finish, state]() {
-      if (state->settled.load(std::memory_order_acquire)) {
-        return;
-      }
-      PunchBurstResult fail;
-      fail.error = state->last_error.empty() ? "punch burst window expired" : state->last_error;
-      if (!state->multiaddrs.empty()) {
-        fail.dialed = state->multiaddrs.back();
-      }
-      finish(std::move(fail));
-    });
-  }
-
-  auto poll = std::make_shared<std::function<void()>>();
-  *poll = [state, post_io, finish, poll, links_ptr]() {
-    if (state->settled.load(std::memory_order_acquire)) {
-      return;
-    }
-    for (size_t i = 0; i < state->peer_ids.size(); ++i) {
-      // Require PeerId-visible non-carrier win so callers see FindLinkByPeerId after settle.
-      if (PeerAlreadyConnectedDirect(*links_ptr, state->peer_ids[i])) {
-        PunchBurstResult ok;
-        ok.ok = true;
-        ok.dialed = state->multiaddrs[i];
-        finish(std::move(ok));
-        return;
-      }
-    }
-    if (!state->use_amp_timer && Clock::now() >= state->deadline) {
-      PunchBurstResult fail;
-      fail.error = state->last_error.empty() ? "punch burst window expired" : state->last_error;
-      if (!state->multiaddrs.empty()) {
-        fail.dialed = state->multiaddrs.back();
-      }
-      finish(std::move(fail));
-      return;
-    }
-    if (state->settled.load(std::memory_order_acquire)) {
-      return;
-    }
-    post_io([poll, state]() {
-      if (!state->settled.load(std::memory_order_acquire)) {
-        (*poll)();
-      }
-    });
-  };
-  post_io([poll]() { (*poll)(); });
 }
 
 } // namespace pbr
