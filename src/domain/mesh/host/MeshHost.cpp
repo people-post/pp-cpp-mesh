@@ -185,16 +185,25 @@ void MeshHost::PostControl(std::function<void()> task) {
 }
 
 std::function<void()> MeshHost::MakeL4IoPump() const {
-  if (prefer_mesh_pump_ || pump_.IsRunning()) {
-    return {};
-  }
-  return [self = const_cast<MeshHost*>(this)]() { self->Tick(); };
+  // Exclusive Amp Drive: MeshPump (or the harness Tick loop) is the sole driver.
+  // L4 must not call Tick/Drive from SM work. Empty pump → AmpParkUntil sleeps while
+  // the Amp thread progresses. AttachAmpStack tests Drive via MeshHost::Tick from the
+  // test thread only — never via this callback from PostToIo.
+  return {};
 }
 
 std::function<void(std::function<void()>)> MeshHost::MakeL4IoPost() const {
   return [self = const_cast<MeshHost*>(this)](std::function<void()> task) {
     if (self->amp_ && task) {
       self->amp_->Runtime().PostToIo(std::move(task));
+    }
+  };
+}
+
+std::function<void(std::function<void()>)> MeshHost::MakeL4IoDeferred() const {
+  return [self = const_cast<MeshHost*>(this)](std::function<void()> task) {
+    if (self->amp_ && task) {
+      self->amp_->Runtime().PostDeferred(std::move(task));
     }
   };
 }
@@ -215,12 +224,14 @@ void MeshHost::EnsureAmpL4Coordinators() {
   amp_media_relay_->SetCircuitHopRegistry(amp_circuit_hops_.get());
   auto io_pump = MakeL4IoPump();
   auto post_io = MakeL4IoPost();
+  auto post_deferred = MakeL4IoDeferred();
   auto post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
   if (!amp_dial_back_) {
     amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Links(), io_pump, post_worker, post_io);
   }
   if (!amp_punch_) {
-    amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Links(), io_pump, post_worker, post_io);
+    amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Links(), io_pump, post_worker, post_io,
+                                                       post_deferred);
   }
   if (!amp_dht_) {
     amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Links(), io_pump, post_worker, post_io);
@@ -382,7 +393,8 @@ void MeshHost::Stop() {
 
 void MeshHost::Tick() {
   if (amp_) {
-    // Single locked Drive: MeshPump and MeshControl IoPumpUntil waiters both call Tick.
+    // Sole Drive entry for this host. MeshControl / L4 must not call Tick to progress —
+    // exclusive Amp Drive (THREADING.md). Nested Drive is refused by MeshRuntime.
     amp_->Runtime().Drive();
   }
   if (amp_dht_) {

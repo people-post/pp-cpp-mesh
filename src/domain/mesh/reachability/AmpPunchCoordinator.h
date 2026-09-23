@@ -22,11 +22,12 @@ namespace pbr {
  * L3.25a–c: cold/upgrade punch — connect/offer/candidates/sync + burst; upgrade uses circuit R1 as introducer.
  * Dual-dial election is PeerLinkManager A026; loser teardown is parent-owned A027.
  *
- * Strand model (THREADING.md Amp PeerLink strand):
- * - Mux / ChannelSession frame handlers only enqueue via IoPost (MeshRuntime::PostToIo).
- * - Dial, burst, and introducer continuation run on the IO strand — never nested under ChannelMux.
- * - Prefer TryColdPunchAsync / TryUpgradePunchAsync. Sync Try* may AmpParkUntil outside mux with IoPump.
- * - IoPost is required for correct multi-peer / product use; empty IoPost is test-only and unsafe under mux.
+ * Strand model (THREADING.md — exclusive Amp Drive):
+ * - Mux frame handlers only PostToIo. Never call Tick/Drive/IoPump from SM work.
+ * - Burst via BurstDialCandidatesAsync when IoPost is set.
+ * - AbortInflightDial + session Close + on_done via PostDeferred (MeshRuntime teardown lane).
+ * - Prefer TryColdPunchAsync. Sync Try* may AmpParkUntil on a waiter that is the sole Amp driver
+ *   (test harness); IoPump must not be invoked from punch SM callbacks.
  */
 class AmpPunchCoordinator {
 public:
@@ -52,8 +53,14 @@ public:
   using WorkerPost = std::function<void(std::function<void()>)>;
   using IoPost = std::function<void(std::function<void()>)>;
 
+  /**
+   * @param io_pump  Only for AmpParkUntil in sync Try* (harness sole driver). Must be empty when
+   *                 MeshPump owns Drive. Never invoked from punch SM / PostToIo work.
+   * @param post_io  MeshRuntime::PostToIo — required for product / multi-peer.
+   * @param post_deferred  MeshRuntime::PostDeferred — Abort/Close/complete settle lane.
+   */
   AmpPunchCoordinator(pp::amp::PeerLinkManager& links, IoPump io_pump = {}, WorkerPost post_worker = {},
-                      IoPost post_io = {});
+                      IoPost post_io = {}, IoPost post_deferred = {});
   ~AmpPunchCoordinator();
 
   AmpPunchCoordinator(const AmpPunchCoordinator&) = delete;
@@ -66,12 +73,6 @@ public:
   void SetProbeInbound(ProbeInbound handler);
   void Stop();
   bool IsStarted() const { return started_; }
-
-  /**
-   * Drain SchedulePark (BurstDial) work. Multi-coordinator tests must call this on A/I/B from
-   * the shared IoPump so the introducer/target park queues run while the initiator AmpParkUntil.
-   */
-  void DrainParkWork();
 
   void SetLocalCandidateAddrs(std::vector<std::string> addrs);
   const std::vector<std::string>& LocalCandidateAddrs() const { return local_addrs_; }
@@ -103,6 +104,7 @@ private:
   IoPump io_pump_;
   WorkerPost post_worker_;
   IoPost post_io_;
+  IoPost post_deferred_;
   std::vector<std::string> local_addrs_;
   bool started_ = false;
 };

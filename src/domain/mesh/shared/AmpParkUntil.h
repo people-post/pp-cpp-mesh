@@ -11,9 +11,10 @@ namespace pbr {
 /**
  * Park until `done` or `deadline`.
  *
- * Product MeshPump drives Amp — pass an empty `io_pump` so waiters sleep instead of
- * contending on `MeshHost::Tick` / `Drive`. Harnesses without a pump supply `io_pump`
- * (typically `Tick` / `PumpBoth`) so callbacks still progress.
+ * Exclusive Amp Drive: pass an empty `io_pump` so waiters sleep while MeshPump (or the
+ * harness Tick/Drive loop acting as Amp) progresses. Do not pass a callback that calls
+ * Tick/Drive from L4 SM / PostToIo work — nested Drive is refused.
+ * Harness sync facades may pass PumpAll only when the waiter thread *is* the sole Amp driver.
  */
 inline void AmpParkUntil(const std::function<bool()>& done,
                          const std::chrono::steady_clock::time_point deadline,

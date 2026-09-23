@@ -63,22 +63,14 @@ AmpPunchCoordinator::IoPost PostIo(pp::amp::MeshRuntime& rt) {
   return [&rt](std::function<void()> task) { rt.PostToIo(std::move(task)); };
 }
 
-/** Shared IoPump: drain SchedulePark (BurstDial) on A/I/B then PumpAll. */
-std::function<void()> MakeTriplePunchPump(pbr::test::AmpMeshTripleHarness& harness,
-                                          AmpPunchCoordinator* punch_a, AmpPunchCoordinator* punch_i,
-                                          AmpPunchCoordinator* punch_b) {
-  return [&harness, punch_a, punch_i, punch_b]() {
-    if (punch_a) {
-      punch_a->DrainParkWork();
-    }
-    if (punch_i) {
-      punch_i->DrainParkWork();
-    }
-    if (punch_b) {
-      punch_b->DrainParkWork();
-    }
-    harness.PumpAll();
-  };
+/** MeshRuntime::PostDeferred — Abort/Close/complete settle lane. */
+AmpPunchCoordinator::IoPost PostDeferred(pp::amp::MeshRuntime& rt) {
+  return [&rt](std::function<void()> task) { rt.PostDeferred(std::move(task)); };
+}
+
+/** Shared IoPump for AmpParkUntil: exclusive Drive via harness PumpAll (no nested Tick from SM). */
+std::function<void()> MakeTriplePunchPump(pbr::test::AmpMeshTripleHarness& harness) {
+  return [&harness]() { harness.PumpAll(); };
 }
 
 TEST(AmpPunchCoordinatorTest, NotStartedReturnsCodedFailure) {
@@ -130,10 +122,10 @@ TEST(AmpPunchCoordinatorTest, SeedIntroducerColdPunchConnectsAToB) {
       harness->PumpAll();
     }
   };
-  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a));
-  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r));
-  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b));
-  shared_pump = MakeTriplePunchPump(*harness, &punch_a, &punch_i, &punch_b);
+  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a), PostDeferred(*harness->runtime_a));
+  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r), PostDeferred(*harness->runtime_r));
+  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b), PostDeferred(*harness->runtime_b));
+  shared_pump = MakeTriplePunchPump(*harness);
   punch_a.SetLocalCandidateAddrs({harness->ma_a});
   punch_i.SetLocalCandidateAddrs({harness->ma_r});
   punch_b.SetLocalCandidateAddrs({harness->ma_b});
@@ -213,10 +205,10 @@ TEST(AmpPunchCoordinatorTest, ContactIntroducerColdPunchConnectsAToB) {
       harness->PumpAll();
     }
   };
-  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a));
-  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r));
-  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b));
-  shared_pump = MakeTriplePunchPump(*harness, &punch_a, &punch_i, &punch_b);
+  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a), PostDeferred(*harness->runtime_a));
+  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r), PostDeferred(*harness->runtime_r));
+  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b), PostDeferred(*harness->runtime_b));
+  shared_pump = MakeTriplePunchPump(*harness);
   punch_a.SetLocalCandidateAddrs({harness->ma_a});
   punch_i.SetLocalCandidateAddrs({harness->ma_r});
   punch_b.SetLocalCandidateAddrs({harness->ma_b});
@@ -281,10 +273,10 @@ TEST(AmpPunchCoordinatorTest, DualDialRaceElectsSingleConnectedSession) {
       harness->PumpAll();
     }
   };
-  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a));
-  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r));
-  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b));
-  shared_pump = MakeTriplePunchPump(*harness, &punch_a, &punch_i, &punch_b);
+  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a), PostDeferred(*harness->runtime_a));
+  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r), PostDeferred(*harness->runtime_r));
+  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b), PostDeferred(*harness->runtime_b));
+  shared_pump = MakeTriplePunchPump(*harness);
   punch_a.SetLocalCandidateAddrs({harness->ma_a});
   punch_i.SetLocalCandidateAddrs({harness->ma_r});
   punch_b.SetLocalCandidateAddrs({harness->ma_b});
@@ -372,10 +364,10 @@ TEST(AmpPunchCoordinatorTest, Stage2_PunchCoordinatorsStartWithBlackholeAddrs) {
       fx.PumpAll();
     }
   };
-  AmpPunchCoordinator punch_a(fx.harness->mgr_a(), pump_bridge, {}, PostIo(*fx.harness->runtime_a));
-  AmpPunchCoordinator punch_i(fx.harness->mgr_r(), pump_bridge, {}, PostIo(*fx.harness->runtime_r));
-  AmpPunchCoordinator punch_b(fx.harness->mgr_b(), pump_bridge, {}, PostIo(*fx.harness->runtime_b));
-  shared_pump = MakeTriplePunchPump(*fx.harness, &punch_a, &punch_i, &punch_b);
+  AmpPunchCoordinator punch_a(fx.harness->mgr_a(), pump_bridge, {}, PostIo(*fx.harness->runtime_a), PostDeferred(*fx.harness->runtime_a));
+  AmpPunchCoordinator punch_i(fx.harness->mgr_r(), pump_bridge, {}, PostIo(*fx.harness->runtime_r), PostDeferred(*fx.harness->runtime_r));
+  AmpPunchCoordinator punch_b(fx.harness->mgr_b(), pump_bridge, {}, PostIo(*fx.harness->runtime_b), PostDeferred(*fx.harness->runtime_b));
+  shared_pump = MakeTriplePunchPump(*fx.harness);
   punch_a.SetLocalCandidateAddrs({fx.blackhole_a});
   punch_i.SetLocalCandidateAddrs({fx.harness->ma_r});
   punch_b.SetLocalCandidateAddrs({fx.blackhole_b});
@@ -400,7 +392,7 @@ TEST(AmpPunchCoordinatorTest, Stage3_OpenPunchChannelToIntroducer) {
   ASSERT_TRUE(fx.AssocAAndBToIntroducer());
 
   auto pump = [&]() { fx.PumpAll(); };
-  AmpPunchCoordinator punch_i(fx.harness->mgr_r(), pump, {}, PostIo(*fx.harness->runtime_r));
+  AmpPunchCoordinator punch_i(fx.harness->mgr_r(), pump, {}, PostIo(*fx.harness->runtime_r), PostDeferred(*fx.harness->runtime_r));
   punch_i.Start();
 
   SettledWait<uint32_t, Error> wait;
@@ -428,7 +420,7 @@ TEST(AmpPunchCoordinatorTest, Stage4_IntroducerOpensPunchChannelToTarget) {
   ASSERT_TRUE(fx.AssocAAndBToIntroducer());
 
   auto pump = [&]() { fx.PumpAll(); };
-  AmpPunchCoordinator punch_b(fx.harness->mgr_b(), pump, {}, PostIo(*fx.harness->runtime_b));
+  AmpPunchCoordinator punch_b(fx.harness->mgr_b(), pump, {}, PostIo(*fx.harness->runtime_b), PostDeferred(*fx.harness->runtime_b));
   punch_b.SetLocalCandidateAddrs({fx.blackhole_b});
   punch_b.Start();
 
@@ -537,10 +529,10 @@ TEST(AmpPunchCoordinatorTest, SyncWindowExpiryReturnsPunchFailed) {
       harness->PumpAll();
     }
   };
-  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a));
-  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r));
-  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b));
-  shared_pump = MakeTriplePunchPump(*harness, &punch_a, &punch_i, &punch_b);
+  AmpPunchCoordinator punch_a(harness->mgr_a(), pump_bridge, {}, PostIo(*harness->runtime_a), PostDeferred(*harness->runtime_a));
+  AmpPunchCoordinator punch_i(harness->mgr_r(), pump_bridge, {}, PostIo(*harness->runtime_r), PostDeferred(*harness->runtime_r));
+  AmpPunchCoordinator punch_b(harness->mgr_b(), pump_bridge, {}, PostIo(*harness->runtime_b), PostDeferred(*harness->runtime_b));
+  shared_pump = MakeTriplePunchPump(*harness);
   punch_a.SetLocalCandidateAddrs({blackhole_a});
   punch_i.SetLocalCandidateAddrs({harness->ma_r});
   punch_b.SetLocalCandidateAddrs({blackhole_b});
