@@ -146,7 +146,7 @@ private:
   AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
   void StartOwnedThreads();
   void StopOwnedThreads();
-  /** Always empty — exclusive Amp Drive (MeshPump or harness Tick). L4 must not Tick. */
+  /** Empty under MeshPump; AttachAmpStack harnesses return Tick for sync AmpParkUntil. */
   std::function<void()> MakeL4IoPump() const;
   std::function<void(std::function<void()>)> MakeL4IoPost() const;
   /** MeshRuntime::PostAfter — Amp-clock delayed work (deadlines). */

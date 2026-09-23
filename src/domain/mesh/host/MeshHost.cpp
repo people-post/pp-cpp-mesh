@@ -185,11 +185,14 @@ void MeshHost::PostControl(std::function<void()> task) {
 }
 
 std::function<void()> MeshHost::MakeL4IoPump() const {
-  // Exclusive Amp Drive: MeshPump (or the harness Tick loop) is the sole driver.
-  // L4 must not call Tick/Drive from SM work. Empty pump → AmpParkUntil sleeps while
-  // the Amp thread progresses. AttachAmpStack tests Drive via MeshHost::Tick from the
-  // test thread only — never via this callback from PostToIo.
-  return {};
+  // Exclusive Amp Drive: MeshPump product path never Ticks from L4 — AmpParkUntil sleeps
+  // while MeshPumpThread Drives. AttachAmpStack harnesses have no MeshPump; sync Try*
+  // AmpParkUntil on the harness thread (sole driver) must Tick here. Never invoke this
+  // from PostToIo / mux (nested Drive is refused).
+  if (prefer_mesh_pump_) {
+    return {};
+  }
+  return [self = const_cast<MeshHost*>(this)]() { self->Tick(); };
 }
 
 std::function<void(std::function<void()>)> MeshHost::MakeL4IoPost() const {
