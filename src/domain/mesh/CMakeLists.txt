@@ -2,7 +2,9 @@
 # PeerId / identity lives under src/foundation/identity/ (pp_foundation_identity).
 
 set(PP_DOMAIN_MESH_HOST_SOURCES
+  host/AmpLinkConfig.cpp
   host/MeshHost.cpp
+  host/MeshLinkEventLog.cpp
   host/MeshPorts.cpp
   host/MeshControlPool.cpp
   host/MeshControlDispatch.cpp

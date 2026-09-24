@@ -238,6 +238,36 @@ TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridge) {
   }
 }
 
+// Dogfood 2026-09-24: a cold relay link idled past the 5 s ADP liveness window and was evicted
+// with the answerer's reservation ("Couldn't connect"). Held reservations keep the relay link hot.
+TEST_F(CircuitTunnelCoordinatorTest, ReserveKeepsRelayLinkHotUntilReleased) {
+  BridgeWait reserve_wait;
+  auto rid = client_b_->StartReserve("relay", reserve_wait.Fn(), 15000);
+  ASSERT_TRUE(rid);
+  reserve_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
+  ASSERT_TRUE(reserve_wait.result->ok) << reserve_wait.result->error;
+  ASSERT_EQ(client_b_->Phase(rid), CircuitTunnelPhase::Reserved);
+
+  auto* relay_link = harness_->mgr_b().FindLink("relay");
+  ASSERT_NE(relay_link, nullptr);
+  EXPECT_EQ(relay_link->GetKeepaliveTier(), pp::amp::KeepaliveTier::Hot);
+
+  // Past the ADP liveness window on the Amp clock: a cold link would be evicted here.
+  for (int i = 0; i < 28; ++i) {
+    harness_->clock->Advance(250);
+    harness_->PumpAll();
+  }
+  EXPECT_TRUE(harness_->mgr_b().IsConnected("relay")) << "reserved relay link must not idle out";
+  EXPECT_EQ(client_b_->Phase(rid), CircuitTunnelPhase::Reserved);
+
+  client_b_->CancelTunnel(rid);
+  harness_->PumpAll();
+  // Released: back to the cold lifecycle (may already be evicted — the relay never talks first).
+  relay_link = harness_->mgr_b().FindLink("relay");
+  EXPECT_TRUE(relay_link == nullptr || !relay_link->IsWarm()) << "released reservation must drop the hot tier";
+}
+
 TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridgePeerIdOnly) {
   // Nested call-media: dialer sends peer-id-only. Relay must accept a Connected/reserved
   // target without a dial-book multiaddr (dogfood 997c1c6f).

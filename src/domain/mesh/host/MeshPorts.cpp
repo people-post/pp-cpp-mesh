@@ -4,6 +4,7 @@
 #include "amp/link/MeshRuntime.h"
 #include "amp/link/PeerLinkManager.h"
 #include "amp/link/Types.h"
+#include "common/Logger.h"
 #include "domain/mesh/shared/AmpChannelOpen.h"
 
 #include <chrono>
@@ -11,6 +12,11 @@
 namespace pbr {
 
 namespace {
+
+logging::Logger& MeshPortsLog() {
+  static logging::Logger log = logging::getLogger("MeshPorts");
+  return log;
+}
 
 MeshPeerLinkPhase ToPhase(pp::amp::PeerLinkPhase phase) {
   switch (phase) {
@@ -169,6 +175,14 @@ public:
 
   void AbortInflightDial(const std::string& peer_key) override {
     runtime_.WithIoLock([&] { links_.AbortInflightDial(peer_key); });
+  }
+
+  void DropLink(const std::string& peer_key) override {
+    // Amp schedules the drop on Tick (reason "requested" in the MeshLink log); both ends evict.
+    const size_t n = runtime_.RequestDropLink(peer_key);
+    if (n > 0) {
+      MeshPortsLog().info << "amp link drop requested peer_key=" << peer_key << " links=" << n;
+    }
   }
 
   void WhenChannelOpen(const std::string& peer_key, uint32_t channel_id, int64_t deadline_ms,
