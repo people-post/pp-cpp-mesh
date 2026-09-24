@@ -1,9 +1,7 @@
 #include "domain/mesh/host/MeshPorts.h"
 
-#include "amp/L1/Connection.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/MeshRuntime.h"
-#include "amp/link/PeerLink.h"
 #include "amp/link/PeerLinkManager.h"
 #include "amp/link/Types.h"
 #include "common/Logger.h"
@@ -180,22 +178,11 @@ public:
   }
 
   void DropLink(const std::string& peer_key) override {
-    runtime_.WithIoLock([&] {
-      int n = 0;
-      for (pp::amp::PeerLink* link : {links_.FindLink(peer_key), links_.FindLinkByPeerId(peer_key)}) {
-        if (!link) {
-          continue;
-        }
-        pp::adp::Connection* conn = link->ConnectionOrNull();
-        if (conn && !conn->IsClosed()) {
-          conn->Close();
-          ++n;
-        }
-      }
-      if (n > 0) {
-        MeshPortsLog().info << "amp link dropped peer_key=" << peer_key << " links=" << n;
-      }
-    });
+    // Amp schedules the drop on Tick (reason "requested" in the MeshLink log); both ends evict.
+    const size_t n = runtime_.RequestDropLink(peer_key);
+    if (n > 0) {
+      MeshPortsLog().info << "amp link drop requested peer_key=" << peer_key << " links=" << n;
+    }
   }
 
   void WhenChannelOpen(const std::string& peer_key, uint32_t channel_id, int64_t deadline_ms,
