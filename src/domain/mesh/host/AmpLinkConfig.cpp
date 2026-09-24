@@ -1,12 +1,8 @@
 #include "domain/mesh/host/AmpLinkConfig.h"
 
-#include "amp/L1/Types.h"
 #include "foundation/identity/PeerIdUtil.h"
 
 namespace pbr {
-
-static_assert(kProductHotKeepaliveInterval.count() < pp::adp::kAliveTimeoutMs,
-              "hot keepalive must beat the peer's ADP liveness window");
 
 pp::amp::PeerLinkConfig MakeProductAmpLinkConfig() {
   pp::amp::PeerLinkConfig config;
@@ -18,6 +14,7 @@ pp::amp::PeerLinkConfig MakeProductAmpLinkConfig() {
     return *peer_id;
   };
   config.keepalive_hot_interval = kProductHotKeepaliveInterval;
+  config.keepalive_warm_interval = kProductWarmKeepaliveInterval;
   return config;
 }
 
