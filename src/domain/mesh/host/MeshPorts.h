@@ -152,6 +152,13 @@ public:
   virtual void AbortInflightDial(const std::string& /*peer_key*/) {}
 
   /**
+   * Close the live link for this dial key / PeerId so the manager evicts it on the next Tick
+   * and later dials use fresh DialBook candidates (B39: peer changed network but the old link
+   * still reads Connected). Default no-op for fakes.
+   */
+  virtual void DropLink(const std::string& /*peer_key*/) {}
+
+  /**
    * Poll until mux channel is open or `deadline_ms` (steady_clock epoch ms).
    * AmpChatPeerLinks converts to Amp clock before PeerLinkManager::WhenChannelOpen.
    */
