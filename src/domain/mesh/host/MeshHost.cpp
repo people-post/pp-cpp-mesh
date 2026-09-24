@@ -2,6 +2,7 @@
 #include "domain/mesh/reachability/AmpObservedAddrs.h"
 #include "domain/mesh/host/MeshControlDispatch.h"
 #include "domain/mesh/host/MeshHost.h"
+#include "domain/mesh/host/MeshLinkEventLog.h"
 #include "domain/mesh/reachability/DialBackTypes.h"
 #include "domain/mesh/reachability/PunchTypes.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
@@ -133,6 +134,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   amp_listen_multiaddr_ = *listen;
   (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   amp_ = std::move(*stack);
+  InstallMeshLinkEventLog(amp_->Runtime());
   chat_links_ = NewAmpChatPeerLinks(amp_->Runtime());
   ApplyAmpAdvertisement(config);
   prefer_mesh_pump_ = true;

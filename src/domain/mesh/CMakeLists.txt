@@ -3,6 +3,7 @@
 
 set(PP_DOMAIN_MESH_HOST_SOURCES
   host/MeshHost.cpp
+  host/MeshLinkEventLog.cpp
   host/MeshPorts.cpp
   host/MeshControlPool.cpp
   host/MeshControlDispatch.cpp
