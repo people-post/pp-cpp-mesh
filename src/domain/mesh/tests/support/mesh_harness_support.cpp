@@ -1,5 +1,6 @@
 #include "domain/mesh/tests/support/mesh_harness_support.h"
 
+#include "domain/mesh/host/AmpLinkConfig.h"
 #include "foundation/identity/PeerIdUtil.h"
 
 namespace pbr::test {
@@ -9,15 +10,8 @@ pp::Roe<std::string> DeriveTestPeerId(const pp::amp::ByteVector& identity_public
 }
 
 pp::amp::PeerLinkConfig AmpMeshTestLinkConfig() {
-  pp::amp::PeerLinkConfig config;
-  config.peer_id_from_identity = [](const pp::amp::ByteVector& identity_public_key) -> std::string {
-    auto peer_id = DeriveTestPeerId(identity_public_key);
-    if (!peer_id) {
-      return {};
-    }
-    return *peer_id;
-  };
-  return config;
+  // Same tuning as product (keepalive cadence vs liveness matters for link survival tests).
+  return MakeProductAmpLinkConfig();
 }
 
 } // namespace pbr::test

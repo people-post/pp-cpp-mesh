@@ -2,6 +2,7 @@
 #include "domain/mesh/reachability/AmpObservedAddrs.h"
 #include "domain/mesh/host/MeshControlDispatch.h"
 #include "domain/mesh/host/MeshHost.h"
+#include "domain/mesh/host/AmpLinkConfig.h"
 #include "domain/mesh/host/MeshLinkEventLog.h"
 #include "domain/mesh/reachability/DialBackTypes.h"
 #include "domain/mesh/reachability/PunchTypes.h"
@@ -24,22 +25,6 @@
 #include "common/PbrCompat.h"
 
 namespace pbr {
-
-namespace {
-
-pp::amp::PeerLinkConfig MakeAmpLinkConfig() {
-  pp::amp::PeerLinkConfig config;
-  config.peer_id_from_identity = [](const pp::amp::ByteVector& identity_public_key) -> std::string {
-    auto peer_id = PeerIdFromMlDsaPublicKey(identity_public_key);
-    if (!peer_id) {
-      return {};
-    }
-    return *peer_id;
-  };
-  return config;
-}
-
-} // namespace
 
 MeshHost::MeshHost() : reachability_(std::make_unique<ReachabilityEngine>()) {}
 
@@ -116,7 +101,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   pp::amp::AmpStack::Config amp_cfg;
   amp_cfg.identity = std::move(identity);
   amp_cfg.local_peer_id = *peer_id;
-  amp_cfg.link_config = MakeAmpLinkConfig();
+  amp_cfg.link_config = MakeProductAmpLinkConfig();
 
   auto stack = pp::amp::AmpStack::Create(std::move(io), amp_clock_, std::move(amp_cfg));
   if (!stack) {
