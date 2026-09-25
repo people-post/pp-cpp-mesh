@@ -1,5 +1,7 @@
 #include "domain/mesh/dht/AmpDhtProtocol.h"
 
+#include "domain/mesh/l4/shared/InboundReply.h"
+
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
 #include "domain/mesh/dht/DhtRecordCodec.h"
@@ -93,6 +95,10 @@ struct AmpDhtProtocol::Impl {
   DeferredSelf deferred;
 
   pp::amp::PeerLinkManager& Links() { return runtime->Links(); }
+  /** IO lane for InboundReply (MeshHost::Stop joins MeshControl before freeing the runtime). */
+  InboundReply::IoPost IoPost() {
+    return [rt = runtime](std::function<void()> task) { rt->PostToIo(std::move(task)); };
+  }
 
   void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id,
                            const uint32_t channel_id) {
@@ -105,7 +111,7 @@ struct AmpDhtProtocol::Impl {
     });
     auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
     *session_holder = Links().BindChannel(
-        remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
+        remote_peer_id, channel_id, InboundReplyPolicy(pp::amp::ControlJsonChannelPolicy()),
         [this, session_holder, remote_pk = std::move(remote_pk),
          remote_peer = remote_peer_id](Roe<std::vector<uint8_t>> frame) mutable {
           auto session = *session_holder;
@@ -113,7 +119,9 @@ struct AmpDhtProtocol::Impl {
             return false;
           }
           auto body = std::move(*frame);
-          RunWorker(post_worker, [this, session, body = std::move(body), remote_pk = std::move(remote_pk),
+          // Keep the channel open for the worker's reply (InboundReply.h); `reply` closes it.
+          auto reply = MakeInboundReply(session, IoPost());
+          RunWorker(post_worker, [this, reply, body = std::move(body), remote_pk = std::move(remote_pk),
                                   remote_peer = std::move(remote_peer)]() mutable {
             if (stopped.load(std::memory_order_acquire) || !self) {
               return;
@@ -122,16 +130,16 @@ struct AmpDhtProtocol::Impl {
             auto root = TryParseObject(json_utf8);
             if (!root) {
               Object resp = MakeErrorResponse("", "invalid_json", "invalid json");
-              (void)session->EnqueueOutbound(JsonToBody(DumpJson(resp)));
-              session->Close();
+              reply->Send(JsonToBody(DumpJson(resp)));
+              reply->Close();
               return;
             }
             const std::string req_id = root->getString("req_id").value_or("");
             const int version = static_cast<int>(root->getIf<int64_t>("version").value_or(0));
             if (version != kDhtWireVersion) {
               Object resp = MakeErrorResponse(req_id, "bad_version", "unsupported version");
-              (void)session->EnqueueOutbound(JsonToBody(DumpJson(resp)));
-              session->Close();
+              reply->Send(JsonToBody(DumpJson(resp)));
+              reply->Close();
               return;
             }
             const std::string op = root->getString("op").value_or("");
@@ -215,10 +223,10 @@ struct AmpDhtProtocol::Impl {
                       } else {
                         response = MakeErrorResponse(req_id, "unsupported_op", "unsupported op");
                       }
-                      (void)session->EnqueueOutbound(JsonToBody(DumpJson(response)));
-                      session->Close();
+                      reply->Send(JsonToBody(DumpJson(response)));
+                      reply->Close();
                     });
-          return false;
+          return true;
         });
   }
 
