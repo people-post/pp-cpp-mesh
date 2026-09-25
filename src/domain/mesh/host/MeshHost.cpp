@@ -317,12 +317,14 @@ void MeshHost::StopAmp() {
   amp_last_error_.clear();
 }
 
-Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr) {
+Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr,
+                                   const AttachDrive drive) {
   if (!stack) {
     return Error("mesh host: null AmpStack");
   }
   StopAmp();
-  prefer_mesh_pump_ = false;
+  // Set before EnsureAmpL4Coordinators: L4 captures MakeL4IoPump (empty under MeshPump).
+  prefer_mesh_pump_ = drive == AttachDrive::MeshPump;
   amp_ = std::move(stack);
   amp_->Start();
   amp_listen_multiaddr_ = std::move(listen_multiaddr);
@@ -334,8 +336,13 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   // Tests / AttachAmpStack: start outbound-capable L4 without inbound hosting unless configured.
   // Keep the caller-supplied listen multiaddr — LAN refresh would replace MemoryDatagramIo
   // synthetic addrs (e.g. 10.0.0.1) with real NIC IPs.
-  // Do not start MeshPump here — harnesses call Tick() manually (VirtualClock is not pump-safe).
+  // Manual: no MeshPump — harnesses call Tick() (VirtualClock is not pump-safe).
   StartAmpL4Hosting(false, false, false, false, /*refresh_listen_addrs=*/false);
+  if (drive == AttachDrive::MeshPump) {
+    InstallMeshLinkEventLog(amp_->Runtime());
+    StartOwnedThreads();
+    return Roe<void>();
+  }
   if (!control_) {
     control_ = std::make_unique<MeshControlPool>();
   }

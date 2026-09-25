@@ -123,7 +123,15 @@ public:
   /** Hot refresh: advertise `/pp-mesh/directory/1.0.0` when serving. */
   void RefreshAmpDirectoryHosting(bool host_directory);
 
-  Roe<void> AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr = {});
+  /** Who drives the attached stack's Amp turn loop. */
+  enum class AttachDrive {
+    /** Caller Ticks (VirtualClock / MemoryDatagramIo tests — MeshPump is not clock-safe). */
+    Manual,
+    /** Own MeshPump + MeshControl like product Start (wall-clock harnesses, e.g. pp-call-probe). */
+    MeshPump,
+  };
+  Roe<void> AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr = {},
+                           AttachDrive drive = AttachDrive::Manual);
 
   const std::string& LastError() const { return last_error_; }
 
