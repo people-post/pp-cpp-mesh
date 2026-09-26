@@ -54,6 +54,7 @@ set(PP_DOMAIN_MESH_L4_MEDIA_RELAY_SOURCES
   l4/media_relay/AmpMediaRelayCoordinator.cpp
   l4/media_relay/AmpMediaRelayClient.cpp
   l4/media_relay/MediaRelayAttach.cpp
+  l4/media_relay/MediaRelayFrameCrypto.cpp
 )
 
 set(PP_DOMAIN_MESH_L4_CALL_MEDIA_SOURCES
