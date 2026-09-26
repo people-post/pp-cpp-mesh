@@ -1,6 +1,6 @@
-#include "feature/calls/PeerReachCoordinator.h"
+#include "domain/mesh/reachability/PeerReachCoordinator.h"
 
-#include "feature/calls/CallTopologyRelayDeps.h"
+#include "domain/mesh/reachability/MeshReachPorts.h"
 #include "foundation/runtime/AppRuntime.h"
 
 #include <atomic>
@@ -67,11 +67,11 @@ public:
     std::lock_guard lock(mu);
     connected.erase(peer_key);
   }
-  void ClearCallMediaCircuitHop(const std::string& peer_key) override {
+  void ClearPeerCircuitHop(const std::string& peer_key) override {
     std::lock_guard lock(mu);
     circuit_hops.erase(peer_key);
   }
-  bool HasCallMediaCircuitHop(const std::string& peer_key) const override {
+  bool HasPeerCircuitHop(const std::string& peer_key) const override {
     std::lock_guard lock(mu);
     return circuit_hops.count(peer_key) > 0;
   }
@@ -104,10 +104,10 @@ public:
   explicit FakeCircuitReach(FakeDialRegistry& dial) : dial_(dial) {}
 
   Roe<void> TryEnsureHopReachable(const std::string& /*hop*/) override { return {}; }
-  Roe<void> TryEnsureCallMediaReachable(const std::string& /*peer*/) override {
+  Roe<void> TryEnsurePeerReachable(const std::string& /*peer*/) override {
     return Error("sync not used");
   }
-  void TryEnsureCallMediaReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
+  void TryEnsurePeerReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
                                         const bool allow_circuit) override {
     calls.fetch_add(1);
     last_allow_circuit.store(allow_circuit);

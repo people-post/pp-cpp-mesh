@@ -1,4 +1,4 @@
-#include "feature/calls/AmpCircuitHopReach.h"
+#include "domain/mesh/reachability/AmpCircuitHopReach.h"
 #include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
 #include "domain/mesh/l4/circuit/CircuitHopAttemptBudget.h"
 
@@ -78,14 +78,14 @@ void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_
   }
 }
 
-void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& peer_key,
+void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key,
                                                           std::function<void(Roe<void>)> on_done,
                                                           const bool allow_circuit) {
   if (!on_done) {
     return;
   }
   if (peer_key.empty()) {
-    on_done(Error("missing call peer"));
+    on_done(Error("missing peer"));
     return;
   }
   auto run = [this, peer_key, allow_circuit, on_done = std::move(on_done)]() mutable {
@@ -127,11 +127,11 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
       if (links_.IsConnected(peer_key)) {
         finish(Roe<void>());
       } else {
-        finish(last_err ? *last_err : Error("call-media circuit reach failed"));
+        finish(last_err ? *last_err : Error("peer circuit reach failed"));
       }
       return;
     }
-    AmpReachLog().info << "TryEnsureCallMediaReachable punch after circuit miss target=" << peer_key;
+    AmpReachLog().info << "TryEnsurePeerReachable punch after circuit miss target=" << peer_key;
     try_punch_(peer_key, [this, peer_key, finish, settled, last_err, aborted](Roe<void>) mutable {
       if (settled->load(std::memory_order_acquire)) {
         return;
@@ -144,12 +144,12 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
         finish(Roe<void>());
         return;
       }
-      finish(last_err ? *last_err : Error("call peer not connected after punch"));
+      finish(last_err ? *last_err : Error("peer not connected after punch"));
     });
   };
 
   if (!allow_circuit) {
-    AmpReachLog().info << "TryEnsureCallMediaReachable punch-only (no circuit dial) target="
+    AmpReachLog().info << "TryEnsurePeerReachable punch-only (no circuit dial) target="
                        << peer_key;
     run_punch(nullptr);
     return;
@@ -176,7 +176,7 @@ void AmpCircuitHopReach::TryEnsureCallMediaReachableAsync(const std::string& pee
           return;
         }
         auto last_err = std::make_shared<Error>(
-            !via ? via.error() : Error("call peer not connected after circuit"));
+            !via ? via.error() : Error("peer not connected after circuit"));
         run_punch(std::move(last_err));
       });
   };
@@ -599,13 +599,13 @@ Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_
   return wait.Wait(std::chrono::milliseconds(1), Error("circuit hop reach timed out"));
 }
 
-Roe<void> AmpCircuitHopReach::TryEnsureCallMediaReachable(const std::string& peer_key) {
+Roe<void> AmpCircuitHopReach::TryEnsurePeerReachable(const std::string& peer_key) {
   if (AppRuntime::IsShuttingDown()) {
-    AmpReachLog().debug << "TryEnsureCallMediaReachable rejected: shutting down";
+    AmpReachLog().debug << "TryEnsurePeerReachable rejected: shutting down";
     return Error("shutdown in progress");
   }
   SettledWait<void> wait;
-  TryEnsureCallMediaReachableAsync(peer_key, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
+  TryEnsurePeerReachableAsync(peer_key, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
   const auto deadline = Clock::now() + std::chrono::milliseconds(30000);
   AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
   return wait.Wait(std::chrono::milliseconds(1), Error("call-media circuit reach timed out"));

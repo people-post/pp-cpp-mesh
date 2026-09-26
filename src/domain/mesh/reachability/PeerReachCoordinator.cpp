@@ -1,4 +1,4 @@
-#include "feature/calls/PeerReachCoordinator.h"
+#include "domain/mesh/reachability/PeerReachCoordinator.h"
 
 #include "domain/mesh/l4/circuit/CircuitServeDialPolicy.h"
 #include "foundation/runtime/AppRuntime.h"
@@ -149,7 +149,7 @@ bool PeerReachCoordinator::HasCircuitReach() const {
 
 bool PeerReachCoordinator::HasRelayHop(const std::string& key) const {
   IDialRegistry* dial = dial_.load(std::memory_order_acquire);
-  return dial && !key.empty() && dial->HasCallMediaCircuitHop(key);
+  return dial && !key.empty() && dial->HasPeerCircuitHop(key);
 }
 
 void PeerReachCoordinator::ForgetPath(const std::string& key) {
@@ -157,7 +157,7 @@ void PeerReachCoordinator::ForgetPath(const std::string& key) {
   if (!dial || key.empty()) {
     return;
   }
-  dial->ClearCallMediaCircuitHop(key);
+  dial->ClearPeerCircuitHop(key);
   dial->ClearDialBackoff(key);
 }
 
@@ -167,7 +167,7 @@ void PeerReachCoordinator::ReleasePeer(const std::string& key) {
     return;
   }
   dial->AbortInflightDial(key);
-  dial->ClearCallMediaCircuitHop(key);
+  dial->ClearPeerCircuitHop(key);
 }
 
 void PeerReachCoordinator::AbortCircuitAttempts() {
@@ -268,7 +268,7 @@ bool PeerReachCoordinator::AnyDialable(const Attempt& a) const {
 bool PeerReachCoordinator::AnyCircuitHop(const Attempt& a) const {
   IDialRegistry* dial = dial_.load(std::memory_order_acquire);
   return dial && std::any_of(a.req.keys.begin(), a.req.keys.end(),
-                             [dial](const std::string& k) { return dial->HasCallMediaCircuitHop(k); });
+                             [dial](const std::string& k) { return dial->HasPeerCircuitHop(k); });
 }
 
 bool PeerReachCoordinator::PreferredIsPublic(const Attempt& a) const {
@@ -452,7 +452,7 @@ bool PeerReachCoordinator::MaybeStartAssociation(const AttemptPtr& a) {
   // ServeDial needs us Connected on (dogfood ae4900eb / 39412f). Reach: skip it only after a
   // successful seed park (H010 CircuitServeDialPolicy).
   const bool await_skip_private = a->IsAwait() && circuit && !public_preferred;
-  if (await_skip_private || CallMediaShouldSkipPreferredDialAfterSeedPark(a->seed_park_ok, public_preferred)) {
+  if (await_skip_private || ShouldSkipPrivatePreferredDialAfterSeedPark(a->seed_park_ok, public_preferred)) {
     a->assoc_started = true;
     a->assoc_done = true;
     log().info << "skip EnsureAssociation private Preferred"
@@ -590,7 +590,7 @@ void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const bool allow_cir
     a->circuit_inflight = false;
     return;
   }
-  circuit->TryEnsureCallMediaReachableAsync(
+  circuit->TryEnsurePeerReachableAsync(
       a->Primary(),
       [this, alive = alive_, a](Roe<void> via) {
         if (!alive->load(std::memory_order_acquire)) {

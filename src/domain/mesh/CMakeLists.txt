@@ -22,6 +22,8 @@ set(PP_DOMAIN_MESH_REACHABILITY_SOURCES
   reachability/PunchBurst.cpp
   reachability/AmpPunchCoordinator.cpp
   reachability/MobileEphemeralListenGate.cpp
+  reachability/AmpCircuitHopReach.cpp
+  reachability/PeerReachCoordinator.cpp
 )
 
 set(PP_DOMAIN_MESH_DISCOVERY_SOURCES

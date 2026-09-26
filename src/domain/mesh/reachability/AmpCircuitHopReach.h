@@ -3,7 +3,7 @@
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 #include "domain/mesh/host/MeshPorts.h"
-#include "feature/calls/CallTopologyRelayDeps.h"
+#include "domain/mesh/reachability/MeshReachPorts.h"
 #include "foundation/runtime/DeferredSelf.h"
 
 #include <atomic>
@@ -16,7 +16,7 @@ namespace pbr {
 
 /**
  * ICircuitHopReach over Amp CircuitTunnelCoordinator + AmpCircuitHopRegistry ([A020]).
- * SoftMigrate / call-media NAT when Amp is the mesh transport entry.
+ * Reach for relay hops and peers (NAT) when Amp is the mesh transport entry.
  *
  * Prefer TryEnsure*Async. Product Wire passes empty io_pump + post_io when MeshPump runs
  * (MeshPump owns Drive; nested Tick from Coordinator races PeerLink teardown). Harnesses
@@ -43,14 +43,14 @@ public:
 
   void TryEnsureHopReachableAsync(const std::string& hop_peer_id,
                                   std::function<void(Roe<void>)> on_done) override;
-  void TryEnsureCallMediaReachableAsync(const std::string& peer_key,
+  void TryEnsurePeerReachableAsync(const std::string& peer_key,
                                         std::function<void(Roe<void>)> on_done,
                                         bool allow_circuit = true) override;
   void TryUpgradeToDirectAsync(const std::string& peer_key,
                                std::function<void(Roe<void>)> on_done) override;
 
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override;
-  Roe<void> TryEnsureCallMediaReachable(const std::string& peer_key) override;
+  Roe<void> TryEnsurePeerReachable(const std::string& peer_key) override;
   Roe<void> TryUpgradeToDirect(const std::string& peer_key) override;
   void AbortPending() override;
   std::string LastGoodRelayPeerKey() const override { return last_good_relay_peer_key_; }
