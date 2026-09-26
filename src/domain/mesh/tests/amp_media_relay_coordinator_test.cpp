@@ -171,3 +171,74 @@ TEST_F(AmpMediaRelayCoordinatorTest, LocalHopFanoutRoundTrip) {
 
 } // namespace
 } // namespace pbr
+
+namespace pbr {
+namespace {
+
+class AmpMediaRelayClientLossTest : public AmpMediaRelayCoordinatorTest {
+protected:
+  void Attach(const std::string& session) {
+    MediaRelayQuoteRequest req;
+    req.session_id = session;
+    Wait<MediaRelayQuote> quote_wait;
+    ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+    quote_wait.PumpUntilDone(*harness_);
+    ASSERT_TRUE(quote_wait.result && quote_wait.result->ok);
+    Wait<MediaRelayAttachResult> attach_wait;
+    ASSERT_TRUE(client_->StartAttach("hop", quote_wait.result->quote_id, session, session, {}, attach_wait.Fn(), 8000));
+    attach_wait.PumpUntilDone(*harness_);
+    ASSERT_TRUE(attach_wait.result && attach_wait.result->ok);
+  }
+};
+
+// The calls' handler is installed once (mesh wiring) — every later attach must keep it armed, or
+// guest reattach-on-loss never runs after the first attach.
+TEST_F(AmpMediaRelayClientLossTest, HandlerStaysArmedAcrossAttaches) {
+  std::atomic<int> lost{0};
+  client_->SetClientTransportLostHandler([&lost]() { lost.fetch_add(1); });
+  Attach("session-1");
+  Attach("session-2");
+  hop_->Stop();  // hop goes away: the client channel dies
+  harness_->PumpUntil([&lost] { return lost.load() > 0; }, 800);
+  EXPECT_EQ(lost.load(), 1);
+}
+
+// Observers (a second feature) hear losses, replacement by another attach and a Detach they did
+// not make — and never the handler slot's owner's own replacement as a "lost".
+TEST_F(AmpMediaRelayClientLossTest, ObserversHearReplacementDetachAndLoss) {
+  std::mutex mu;
+  std::vector<MediaRelayClientLoss> seen;
+  int handler_calls = 0;
+  client_->SetClientTransportLostHandler([&]() {
+    std::lock_guard lock(mu);
+    ++handler_calls;
+  });
+  const uint64_t token = client_->AddClientTransportLostObserver([&](MediaRelayClientLoss loss) {
+    std::lock_guard lock(mu);
+    seen.push_back(loss);
+  });
+  ASSERT_NE(token, 0u);
+  const auto count = [&]() {
+    std::lock_guard lock(mu);
+    return seen.size();
+  };
+  Attach("viewer");
+  EXPECT_EQ(count(), 0u) << "first attach replaces nothing";
+  Attach("call");
+  harness_->PumpUntil([&] { return count() >= 1; }, 400);
+  client_->Detach();
+  harness_->PumpUntil([&] { return count() >= 2; }, 400);
+  Attach("again");
+  hop_->Stop();
+  harness_->PumpUntil([&] { return count() >= 3; }, 800);
+  std::lock_guard lock(mu);
+  ASSERT_EQ(seen.size(), 3u);
+  EXPECT_EQ(seen[0], MediaRelayClientLoss::Replaced);
+  EXPECT_EQ(seen[1], MediaRelayClientLoss::Detached);
+  EXPECT_EQ(seen[2], MediaRelayClientLoss::TransportLost);
+  EXPECT_EQ(handler_calls, 1) << "the legacy slot only hears transport loss";
+  client_->RemoveClientTransportLostObserver(token);
+}
+
+} // namespace
+} // namespace pbr

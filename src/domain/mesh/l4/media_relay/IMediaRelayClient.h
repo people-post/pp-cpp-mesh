@@ -18,6 +18,16 @@ namespace pbr {
  * Fakeable in unit tests. Wire field names are unchanged — relays parse the JSON field
  * `call_id`.
  */
+/** Why a client's media_relay session ended without its owner's own Detach (observers). */
+enum class MediaRelayClientLoss : uint8_t {
+  /** The channel to the hop died. */
+  TransportLost,
+  /** Another attach took the (single) client session. */
+  Replaced,
+  /** Someone detached the client session. */
+  Detached,
+};
+
 class IMediaRelayClient {
 public:
   virtual ~IMediaRelayClient() = default;
@@ -55,11 +65,14 @@ public:
    */
   virtual void SetClientTransportLostHandler(std::function<void()> /*handler*/) {}
   /**
-   * Additional loss observers (a feature other than the one owning the Set handler slot — e.g.
-   * broadcast next to calls). Every observer hears every loss; each checks whether it owned the
-   * session. Returns a token for Remove (0 = unsupported). May run on the mesh io thread.
+   * Additional session-end observers (a feature other than the one owning the Set handler slot —
+   * e.g. broadcast next to calls): transport loss, replacement by another attach, and Detach. Every
+   * observer hears every end; each checks whether it owned the session (remove the observer before
+   * your own Detach). Returns a token for Remove (0 = unsupported). May run on the mesh io thread.
    */
-  virtual uint64_t AddClientTransportLostObserver(std::function<void()> /*observer*/) { return 0; }
+  virtual uint64_t AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> /*observer*/) {
+    return 0;
+  }
   virtual void RemoveClientTransportLostObserver(uint64_t /*token*/) {}
   /** In-call hop: join local HostSession without dialing self. */
   virtual Roe<MediaRelayAttachResult> AttachAsLocalHop(

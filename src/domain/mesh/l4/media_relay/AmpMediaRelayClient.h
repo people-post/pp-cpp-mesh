@@ -43,7 +43,7 @@ public:
 
   void StartClientFrameReader() override;
   void SetClientTransportLostHandler(std::function<void()> handler) override;
-  uint64_t AddClientTransportLostObserver(std::function<void()> observer) override;
+  uint64_t AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> observer) override;
   void RemoveClientTransportLostObserver(uint64_t token) override;
   Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& session_id,
                                                std::function<void(MediaDataFrame)> on_frame) override;

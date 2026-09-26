@@ -133,7 +133,7 @@ void AmpMediaRelayClient::SetClientTransportLostHandler(std::function<void()> ha
   coordinator_.SetClientTransportLostHandler(std::move(handler));
 }
 
-uint64_t AmpMediaRelayClient::AddClientTransportLostObserver(std::function<void()> observer) {
+uint64_t AmpMediaRelayClient::AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> observer) {
   return coordinator_.AddClientTransportLostObserver(std::move(observer));
 }
 
