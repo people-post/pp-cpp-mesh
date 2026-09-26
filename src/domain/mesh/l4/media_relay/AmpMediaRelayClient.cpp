@@ -133,6 +133,14 @@ void AmpMediaRelayClient::SetClientTransportLostHandler(std::function<void()> ha
   coordinator_.SetClientTransportLostHandler(std::move(handler));
 }
 
+uint64_t AmpMediaRelayClient::AddClientTransportLostObserver(std::function<void()> observer) {
+  return coordinator_.AddClientTransportLostObserver(std::move(observer));
+}
+
+void AmpMediaRelayClient::RemoveClientTransportLostObserver(uint64_t token) {
+  coordinator_.RemoveClientTransportLostObserver(token);
+}
+
 Roe<MediaRelayAttachResult> AmpMediaRelayClient::AttachAsLocalHop(
     const std::string& session_id, std::function<void(MediaDataFrame)> on_frame) {
   return coordinator_.AttachAsLocalHop(session_id, std::move(on_frame));

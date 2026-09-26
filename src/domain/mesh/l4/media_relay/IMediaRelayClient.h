@@ -54,6 +54,13 @@ public:
    * Handler may be invoked on the mesh io thread.
    */
   virtual void SetClientTransportLostHandler(std::function<void()> /*handler*/) {}
+  /**
+   * Additional loss observers (a feature other than the one owning the Set handler slot — e.g.
+   * broadcast next to calls). Every observer hears every loss; each checks whether it owned the
+   * session. Returns a token for Remove (0 = unsupported). May run on the mesh io thread.
+   */
+  virtual uint64_t AddClientTransportLostObserver(std::function<void()> /*observer*/) { return 0; }
+  virtual void RemoveClientTransportLostObserver(uint64_t /*token*/) {}
   /** In-call hop: join local HostSession without dialing self. */
   virtual Roe<MediaRelayAttachResult> AttachAsLocalHop(
       const std::string& session_id, std::function<void(MediaDataFrame)> on_frame) = 0;
