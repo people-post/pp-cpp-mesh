@@ -125,6 +125,20 @@ PeerReachId PeerReachCoordinator::Ensure(PeerReachRequest request, Done on_done)
   return a->id;
 }
 
+void PeerReachCoordinator::AbandonDial(const std::string& key) {
+  IDialRegistry* dial = dial_.load(std::memory_order_acquire);
+  if (!dial || key.empty()) {
+    return;
+  }
+  dial->AbortInflightDial(key);
+  dial->ClearDialBackoff(key);
+  if (auto ma = dial->PreferredMultiaddr(key)) {
+    log().info << "abandon dial peer=" << key << " ma=" << *ma;
+  } else {
+    log().info << "abandon dial peer=" << key << " ma=(none) dialable=" << (dial->IsDialable(key) ? 1 : 0);
+  }
+}
+
 void PeerReachCoordinator::Cancel(const PeerReachId id) {
   AttemptPtr a;
   {

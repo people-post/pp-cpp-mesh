@@ -93,6 +93,11 @@ public:
   void SetDialBudgetMsForTest(int budget_ms);
 
   PeerReachId Ensure(PeerReachRequest request, Done on_done);
+  /**
+   * Abort any in-flight dial to `key` and clear its backoff, so the channel open (or the next
+   * reach) starts from a clean dial state. Does not touch a Connected link.
+   */
+  void AbandonDial(const std::string& key);
   /** Completes the reach with an error (inline) and drops its pending steps. */
   void Cancel(PeerReachId id);
   void CancelAll();
