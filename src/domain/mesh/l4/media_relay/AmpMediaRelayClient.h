@@ -1,7 +1,7 @@
 #pragma once
 
 #include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
-#include "feature/calls/CallTopologyRelayDeps.h"
+#include "domain/mesh/l4/media_relay/IMediaRelayClient.h"
 
 #include <chrono>
 #include <functional>
@@ -32,18 +32,18 @@ public:
                                     int timeout_ms = 8000) override;
 
   void AcceptAndAttachAsync(const std::string& hop_peer_key, const std::string& quote_id,
-                            const std::string& call_id, const std::string& auth_stub,
+                            const std::string& session_id, const std::string& auth_stub,
                             std::function<void(MediaDataFrame)> on_frame,
                             std::function<void(Roe<MediaRelayAttachResult>)> on_done,
                             int timeout_ms = 8000) override;
   Roe<MediaRelayAttachResult> AcceptAndAttach(const std::string& hop_peer_key, const std::string& quote_id,
-                                              const std::string& call_id, const std::string& auth_stub,
+                                              const std::string& session_id, const std::string& auth_stub,
                                               std::function<void(MediaDataFrame)> on_frame,
                                               int timeout_ms = 8000) override;
 
   void StartClientFrameReader() override;
   void SetClientTransportLostHandler(std::function<void()> handler) override;
-  Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& call_id,
+  Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& session_id,
                                                std::function<void(MediaDataFrame)> on_frame) override;
   Roe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) override;
   Roe<void> SendFrame(const MediaDataFrame& frame) override;

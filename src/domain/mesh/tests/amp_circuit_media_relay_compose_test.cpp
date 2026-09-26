@@ -113,7 +113,7 @@ TEST_F(AmpCircuitMediaRelayComposeTest, CircuitBackedQuoteAndAttach) {
                      tunnel_id)));
 
   MediaRelayQuoteRequest req;
-  req.call_id = "call-amp-circuit-sfu";
+  req.session_id = "call-amp-circuit-sfu";
   req.participants = 2;
 
   Wait<MediaRelayQuote> quote_wait;
@@ -123,8 +123,8 @@ TEST_F(AmpCircuitMediaRelayComposeTest, CircuitBackedQuoteAndAttach) {
   ASSERT_TRUE(quote_wait.result->ok);
 
   Wait<MediaRelayAttachResult> attach_wait;
-  ASSERT_TRUE(client_->StartAttach(harness_->peer_id_b, quote_wait.result->quote_id, req.call_id,
-                                   req.call_id, {}, attach_wait.Fn(), 8000));
+  ASSERT_TRUE(client_->StartAttach(harness_->peer_id_b, quote_wait.result->quote_id, req.session_id,
+                                   req.session_id, {}, attach_wait.Fn(), 8000));
   attach_wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(attach_wait.result) << attach_wait.result.error().message;
   EXPECT_TRUE(attach_wait.result->ok);

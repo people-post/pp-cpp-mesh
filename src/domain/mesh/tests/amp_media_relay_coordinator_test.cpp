@@ -62,7 +62,7 @@ protected:
 
 TEST_F(AmpMediaRelayCoordinatorTest, QuoteRoundTrip) {
   MediaRelayQuoteRequest req;
-  req.call_id = "call-amp-quote";
+  req.session_id = "call-amp-quote";
   req.participants = 2;
 
   Wait<MediaRelayQuote> wait;
@@ -77,7 +77,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, QuoteRoundTrip) {
 
 TEST_F(AmpMediaRelayCoordinatorTest, AcceptAndAttachRoundTrip) {
   MediaRelayQuoteRequest req;
-  req.call_id = "call-amp-attach";
+  req.session_id = "call-amp-attach";
 
   Wait<MediaRelayQuote> quote_wait;
   auto qid = client_->StartQuote("hop", req, quote_wait.Fn(), 8000);
@@ -87,7 +87,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, AcceptAndAttachRoundTrip) {
   ASSERT_TRUE(quote_wait.result->ok);
 
   Wait<MediaRelayAttachResult> attach_wait;
-  auto aid = client_->StartAttach("hop", quote_wait.result->quote_id, req.call_id, req.call_id, {},
+  auto aid = client_->StartAttach("hop", quote_wait.result->quote_id, req.session_id, req.session_id, {},
                                   attach_wait.Fn(), 8000);
   ASSERT_TRUE(aid);
   attach_wait.PumpUntilDone(*harness_);
@@ -104,7 +104,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, AdmitRefusesStrangerOnQuote) {
   hop_->SetAdmissionPolicy(std::move(policy));
 
   MediaRelayQuoteRequest req;
-  req.call_id = "call-stranger";
+  req.session_id = "call-stranger";
   Wait<MediaRelayQuote> wait;
   auto id = client_->StartQuote("hop", req, wait.Fn(), 5000);
   ASSERT_TRUE(id);
@@ -117,7 +117,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, LocalHopFanoutRoundTrip) {
   // Ownership canary (A027): adopt into client_ then EnqueueOutbound (Subscribe) must work.
   const std::string call_id = "call-amp-fanout";
   MediaRelayQuoteRequest req;
-  req.call_id = call_id;
+  req.session_id = call_id;
   req.participants = 2;
 
   Wait<MediaRelayQuote> quote_wait;

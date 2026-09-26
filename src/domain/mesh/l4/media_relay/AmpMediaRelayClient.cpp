@@ -1,4 +1,4 @@
-#include "feature/calls/AmpMediaRelayClient.h"
+#include "domain/mesh/l4/media_relay/AmpMediaRelayClient.h"
 
 #include "common/SettledWait.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
@@ -78,7 +78,7 @@ Roe<MediaRelayQuote> AmpMediaRelayClient::RequestQuote(const std::string& hop_pe
 }
 
 void AmpMediaRelayClient::AcceptAndAttachAsync(const std::string& hop_peer_key, const std::string& quote_id,
-                                               const std::string& call_id, const std::string& auth_stub,
+                                               const std::string& session_id, const std::string& auth_stub,
                                                std::function<void(MediaDataFrame)> on_frame,
                                                std::function<void(Roe<MediaRelayAttachResult>)> on_done,
                                                const int timeout_ms) {
@@ -102,7 +102,7 @@ void AmpMediaRelayClient::AcceptAndAttachAsync(const std::string& hop_peer_key, 
   const int wait_ms = (timeout_ms > 0 ? timeout_ms : 8000) + 2000;
   const auto deadline = Clock::now() + std::chrono::milliseconds(wait_ms);
   const auto id = coordinator_.StartAttach(
-      hop_peer_key, quote_id, call_id, auth_stub, std::move(on_frame),
+      hop_peer_key, quote_id, session_id, auth_stub, std::move(on_frame),
       [finish_once](Roe<MediaRelayAttachResult> result) { (*finish_once)(std::move(result)); }, timeout_ms);
   if (!id) {
     (*finish_once)(Error("media-relay attach not started"));
@@ -115,10 +115,10 @@ void AmpMediaRelayClient::AcceptAndAttachAsync(const std::string& hop_peer_key, 
 }
 
 Roe<MediaRelayAttachResult> AmpMediaRelayClient::AcceptAndAttach(
-    const std::string& hop_peer_key, const std::string& quote_id, const std::string& call_id,
+    const std::string& hop_peer_key, const std::string& quote_id, const std::string& session_id,
     const std::string& auth_stub, std::function<void(MediaDataFrame)> on_frame, const int timeout_ms) {
   SettledWait<MediaRelayAttachResult> wait;
-  AcceptAndAttachAsync(hop_peer_key, quote_id, call_id, auth_stub, std::move(on_frame),
+  AcceptAndAttachAsync(hop_peer_key, quote_id, session_id, auth_stub, std::move(on_frame),
                        [wait](Roe<MediaRelayAttachResult> result) { wait.Finish(std::move(result)); }, timeout_ms);
   const int wait_ms = (timeout_ms > 0 ? timeout_ms : 8000) + 2000;
   const auto deadline = Clock::now() + std::chrono::milliseconds(wait_ms);
@@ -134,8 +134,8 @@ void AmpMediaRelayClient::SetClientTransportLostHandler(std::function<void()> ha
 }
 
 Roe<MediaRelayAttachResult> AmpMediaRelayClient::AttachAsLocalHop(
-    const std::string& call_id, std::function<void(MediaDataFrame)> on_frame) {
-  return coordinator_.AttachAsLocalHop(call_id, std::move(on_frame));
+    const std::string& session_id, std::function<void(MediaDataFrame)> on_frame) {
+  return coordinator_.AttachAsLocalHop(session_id, std::move(on_frame));
 }
 
 Roe<void> AmpMediaRelayClient::Subscribe(const uint32_t stream_id, const uint16_t channel_id) {
