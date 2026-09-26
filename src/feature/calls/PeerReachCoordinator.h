@@ -98,6 +98,35 @@ public:
    * reach) starts from a clean dial state. Does not touch a Connected link.
    */
   void AbandonDial(const std::string& key);
+
+  // --- Link-state operations for owners. UI thread (as the owners' callers were before). ---
+
+  /** Mesh ports are bound (a dial registry exists). */
+  bool Available() const;
+  /** A relay circuit path is available (circuit / punch reach wired). */
+  bool HasCircuitReach() const;
+  /** A relay circuit hop is registered for `key` (the link rides a relay). */
+  bool HasRelayHop(const std::string& key) const;
+  /**
+   * Forget the path state for `key` — relay hop registration and dial backoff — so the next
+   * reach re-selects a path from scratch (e.g. after one-way media on the current one).
+   */
+  void ForgetPath(const std::string& key);
+  /** The owner no longer needs a link to `key`: abort its in-flight dial, drop its relay hop. */
+  void ReleasePeer(const std::string& key);
+  /**
+   * Abort in-flight circuit / punch attempts (StartBridge etc.). Circuit reach is shared, so this
+   * aborts every pending attempt, not just this owner's — callers use it on failure / teardown.
+   */
+  void AbortCircuitAttempts();
+  /**
+   * Pick the dial key for a peer known under both an alias (e.g. `account:`) and its mesh PeerId.
+   * The PeerId is preferred: the Connected PeerLink lives under it, while the alias can look
+   * dialable through a stale entry (dogfood 7bd62: AssociationNotReady forever). When only the
+   * alias is dialable, its Preferred multiaddr is copied onto the PeerId. Returns the alias only
+   * when the alias is dialable and the PeerId still is not (no Preferred to copy).
+   */
+  std::string PreferDialKey(const std::string& alias, const std::string& peer_id);
   /** Completes the reach with an error (inline) and drops its pending steps. */
   void Cancel(PeerReachId id);
   void CancelAll();

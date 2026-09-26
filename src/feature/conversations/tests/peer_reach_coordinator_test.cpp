@@ -61,7 +61,7 @@ public:
     return std::nullopt;
   }
   void ClearDialBackoff(const std::string& /*peer_key*/) override { clear_backoff_calls.fetch_add(1); }
-  void AbortInflightDial(const std::string& /*peer_key*/) override {}
+  void AbortInflightDial(const std::string& /*peer_key*/) override { abort_calls.fetch_add(1); }
   void DropLink(const std::string& peer_key) override {
     drop_calls.fetch_add(1);
     std::lock_guard lock(mu);
@@ -96,6 +96,7 @@ public:
   std::atomic<int> ensure_calls{0};
   std::atomic<int> clear_backoff_calls{0};
   std::atomic<int> drop_calls{0};
+  std::atomic<int> abort_calls{0};
 };
 
 class FakeCircuitReach final : public ICircuitHopReach {
@@ -300,6 +301,59 @@ TEST_F(PeerReachCoordinatorTest, MissingDialRegistryFails) {
   auto out = Run(Request());
   ASSERT_TRUE(WaitDone(out, std::chrono::seconds(5)));
   ASSERT_FALSE(*out->result);
+}
+
+// --- Link-state operations ---------------------------------------------------------------
+
+// Dogfood 7bd62: a stale account: alias looked dialable while the Connected link lived under the
+// PeerId. Prefer the PeerId, teaching it the alias's Preferred multiaddr when needed.
+TEST_F(PeerReachCoordinatorTest, PreferDialKeyCopiesAliasEndpointOntoPeerId) {
+  dial_->endpoints["account:peer"] = kPublicMa;
+  EXPECT_EQ(reach_->PreferDialKey("account:peer", kPeer), kPeer);
+  std::lock_guard lock(dial_->mu);
+  EXPECT_EQ(dial_->endpoints[kPeer], kPublicMa);
+}
+
+TEST_F(PeerReachCoordinatorTest, PreferDialKeyPrefersDialablePeerId) {
+  dial_->endpoints[kPeer] = kPrivateMa;
+  dial_->endpoints["account:peer"] = kPublicMa;
+  EXPECT_EQ(reach_->PreferDialKey("account:peer", kPeer), kPeer);
+  std::lock_guard lock(dial_->mu);
+  EXPECT_EQ(dial_->endpoints[kPeer], kPrivateMa) << "a dialable PeerId keeps its own endpoint";
+}
+
+TEST_F(PeerReachCoordinatorTest, PreferDialKeyUsesPeerIdWhenNeitherDialable) {
+  EXPECT_EQ(reach_->PreferDialKey("account:peer", kPeer), kPeer);
+  EXPECT_EQ(reach_->PreferDialKey("account:peer", ""), "account:peer");
+}
+
+TEST_F(PeerReachCoordinatorTest, ForgetPathClearsRelayHopAndBackoff) {
+  dial_->Connect(kPeer, /*carrier=*/true, /*hop=*/true);
+  ASSERT_TRUE(reach_->HasRelayHop(kPeer));
+  reach_->ForgetPath(kPeer);
+  EXPECT_FALSE(reach_->HasRelayHop(kPeer));
+  EXPECT_EQ(dial_->clear_backoff_calls.load(), 1);
+  EXPECT_TRUE(dial_->IsConnected(kPeer)) << "forgetting the path does not drop the link";
+}
+
+TEST_F(PeerReachCoordinatorTest, ReleasePeerAbortsDialAndDropsRelayHop) {
+  dial_->Connect(kPeer, /*carrier=*/true, /*hop=*/true);
+  reach_->ReleasePeer(kPeer);
+  EXPECT_EQ(dial_->abort_calls.load(), 1);
+  EXPECT_FALSE(reach_->HasRelayHop(kPeer));
+}
+
+TEST_F(PeerReachCoordinatorTest, AvailabilityFollowsDeps) {
+  EXPECT_TRUE(reach_->Available());
+  EXPECT_TRUE(reach_->HasCircuitReach());
+  reach_->SetDeps(nullptr, nullptr);
+  EXPECT_FALSE(reach_->Available());
+  EXPECT_FALSE(reach_->HasCircuitReach());
+  EXPECT_FALSE(reach_->HasRelayHop(kPeer));
+  EXPECT_EQ(reach_->PreferDialKey("account:peer", kPeer), kPeer);
+  reach_->ForgetPath(kPeer);   // no-ops without deps
+  reach_->ReleasePeer(kPeer);
+  reach_->AbortCircuitAttempts();
 }
 
 } // namespace

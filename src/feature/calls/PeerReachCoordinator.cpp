@@ -139,6 +139,67 @@ void PeerReachCoordinator::AbandonDial(const std::string& key) {
   }
 }
 
+bool PeerReachCoordinator::Available() const {
+  return dial_.load(std::memory_order_acquire) != nullptr;
+}
+
+bool PeerReachCoordinator::HasCircuitReach() const {
+  return circuit_.load(std::memory_order_acquire) != nullptr;
+}
+
+bool PeerReachCoordinator::HasRelayHop(const std::string& key) const {
+  IDialRegistry* dial = dial_.load(std::memory_order_acquire);
+  return dial && !key.empty() && dial->HasCallMediaCircuitHop(key);
+}
+
+void PeerReachCoordinator::ForgetPath(const std::string& key) {
+  IDialRegistry* dial = dial_.load(std::memory_order_acquire);
+  if (!dial || key.empty()) {
+    return;
+  }
+  dial->ClearCallMediaCircuitHop(key);
+  dial->ClearDialBackoff(key);
+}
+
+void PeerReachCoordinator::ReleasePeer(const std::string& key) {
+  IDialRegistry* dial = dial_.load(std::memory_order_acquire);
+  if (!dial || key.empty()) {
+    return;
+  }
+  dial->AbortInflightDial(key);
+  dial->ClearCallMediaCircuitHop(key);
+}
+
+void PeerReachCoordinator::AbortCircuitAttempts() {
+  if (ICircuitHopReach* circuit = circuit_.load(std::memory_order_acquire)) {
+    circuit->AbortPending();
+  }
+}
+
+std::string PeerReachCoordinator::PreferDialKey(const std::string& alias, const std::string& peer_id) {
+  IDialRegistry* dial = dial_.load(std::memory_order_acquire);
+  if (peer_id.empty()) {
+    return alias;
+  }
+  if (!dial) {
+    return peer_id;
+  }
+  const bool alias_dialable = dial->IsDialable(alias);
+  if (alias_dialable && !dial->IsDialable(peer_id)) {
+    if (auto ma = dial->PreferredMultiaddr(alias)) {
+      (void)dial->RegisterEndpoint(peer_id, *ma);
+    }
+  }
+  const bool peer_dialable = dial->IsDialable(peer_id);
+  log().info << "dial key alias=" << alias << " peer_id=" << peer_id
+             << " alias_dialable=" << (alias_dialable ? 1 : 0) << " peer_dialable=" << (peer_dialable ? 1 : 0);
+  if (peer_dialable || !alias_dialable) {
+    return peer_id;
+  }
+  log().info << "dial key keep alias (PeerId still undialable) alias=" << alias;
+  return alias;
+}
+
 void PeerReachCoordinator::Cancel(const PeerReachId id) {
   AttemptPtr a;
   {
