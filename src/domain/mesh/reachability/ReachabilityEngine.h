@@ -27,7 +27,7 @@ struct AmpReachabilityProbeDeps {
   std::vector<std::string> bootstrap_peers;
   std::function<void()> io_pump;
   std::function<void(std::function<void()>)> post_worker;
-  /** MeshRuntime::PostToIo — prefer ProbeAsync + callbacks over parking MeshControl. */
+  /** MeshRuntime::PostToIo — prefer ProbeAsync + callbacks over parking a thread. */
   std::function<void(std::function<void()>)> post_io;
   /** MeshRuntime::PostAfter — Amp-clock seed dial deadline. */
   std::function<void(std::chrono::milliseconds, std::function<void()>)> post_after;

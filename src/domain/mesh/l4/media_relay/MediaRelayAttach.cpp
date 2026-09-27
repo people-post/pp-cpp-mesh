@@ -1,6 +1,6 @@
 #include "domain/mesh/l4/media_relay/MediaRelayAttach.h"
 
-#include "domain/mesh/host/MeshControlDispatch.h"
+#include "foundation/runtime/AppRuntime.h"
 
 #include "common/Logger.h"
 
@@ -19,9 +19,10 @@ logging::Logger& AttachLog() {
   return log;
 }
 
-void PostControlOrRun(std::function<void()> task) {
-  if (MeshControlDispatch::IsInstalled()) {
-    MeshControlDispatch::Post(std::move(task));
+/** Off the IO strand (quote / attach take the relay client's lock): a worker, or inline without a runtime. */
+void PostOffIo(std::function<void()> task) {
+  if (AppRuntime::IsRunning()) {
+    AppRuntime::PostWorkerNormal(std::move(task));
   } else {
     task();
   }
@@ -95,12 +96,12 @@ void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttac
     ports.dial->ClearDialBackoff(request.hop_peer_id);
   }
   if (!ports.dial->IsDialable(request.hop_peer_id) && ports.service_reach) {
-    // Service reach finishes on Amp IO — continue on MeshControl, not the IO strand.
+    // Service reach finishes on Amp IO — continue on a worker, not the IO strand.
     const std::string hop = request.hop_peer_id;
     ports.service_reach->TryEnsureHopReachableAsync(
         hop, [ports, request = std::move(request), hooks = std::move(hooks),
               on_done = std::move(on_done)](Roe<void>) mutable {
-          PostControlOrRun([ports, request = std::move(request), hooks = std::move(hooks),
+          PostOffIo([ports, request = std::move(request), hooks = std::move(hooks),
                             on_done = std::move(on_done)]() mutable {
             QuoteThenAttach(ports, std::move(request), std::move(hooks), std::move(on_done));
           });

@@ -29,7 +29,7 @@ struct PunchIntroducerDeps {
  * falls back to a consumer's own signaling once they are exhausted (H012); an upgrade punch goes
  * through a given introducer (circuit → direct). Mechanism is `AmpPunchCoordinator`.
  *
- * Threading: called from reach on the Amp IO / MeshControl threads; completions from the punch
+ * Threading: called from reach on the Amp IO strand; completions from the punch
  * coordinator. Deps and the signaling hook are set by the owner before traffic.
  */
 class PunchIntroducerWalk : public Module {
