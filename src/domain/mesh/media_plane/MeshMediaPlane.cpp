@@ -2,6 +2,7 @@
 
 #include "domain/mesh/l4/media_relay/AmpMediaRelayClient.h"
 #include "domain/mesh/reachability/AmpCircuitHopReach.h"
+#include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/reachability/Reachability.h"
 #include "foundation/runtime/AppRuntime.h"
 
@@ -81,6 +82,7 @@ void MeshMediaPlane::Wire() {
       // Exclusive Amp Drive: io_pump is empty; MeshPump (or a harness Tick loop) progresses Amp.
       io = chat->io;
     }
+    wired_ = true;
     RefreshHopPolicyOnOwner();
     ArmHopPolicyRefresh();
     WireMediaRelayClient(m, io);
@@ -103,7 +105,66 @@ std::shared_ptr<const MeshHopPolicy> MeshMediaPlane::HopPolicy() const {
   return hop_policy_;
 }
 
+std::shared_ptr<const MeshLocalView> MeshMediaPlane::LocalView() const {
+  std::lock_guard lock(local_view_mu_);
+  return local_view_;
+}
+
+void MeshMediaPlane::PublishLocalView(MeshLocalView view) {
+  auto published = std::make_shared<const MeshLocalView>(std::move(view));
+  std::lock_guard lock(local_view_mu_);
+  local_view_ = std::move(published);
+}
+
+void MeshMediaPlane::SignalingPunchBurstAsync(std::vector<std::string> peer_addrs, const int window_ms,
+                                              std::function<void(Roe<void>)> on_done) {
+  AppRuntime::PostToOwnerOrRun(kOwner, [this, alive = alive_, peer_addrs = std::move(peer_addrs), window_ms,
+                                        on_done = std::move(on_done)]() mutable {
+    MeshHost* m = alive->load(std::memory_order_acquire) && wired_ ? mesh() : nullptr;
+    AmpPunchCoordinator* punch = m ? m->AmpPunch() : nullptr;
+    if (!punch || !punch->IsStarted()) {
+      if (on_done) {
+        on_done(Error("amp punch unavailable"));
+      }
+      return;
+    }
+    punch->TrySignalingPunchBurstAsync(
+        peer_addrs,
+        [on_done = std::move(on_done)](AmpPunchCoordinator::PunchRoe punched) {
+          if (!on_done) {
+            return;
+          }
+          if (punched && punched->ok) {
+            on_done({});
+            return;
+          }
+          const std::string err = !punched ? punched.error().message
+                                           : (punched->error.empty() ? std::string("punch burst failed") : punched->error);
+          on_done(Error(err));
+        },
+        window_ms);
+  });
+}
+
 void MeshMediaPlane::RefreshHopPolicyOnOwner() {
+  if (!wired_) {
+    return;  // unwired: the product's inputs (and its mesh) may be going away
+  }
+  // The local view first: it is what media consumers on other owners read instead of the MeshHost.
+  MeshLocalView view;
+  if (MeshHost* m = mesh(); m && m->Amp()) {
+    view.amp_up = true;
+    view.local_peer_id = m->Amp()->LocalPeerId();
+    view.amp_listen_multiaddr = m->AmpListenMultiaddr();
+    view.advertised_listen_multiaddrs = m->AdvertisedListenMultiaddrs();
+    view.media_relay_started = m->AmpMediaRelayCoord() && m->AmpMediaRelayCoord()->IsStarted();
+    if (AmpPunchCoordinator* punch = m->AmpPunch()) {
+      view.punch_started = punch->IsStarted();
+      view.punch_candidate_addrs = punch->LocalCandidateAddrs();
+    }
+  }
+  PublishLocalView(std::move(view));
+
   auto policy = std::make_shared<MeshHopPolicy>();
   if (deps_.rendezvous_candidates) {
     policy->rendezvous_candidates = deps_.rendezvous_candidates();
@@ -223,6 +284,8 @@ MediaRelayAttachPorts MeshMediaPlane::RelayAttachPorts() const {
 void MeshMediaPlane::InvalidateAsyncOps() {
   AppRuntime::RunAndWait(kOwner, [&]() {
     rendezvous_.Invalidate();
+    wired_ = false;
+    PublishLocalView({});  // consumers stop seeing the mesh the owner is about to tear down
     if (hop_policy_timer_ != 0) {
       AppRuntime::CancelCoordinatorTimer(std::exchange(hop_policy_timer_, 0));
     }

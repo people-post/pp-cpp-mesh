@@ -69,6 +69,21 @@ struct MeshHopPolicy {
   MeshPunchIntroducers punch_introducers;
 };
 
+/**
+ * This node's mesh, as the media consumers need it (local PeerId, listen / advertise addrs, relay
+ * and punch availability) — published by the owner while wired, empty otherwise, so consumers on
+ * other owners never read the MeshHost the product hub may be tearing down.
+ */
+struct MeshLocalView {
+  bool amp_up = false;
+  std::string local_peer_id;
+  std::string amp_listen_multiaddr;
+  std::vector<std::string> advertised_listen_multiaddrs;
+  bool media_relay_started = false;
+  bool punch_started = false;
+  std::vector<std::string> punch_candidate_addrs;
+};
+
 class MeshMediaPlane : public Module {
 public:
   using SignalingPunchFn = PunchIntroducerWalk::SignalingPunchFn;
@@ -81,10 +96,21 @@ public:
   void SetDeps(MeshMediaPlaneDeps deps);
   /** Last-resort punch through a consumer's own signaling when Amp introducers are exhausted (H012). */
   void SetSignalingPunch(SignalingPunchFn punch);
-  /** Recompute the candidate policy on the owner now (contacts / directory / seeds changed). */
+  /**
+   * Recompute the candidate policy and the local view on the owner now (contacts / directory /
+   * seeds / reachability changed). They are also refreshed at Wire and every few seconds.
+   */
   void RefreshHopPolicy();
   /** Any thread: the policy the IO side sees. */
   std::shared_ptr<const MeshHopPolicy> HopPolicy() const;
+  /** Any thread: this node's mesh as of the owner's last refresh (empty when not wired). */
+  std::shared_ptr<const MeshLocalView> LocalView() const;
+  /**
+   * H012 signaling punch: burst toward `peer_addrs` for `window_ms`. Runs on the owner (reads the
+   * mesh there, only while wired); `on_done` on whichever thread the punch completes.
+   */
+  void SignalingPunchBurstAsync(std::vector<std::string> peer_addrs, int window_ms,
+                                std::function<void(Roe<void>)> on_done);
 
   /** Circuit reach chose a rendezvous relay (H011: calls announce it to the call peer). */
   void SetOnRelayChosen(std::function<void(const std::string& relay_peer_id)> callback);
@@ -138,6 +164,7 @@ private:
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }
   std::string RegisterPeerListenMultiaddrsOnOwner(const std::string& key, const std::vector<std::string>& multiaddrs);
   void RefreshHopPolicyOnOwner();
+  void PublishLocalView(MeshLocalView view);
   /** Re-evaluate the policy periodically while wired (the inputs change without notice). */
   void ArmHopPolicyRefresh();
   void PublishListenBook();
@@ -154,6 +181,9 @@ private:
   mutable std::mutex hop_policy_mu_;
   std::shared_ptr<const MeshHopPolicy> hop_policy_ = std::make_shared<const MeshHopPolicy>();
   uint64_t hop_policy_timer_ = 0;  // owner
+  bool wired_ = false;             // owner: between Wire and InvalidateAsyncOps
+  mutable std::mutex local_view_mu_;
+  std::shared_ptr<const MeshLocalView> local_view_ = std::make_shared<const MeshLocalView>();
 
   std::unique_ptr<IMediaRelayClient> media_relay_client_;
   std::unique_ptr<PeerSessionDialRegistry> dial_registry_;
