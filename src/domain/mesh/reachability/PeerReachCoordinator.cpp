@@ -416,9 +416,15 @@ void PeerReachCoordinator::Tick(const AttemptPtr& a) {
       return;
     }
     const bool circuit = circuit_.load(std::memory_order_acquire) != nullptr;
-    if (circuit && !a->circuit_started && a->assoc_started && !a->assoc_done) {
+    if (circuit && !a->circuit_started) {
+      // The dial budget is spent and no circuit was tried yet: pivot now — whether the dial hung,
+      // or its last miss left the pivot to a poll that ran late (a slow timer must not turn
+      // "try the circuit" into "fail").
+      if (a->assoc_started && !a->assoc_done) {
+        log().warning << "EnsureAssociation hung peer=" << a->Primary() << " pivoting to circuit";
+      }
+      a->assoc_started = true;
       a->assoc_done = true;
-      log().warning << "EnsureAssociation hung peer=" << a->Primary() << " pivoting to circuit";
     } else {
       log().warning << "peer still not connected peer=" << a->Primary()
                     << " last=" << a->last_error.message

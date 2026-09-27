@@ -51,8 +51,13 @@ public:
         connected.insert(peer_key);
       }
     }
+    if (const int delay = miss_delay_ms.load(); !ok && delay > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay));  // a slow miss
+    }
     on_done(ok ? Roe<void>() : Roe<void>(Error("amp link: dial in backoff")));
   }
+  /** A failing dial reports its miss this late (the coordinator's budget may be spent by then). */
+  std::atomic<int> miss_delay_ms{0};
   std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const override {
     std::lock_guard lock(mu);
     if (auto it = endpoints.find(peer_key); it != endpoints.end()) {
@@ -241,6 +246,19 @@ TEST_F(PeerReachCoordinatorTest, ReachPivotsToCircuitAfterDialBudget) {
   EXPECT_GE(dial_->ensure_calls.load(), 1);
   EXPECT_GE(dial_->clear_backoff_calls.load(), 1) << "a dial miss clears backoff for the next try";
   EXPECT_TRUE(circuit_->last_allow_circuit.load());
+}
+
+// macOS CI: the dial's last miss landed with the budget spent, and the poll that should pivot ran
+// past the deadline — which failed the reach without ever trying the circuit. A spent budget with
+// no circuit tried yet pivots, however late the poll runs.
+TEST_F(PeerReachCoordinatorTest, MissAfterTheBudgetStillPivotsToCircuit) {
+  dial_->endpoints[kPeer] = kPublicMa;
+  dial_->miss_delay_ms = 400;  // past the 300 ms test budget
+  auto out = Run(Request(PeerReachMode::Reach));
+  ASSERT_TRUE(WaitDone(out, std::chrono::seconds(10)));
+  ASSERT_TRUE(*out->result) << out->result->error().message;
+  EXPECT_EQ((*out->result)->kind, PeerLinkKind::Relayed);
+  EXPECT_EQ(circuit_->calls.load(), 1);
 }
 
 // Dogfood ae4900eb / 39412f / 072a7425: the awaiting side never dials a private Preferred and
