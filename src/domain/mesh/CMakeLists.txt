@@ -65,6 +65,10 @@ set(PP_DOMAIN_MESH_L4_CALL_MEDIA_SOURCES
   l4/call_media/CallMediaFrameCrypto.cpp
 )
 
+set(PP_DOMAIN_MESH_MEDIA_PLANE_SOURCES
+  media_plane/MeshMediaPlane.cpp
+)
+
 if(WIN32)
   list(APPEND PP_DOMAIN_MESH_REACHABILITY_SOURCES
     reachability/LanMdnsSocket_Win32.cpp
@@ -84,6 +88,7 @@ pp_browser_add_domain_library(pp_domain_mesh
     ${PP_DOMAIN_MESH_L4_CIRCUIT_SOURCES}
     ${PP_DOMAIN_MESH_L4_MEDIA_RELAY_SOURCES}
     ${PP_DOMAIN_MESH_L4_CALL_MEDIA_SOURCES}
+    ${PP_DOMAIN_MESH_MEDIA_PLANE_SOURCES}
   PUBLIC_LIBS
     pp_foundation_data
     pp_foundation_crypto
