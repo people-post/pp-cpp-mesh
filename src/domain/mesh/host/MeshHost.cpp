@@ -1,6 +1,5 @@
 #include "domain/mesh/reachability/ReachabilityNetIf.h"
 #include "domain/mesh/reachability/AmpObservedAddrs.h"
-#include "domain/mesh/host/MeshControlDispatch.h"
 #include "domain/mesh/host/MeshHost.h"
 #include "domain/mesh/host/AmpLinkConfig.h"
 #include "domain/mesh/host/MeshLinkEventLog.h"
@@ -54,8 +53,9 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   bootstrap_peers_ = config.bootstrap_peers;
   reachability_ = std::make_unique<ReachabilityEngine>();
   // B26: always refresh ch0 / punch candidates when dial-back or UPnP lands, then notify product.
+  // Runs on the Connectivity owner: the link / punch updates belong to the Amp IO strand.
   reachability_->SetOnUpdated([this, product_cb = config.on_reachability_updated]() {
-    RefreshAdvertisedListenAddrs();
+    MakeL4IoPost()([this]() { RefreshAdvertisedListenAddrs(); });
     if (product_cb) {
       product_cb();
     }
@@ -83,13 +83,12 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
     return peer_id.error();
   }
 
-  // Prefer dual-stack :: when the host already has a global IPv6 (N013 / Reachable-via-v6).
-  // IPV6_V6ONLY=0 is cleared in pp-cpp-amp so IPv4-mapped peers still work.
-  const bool prefer_v6 = !reachability_netif::GlobalIpv6Addresses().empty();
-  auto bound = prefer_v6
-                   ? pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V6({}, config.amp_udp_port))
-                   : pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
-  if (!bound && prefer_v6) {
+  // Always dual-stack :: (call-path-resilience K010): the socket then serves IPv4 and IPv6 for the
+  // whole run, so moving from an IPv4-only network to IPv6-only cellular (NAT64) needs no rebind.
+  // pp-cpp-amp clears IPV6_V6ONLY and maps IPv4 peers both ways; advertise / probe targets come
+  // from the interfaces, not the bind family. IPv4 only when the OS has no IPv6 socket support.
+  auto bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V6({}, config.amp_udp_port));
+  if (!bound) {
     bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
   }
   if (!bound) {
@@ -118,6 +117,10 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   (*stack)->GetEndpoint().SetAcceptEnabled(true);
   amp_listen_multiaddr_ = *listen;
   (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
+  // Every protocol this host serves registers a handler: refuse opens for anything else, so a peer
+  // asking for a service we do not run (e.g. broadcast admission on a plain relay / pp-node) fails
+  // at once instead of waiting out its request timeout.
+  (*stack)->Runtime().SetRefuseUnhandledOpens(true);
   amp_ = std::move(*stack);
   InstallMeshLinkEventLog(amp_->Runtime());
   chat_links_ = NewAmpChatPeerLinks(amp_->Runtime());
@@ -136,39 +139,28 @@ void MeshHost::StartOwnedThreads() {
   if (!amp_) {
     return;
   }
-  if (!control_) {
-    control_ = std::make_unique<MeshControlPool>();
-  }
-  MeshControlDispatch::Install(control_.get());
+  l4_on_workers_.store(true, std::memory_order_release);
   if (!pump_.IsRunning()) {
     pump_.Start([this]() { Tick(); });
   }
 }
 
 void MeshHost::StopOwnedThreads() {
-  // Join control waiters before tearing down L4 / Amp so IoPumpUntil exits cleanly.
-  MeshControlDispatch::Uninstall();
-  if (control_) {
-    // Budget: abort should unblock parks; do not hang product quit on a stuck control task.
-    if (!control_->Shutdown(MeshControlPool::kDefaultShutdownJoinBudget)) {
-      // Detached workers; drop ownership without destroy to avoid UAF until process exit.
-      (void)control_.release();
-    } else {
-      control_.reset();
-    }
-  }
   pump_.Stop();
+  l4_on_workers_.store(false, std::memory_order_release);
 }
 
-void MeshHost::PostControl(std::function<void()> task) {
-  if (!task) {
-    return;
-  }
-  if (control_ && control_->IsRunning()) {
-    control_->Post(std::move(task));
-    return;
-  }
-  MeshControlDispatch::Post(std::move(task));
+std::function<void(std::function<void()>)> MeshHost::MakeL4WorkerPost(const WorkerLane lane) const {
+  return [this, lane](std::function<void()> task) {
+    if (!task) {
+      return;
+    }
+    if (l4_on_workers_.load(std::memory_order_acquire)) {
+      AppRuntime::PostWorker(lane, std::move(task));
+    } else {
+      task();
+    }
+  };
 }
 
 std::function<void()> MeshHost::MakeL4IoPump() const {
@@ -214,9 +206,9 @@ void MeshHost::EnsureAmpL4Coordinators() {
   }
   amp_media_relay_->SetCircuitHopRegistry(amp_circuit_hops_.get());
   auto io_pump = MakeL4IoPump();
-  auto post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
+  auto post_worker = MakeL4WorkerPost(WorkerLane::Normal);
   if (!amp_dial_back_) {
-    amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Runtime(), io_pump, post_worker);
+    amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Runtime(), io_pump);
   }
   if (!amp_punch_) {
     amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Runtime(), io_pump);
@@ -277,36 +269,37 @@ void MeshHost::StopAmp() {
   if (amp_) {
     amp_->Links().EnableNestedCarrierAccept(false);
   }
+  // 1. Stop L4 while MeshPump still drives: completions they post during Stop still run.
   if (amp_punch_) {
     amp_punch_->Stop();
-    amp_punch_.reset();
   }
   if (amp_dial_back_) {
     amp_dial_back_->Stop();
-    amp_dial_back_.reset();
   }
   if (amp_directory_) {
     amp_directory_->Stop();
-    amp_directory_.reset();
   }
   if (amp_dht_) {
     amp_dht_->Stop();
-    amp_dht_.reset();
   }
   if (amp_media_relay_) {
     amp_media_relay_->Stop();
-    amp_media_relay_.reset();
   }
   if (amp_circuit_) {
     amp_circuit_->Stop();
-    amp_circuit_.reset();
   }
   if (amp_circuit_hops_) {
     amp_circuit_hops_->ClearAll();
-    amp_circuit_hops_.reset();
   }
-  // Abort L4 above unblocks IoPumpUntil; join control + pump while Amp still alive for Tick.
+  // 2. Join MeshPump (its Tick reads the L4 objects), 3. then free them, while Amp is still alive.
   StopOwnedThreads();
+  amp_punch_.reset();
+  amp_dial_back_.reset();
+  amp_directory_.reset();
+  amp_dht_.reset();
+  amp_media_relay_.reset();
+  amp_circuit_.reset();
+  amp_circuit_hops_.reset();
   if (amp_) {
     amp_->Stop();
     amp_.reset();
@@ -343,10 +336,6 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
     StartOwnedThreads();
     return Roe<void>();
   }
-  if (!control_) {
-    control_ = std::make_unique<MeshControlPool>();
-  }
-  MeshControlDispatch::Install(control_.get());
   return Roe<void>();
 }
 
@@ -374,6 +363,9 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
 }
 
 void MeshHost::Stop() {
+  // Retire the probe first (its destructor waits on the Connectivity owner), so no `on_updated`
+  // runs while the Amp stack below goes away. Reachability() stays valid (a fresh engine).
+  reachability_ = std::make_unique<ReachabilityEngine>();
   if (amp_circuit_) {
     amp_circuit_->AbortInflight();
   }
@@ -382,13 +374,11 @@ void MeshHost::Stop() {
   }
   StopAmp();
   bootstrap_peers_.clear();
-  // Keep a fresh, valid ReachabilityEngine so Reachability() references stay safe.
-  reachability_ = std::make_unique<ReachabilityEngine>();
 }
 
 void MeshHost::Tick() {
   if (amp_) {
-    // Sole Drive entry for this host. MeshControl / L4 must not call Tick to progress —
+    // Sole Drive entry for this host. L4 must not call Tick to progress —
     // exclusive Amp Drive (THREADING.md). Nested Drive is refused by MeshRuntime.
     amp_->Runtime().Drive();
   }
@@ -491,7 +481,7 @@ AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) con
   deps.local_peer_id = amp_->LocalPeerId();
   deps.bootstrap_peers = bootstrap_peers_;
   deps.io_pump = MakeL4IoPump();
-  deps.post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
+  deps.post_worker = MakeL4WorkerPost(WorkerLane::Background);  // UPnP discovery blocks (~2 s)
   deps.post_io = MakeL4IoPost();
   deps.post_after = MakeL4IoAfter();
   deps.try_upnp_first = try_upnp_first;
@@ -520,7 +510,7 @@ std::optional<MeshChatDeps> MeshHost::ChatDeps() {
   }
   MeshIoContext io;
   io.io_pump = MakeL4IoPump();
-  io.post_worker = [](std::function<void()> task) { MeshControlDispatch::Post(std::move(task)); };
+  io.post_worker = MakeL4WorkerPost(WorkerLane::Normal);
   io.post_io = MakeL4IoPost();
   io.post_after = MakeL4IoAfter();
   io.local_peer_id = amp_->LocalPeerId();

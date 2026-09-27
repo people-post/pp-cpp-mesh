@@ -80,7 +80,8 @@ enum class MediaChannelType : uint8_t {
 };
 
 struct MediaRelayQuoteRequest {
-  std::string call_id;
+  /** Opaque session id (a call id today). Serialized as the JSON field "call_id" (wire unchanged). */
+  std::string session_id;
   int participants = 1;
   int64_t want_up_bps = 0;
   int64_t want_down_bps = 0;

@@ -44,9 +44,8 @@ public:
   static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
 
   using IoPump = std::function<void()>;
-  using WorkerPost = std::function<void(std::function<void()>)>;
 
-  AmpDialBackProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump = {}, WorkerPost post_worker = {});
+  explicit AmpDialBackProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump = {});
   ~AmpDialBackProtocol();
 
   AmpDialBackProtocol(const AmpDialBackProtocol&) = delete;
@@ -58,7 +57,7 @@ public:
 
   /**
    * Ask `seed_peer_key` (must have a registered ADP endpoint) to dial `target_multiaddrs`.
-   * Non-blocking; completion via `on_done` (may run on Amp io / MeshControl / caller).
+   * Non-blocking; completion via `on_done` (may run on Amp io or inline on the caller).
    */
   void ProbeAsync(const std::string& seed_peer_key, const std::vector<std::string>& target_multiaddrs,
                   std::function<void(ProbeRoe)> on_done, int timeout_ms = 8000);
@@ -72,7 +71,6 @@ private:
   std::unique_ptr<Impl> impl_;
   pp::amp::MeshRuntime& runtime_;
   IoPump io_pump_;
-  WorkerPost post_worker_;
   bool started_ = false;
 };
 

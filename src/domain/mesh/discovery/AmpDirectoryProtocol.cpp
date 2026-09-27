@@ -88,7 +88,7 @@ struct AmpDirectoryProtocol::Impl {
   DeferredSelf deferred;
 
   pp::amp::PeerLinkManager& Links() { return runtime->Links(); }
-  /** IO lane for InboundReply (MeshHost::Stop joins MeshControl before freeing the runtime). */
+  /** IO lane for InboundReply. */
   InboundReply::IoPost IoPost() {
     return [rt = runtime](std::function<void()> task) { rt->PostToIo(std::move(task)); };
   }

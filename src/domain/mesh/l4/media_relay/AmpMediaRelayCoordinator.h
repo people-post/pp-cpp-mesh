@@ -5,6 +5,7 @@
 #include "common/media/CallMediaHealth.h"
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/media_relay/MediaRelayBundleLogic.h"
+#include "domain/mesh/l4/media_relay/IMediaRelayClient.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include "common/Error.h"
@@ -58,7 +59,8 @@ public:
   bool IsSessionActive(MediaRelaySessionId id) const;
 
   void StartClientFrameReader();
-  void SetClientTransportLostHandler(std::function<void()> handler);
+  uint64_t AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> observer);
+  void RemoveClientTransportLostObserver(uint64_t token);
   Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& call_id,
                                                std::function<void(MediaDataFrame)> on_frame);
   Roe<void> Subscribe(uint32_t stream_id, uint16_t channel_id);

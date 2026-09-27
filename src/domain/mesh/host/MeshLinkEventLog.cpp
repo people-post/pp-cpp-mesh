@@ -15,8 +15,16 @@ logging::Logger& MeshLinkLog() {
   return logger;
 }
 
-const char* TransportName(const pp::amp::TransportClass transport) {
-  return transport == pp::amp::TransportClass::Carrier ? "carrier" : "adp";
+const char* PathKindName(const pp::amp::LinkPathKind kind) {
+  switch (kind) {
+  case pp::amp::LinkPathKind::Punched:
+    return "punched";
+  case pp::amp::LinkPathKind::Carrier:
+    return "carrier";
+  case pp::amp::LinkPathKind::Direct:
+    break;
+  }
+  return "direct";
 }
 
 } // namespace
@@ -42,7 +50,7 @@ std::string FormatLinkEndpointForLog(const pp::adp::IpEndpoint& endpoint) {
 std::string FormatLinkEventForLog(const pp::amp::LinkEvent& event) {
   std::ostringstream out;
   out << "link " << pp::amp::LinkEventKindName(event.kind) << " key=" << event.dial_key
-      << " peer=" << (event.peer_id.empty() ? "-" : event.peer_id) << " transport=" << TransportName(event.transport)
+      << " peer=" << (event.peer_id.empty() ? "-" : event.peer_id) << " path=" << PathKindName(event.path_kind)
       << " dir=" << (event.outbound ? "out" : "in") << " id=" << event.handle.id.value << '.'
       << event.handle.generation;
   if (event.previous_remote) {

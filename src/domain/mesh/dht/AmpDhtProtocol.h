@@ -60,7 +60,7 @@ public:
   void Configure(AmpDhtProtocolConfig config);
   void Start();
   void Stop();
-  bool IsStarted() const { return started_; }
+  bool IsStarted() const { return started_.load(std::memory_order_acquire); }
 
   /** Periodic: refresh self record + push to bootstrap peers. */
   void Tick();
@@ -81,7 +81,8 @@ private:
   DhtRecordStore store_;
   DhtRateLimiter inbound_limiter_;
   AmpDhtProtocolConfig config_;
-  bool started_ = false;
+  /** Written by Start / Stop, read by Tick on MeshPump. */
+  std::atomic<bool> started_{false};
   int64_t self_seq_ = 0;
   std::chrono::steady_clock::time_point next_self_publish_{};
 
