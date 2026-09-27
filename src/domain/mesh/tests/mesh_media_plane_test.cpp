@@ -54,7 +54,6 @@ TEST(MeshMediaPlaneTest, WireWithoutAMeshLeavesNoSharedObjects) {
   EXPECT_EQ(ports.service_reach, nullptr);
   EXPECT_FALSE(plane.AmpRelayAvailable());
   EXPECT_FALSE(plane.TryEnsurePeerReachable("peer"));
-  EXPECT_FALSE(plane.Rendezvous().AwaitCircuitReady(10));
 }
 
 } // namespace

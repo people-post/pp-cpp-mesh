@@ -56,8 +56,6 @@ public:
   void PreferLateReserve(const std::string& relay_peer_id);
   /** Reserve, then on_done(true) once seeds are Connected, or false at timeout (H010). */
   void EnsureBootstrapSeedParkedAsync(std::function<void(bool parked)> on_done, int timeout_ms = 12000);
-  /** Blocking EnsureBootstrapSeedParkedAsync — workers only (MeshPump drives progress). */
-  bool AwaitCircuitReady(int timeout_ms = 12000);
 
   /** B27: arm re-park on reconnect for the running mesh (after the owner wires it). */
   void InstallReparkListener();

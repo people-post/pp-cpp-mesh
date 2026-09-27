@@ -4,7 +4,6 @@
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/CircuitRendezvousPolicy.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
-#include "domain/mesh/shared/AmpParkUntil.h"
 #include "foundation/runtime/AppRuntime.h"
 
 #include <algorithm>
@@ -473,21 +472,6 @@ void CircuitRendezvousCoordinator::FinishSeedPark(const std::shared_ptr<SeedPark
     AppRuntime::CancelCoordinatorTimer(timer);
   }
   park->on_done(parked);
-}
-
-bool CircuitRendezvousCoordinator::AwaitCircuitReady(const int timeout_ms) {
-  auto done = std::make_shared<std::atomic<bool>>(false);
-  auto parked = std::make_shared<std::atomic<bool>>(false);
-  EnsureBootstrapSeedParkedAsync(
-      [done, parked](const bool ok) {
-        parked->store(ok, std::memory_order_release);
-        done->store(true, std::memory_order_release);
-      },
-      timeout_ms);
-  const int budget = timeout_ms > 0 ? timeout_ms : 12000;
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(budget + 250);
-  AmpParkUntil([done] { return done->load(std::memory_order_acquire); }, deadline, {});
-  return parked->load(std::memory_order_acquire);
 }
 
 void CircuitRendezvousCoordinator::InstallReparkListener() {

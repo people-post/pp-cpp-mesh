@@ -37,7 +37,6 @@ TEST(CircuitRendezvousCoordinatorTest, WithoutAMeshNothingIsDialableAndParkingAn
   rendezvous.EnsureBootstrapSeedParkedAsync([&](bool ok) { parked = ok; }, 50);
   ASSERT_TRUE(parked.has_value());
   EXPECT_FALSE(*parked);
-  EXPECT_FALSE(rendezvous.AwaitCircuitReady(10));
 }
 
 } // namespace
