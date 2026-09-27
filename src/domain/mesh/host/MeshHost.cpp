@@ -118,6 +118,10 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   (*stack)->GetEndpoint().SetAcceptEnabled(true);
   amp_listen_multiaddr_ = *listen;
   (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
+  // Every protocol this host serves registers a handler: refuse opens for anything else, so a peer
+  // asking for a service we do not run (e.g. broadcast admission on a plain relay / pp-node) fails
+  // at once instead of waiting out its request timeout.
+  (*stack)->Runtime().SetRefuseUnhandledOpens(true);
   amp_ = std::move(*stack);
   InstallMeshLinkEventLog(amp_->Runtime());
   chat_links_ = NewAmpChatPeerLinks(amp_->Runtime());
