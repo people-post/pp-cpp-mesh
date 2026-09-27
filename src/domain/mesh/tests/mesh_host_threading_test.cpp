@@ -4,8 +4,6 @@
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/AmpStack.h"
 #include "domain/mesh/tests/support/mesh_harness_support.h"
-#include "domain/mesh/host/MeshControlDispatch.h"
-#include "domain/mesh/host/MeshControlPool.h"
 #include "domain/mesh/host/MeshHost.h"
 #include "domain/mesh/host/MeshPumpThread.h"
 #include "foundation/identity/PeerIdUtil.h"
@@ -66,21 +64,9 @@ TEST(MeshHostThreadingTest, AttachInstallsControlWithoutPump) {
   MeshHost host;
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
   EXPECT_FALSE(host.MeshPumpRunning());
-  EXPECT_TRUE(host.MeshControlRunning());
-  EXPECT_TRUE(MeshControlDispatch::IsInstalled());
-
-  std::atomic<bool> ran{false};
-  host.PostControl([&ran]() { ran.store(true, std::memory_order_release); });
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-  while (!ran.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  }
-  EXPECT_TRUE(ran.load(std::memory_order_acquire));
 
   host.Tick();
   host.Stop();
-  EXPECT_FALSE(host.MeshControlRunning());
-  EXPECT_FALSE(MeshControlDispatch::IsInstalled());
   host.Stop(); // idempotent
 }
 
@@ -97,56 +83,6 @@ TEST(MeshPumpThreadTest, StartStopJoins) {
   pump.Stop();
   EXPECT_FALSE(pump.IsRunning());
   pump.Stop();
-}
-
-TEST(MeshControlPoolTest, PostAndShutdown) {
-  MeshControlPool pool(2);
-  std::atomic<int> n{0};
-  for (int i = 0; i < 10; ++i) {
-    pool.Post([&n]() { ++n; });
-  }
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-  while (n.load(std::memory_order_acquire) < 10 && std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  }
-  EXPECT_EQ(n.load(std::memory_order_acquire), 10);
-  pool.Shutdown();
-  pool.Post([&n]() { ++n; }); // dropped after shutdown
-  EXPECT_EQ(n.load(std::memory_order_acquire), 10);
-}
-
-TEST(MeshControlPoolTest, ShutdownBudgetDetachesStuckWorker) {
-  MeshControlPool pool(1);
-  std::mutex mu;
-  std::condition_variable cv;
-  bool release_worker = false;
-  std::atomic<bool> entered{false};
-
-  pool.Post([&]() {
-    entered.store(true, std::memory_order_release);
-    std::unique_lock lock(mu);
-    cv.wait(lock, [&]() { return release_worker; });
-  });
-
-  const auto enter_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-  while (!entered.load(std::memory_order_acquire) &&
-         std::chrono::steady_clock::now() < enter_deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  }
-  ASSERT_TRUE(entered.load(std::memory_order_acquire));
-
-  const auto t0 = std::chrono::steady_clock::now();
-  const bool ok = pool.Shutdown(std::chrono::milliseconds(80));
-  const auto elapsed = std::chrono::steady_clock::now() - t0;
-  EXPECT_FALSE(ok);
-  EXPECT_LT(elapsed, std::chrono::milliseconds(500));
-
-  {
-    std::lock_guard lock(mu);
-    release_worker = true;
-  }
-  cv.notify_all();
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
 } // namespace

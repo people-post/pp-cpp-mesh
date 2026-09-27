@@ -72,10 +72,10 @@ inline bool CircuitServeDialOpenOnLiveLink(const bool resolved_multiaddr_empty) 
 }
 
 /**
- * After answerer seed park, skip EnsureAssociation of a non-public Preferred to the call
- * peer — that UDP dial can drop the hop PeerLink (dogfood 39412f).
+ * After a seed park, skip EnsureAssociation of a non-public Preferred to the peer being
+ * reached — that UDP dial can drop the hop PeerLink (dogfood 39412f).
  */
-inline bool CallMediaShouldSkipPreferredDialAfterSeedPark(const bool seed_park_ok,
+inline bool ShouldSkipPrivatePreferredDialAfterSeedPark(const bool seed_park_ok,
                                                          const bool dial_public_direct) {
   return seed_park_ok && !dial_public_direct;
 }

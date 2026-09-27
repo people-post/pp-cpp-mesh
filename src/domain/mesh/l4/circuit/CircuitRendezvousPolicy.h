@@ -26,6 +26,32 @@ inline std::vector<std::string> OrderRendezvousParkAttempts(
   return OrderCircuitRelayAttempts(std::move(surface), sticky, is_connected);
 }
 
+/** What a bootstrap-seed park wait does on each check (H010; call-path-resilience k2). */
+enum class SeedParkStep {
+  Wait,        // keep waiting (listener / timers)
+  ArmGrace,    // ≥1 seed Connected: give the others a short grace instead of the whole deadline
+  SettleOk,    // parked
+  SettleFail,  // deadline with no Connected seed
+};
+
+/**
+ * All seeds Connected settles at once (the dialer may bridge through any seed). With some but not
+ * all, a short grace starts once; at the deadline (or the grace's end) ≥1 Connected is enough.
+ */
+inline SeedParkStep DecideSeedParkStep(const bool all_connected, const bool any_connected, const bool at_deadline,
+                                       const bool grace_armed) {
+  if (all_connected) {
+    return SeedParkStep::SettleOk;
+  }
+  if (at_deadline) {
+    return any_connected ? SeedParkStep::SettleOk : SeedParkStep::SettleFail;
+  }
+  if (any_connected && !grace_armed) {
+    return SeedParkStep::ArmGrace;
+  }
+  return SeedParkStep::Wait;
+}
+
 /** Overload without sticky (Connected-first only). */
 inline std::vector<std::string> OrderRendezvousParkAttempts(
     std::vector<std::string> surface,

@@ -22,10 +22,10 @@ TEST(CircuitServeDialPolicyTest, OpenOnLiveLinkWhenPeerIdOnly) {
 }
 
 TEST(CircuitServeDialPolicyTest, SkipPreferredAfterSeedPark) {
-  EXPECT_TRUE(pbr::CallMediaShouldSkipPreferredDialAfterSeedPark(true, false));
-  EXPECT_FALSE(pbr::CallMediaShouldSkipPreferredDialAfterSeedPark(true, true));
-  EXPECT_FALSE(pbr::CallMediaShouldSkipPreferredDialAfterSeedPark(false, false));
-  EXPECT_FALSE(pbr::CallMediaShouldSkipPreferredDialAfterSeedPark(false, true));
+  EXPECT_TRUE(pbr::ShouldSkipPrivatePreferredDialAfterSeedPark(true, false));
+  EXPECT_FALSE(pbr::ShouldSkipPrivatePreferredDialAfterSeedPark(true, true));
+  EXPECT_FALSE(pbr::ShouldSkipPrivatePreferredDialAfterSeedPark(false, false));
+  EXPECT_FALSE(pbr::ShouldSkipPrivatePreferredDialAfterSeedPark(false, true));
 }
 
 TEST(CircuitServeDialPolicyTest, ArmFarLegWaitDeadlineCapsToTunnel) {

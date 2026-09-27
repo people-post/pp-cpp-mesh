@@ -83,3 +83,22 @@ TEST(CircuitRendezvousPolicyTest, DialerTopKCoveredByParkPrefix) {
   EXPECT_TRUE(parked.count("s2") > 0);
   EXPECT_EQ(park[0], "s2");
 }
+
+// call-path-resilience k2: one unreachable seed used to hold the answerer's Accept for the whole
+// 12 s park deadline. Now ≥1 Connected arms a short grace; all Connected settles at once.
+TEST(SeedParkStepTest, OneSeedConnectedArmsGraceInsteadOfWaitingTheDeadline) {
+  using pbr::DecideSeedParkStep;
+  using pbr::SeedParkStep;
+  EXPECT_EQ(DecideSeedParkStep(/*all=*/false, /*any=*/true, /*at_deadline=*/false, /*grace_armed=*/false),
+            SeedParkStep::ArmGrace);
+  EXPECT_EQ(DecideSeedParkStep(false, true, false, /*grace_armed=*/true), SeedParkStep::Wait) << "grace armed once";
+  EXPECT_EQ(DecideSeedParkStep(false, true, /*at_deadline (grace end)=*/true, true), SeedParkStep::SettleOk);
+}
+
+TEST(SeedParkStepTest, AllConnectedSettlesAndNoneWaitsUntilTheDeadline) {
+  using pbr::DecideSeedParkStep;
+  using pbr::SeedParkStep;
+  EXPECT_EQ(DecideSeedParkStep(true, true, false, false), SeedParkStep::SettleOk);
+  EXPECT_EQ(DecideSeedParkStep(false, false, false, false), SeedParkStep::Wait);
+  EXPECT_EQ(DecideSeedParkStep(false, false, true, false), SeedParkStep::SettleFail);
+}

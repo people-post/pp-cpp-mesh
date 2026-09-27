@@ -37,7 +37,7 @@ TEST(MediaRelayBundleLogicTest, QuoteAndAttachAck) {
 
 TEST(MediaRelayBundleLogicTest, BuildDefaultQuote) {
   MediaRelayQuoteRequest req;
-  req.call_id = "c1";
+  req.session_id = "c1";
   req.want_up_bps = 1000;
   auto q = BuildDefaultMediaRelayQuote(req);
   EXPECT_TRUE(q.ok);

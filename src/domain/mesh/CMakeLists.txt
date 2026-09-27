@@ -6,8 +6,6 @@ set(PP_DOMAIN_MESH_HOST_SOURCES
   host/MeshHost.cpp
   host/MeshLinkEventLog.cpp
   host/MeshPorts.cpp
-  host/MeshControlPool.cpp
-  host/MeshControlDispatch.cpp
   host/MeshPumpThread.cpp
 )
 
@@ -22,6 +20,10 @@ set(PP_DOMAIN_MESH_REACHABILITY_SOURCES
   reachability/PunchBurst.cpp
   reachability/AmpPunchCoordinator.cpp
   reachability/MobileEphemeralListenGate.cpp
+  reachability/AmpCircuitHopReach.cpp
+  reachability/PeerReachCoordinator.cpp
+  reachability/PunchIntroducerWalk.cpp
+  reachability/CircuitRendezvousCoordinator.cpp
 )
 
 set(PP_DOMAIN_MESH_DISCOVERY_SOURCES
@@ -50,6 +52,9 @@ set(PP_DOMAIN_MESH_L4_MEDIA_RELAY_SOURCES
   l4/media_relay/MediaRelayLogic.cpp
   l4/media_relay/MediaRelayBundleLogic.cpp
   l4/media_relay/AmpMediaRelayCoordinator.cpp
+  l4/media_relay/AmpMediaRelayClient.cpp
+  l4/media_relay/MediaRelayAttach.cpp
+  l4/media_relay/MediaRelayFrameCrypto.cpp
 )
 
 set(PP_DOMAIN_MESH_L4_CALL_MEDIA_SOURCES
@@ -58,6 +63,10 @@ set(PP_DOMAIN_MESH_L4_CALL_MEDIA_SOURCES
   l4/call_media/CallMediaBundleLogic.cpp
   l4/call_media/CallMediaSessionLogic.cpp
   l4/call_media/CallMediaFrameCrypto.cpp
+)
+
+set(PP_DOMAIN_MESH_MEDIA_PLANE_SOURCES
+  media_plane/MeshMediaPlane.cpp
 )
 
 if(WIN32)
@@ -79,6 +88,7 @@ pp_browser_add_domain_library(pp_domain_mesh
     ${PP_DOMAIN_MESH_L4_CIRCUIT_SOURCES}
     ${PP_DOMAIN_MESH_L4_MEDIA_RELAY_SOURCES}
     ${PP_DOMAIN_MESH_L4_CALL_MEDIA_SOURCES}
+    ${PP_DOMAIN_MESH_MEDIA_PLANE_SOURCES}
   PUBLIC_LIBS
     pp_foundation_data
     pp_foundation_crypto

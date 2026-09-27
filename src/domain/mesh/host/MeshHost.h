@@ -9,14 +9,15 @@
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
-#include "domain/mesh/host/MeshControlPool.h"
 #include "domain/mesh/host/MeshIdentityConfig.h"
 #include "domain/mesh/host/MeshPorts.h"
+#include "foundation/runtime/AppRuntime.h"
 #include "domain/mesh/host/MeshPumpThread.h"
 #include "domain/mesh/reachability/ReachabilityEngine.h"
 #include "common/Error.h"
 
 #include <chrono>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -76,10 +77,7 @@ public:
   void Tick();
   bool IsRunning() const;
 
-  /** Post Amp control waits (Connect / IoPumpUntil) onto MeshControlPool. */
-  void PostControl(std::function<void()> task);
   bool MeshPumpRunning() const { return pump_.IsRunning(); }
-  bool MeshControlRunning() const { return control_ && control_->IsRunning(); }
 
   ReachabilityEngine& Reachability();
 
@@ -127,7 +125,7 @@ public:
   enum class AttachDrive {
     /** Caller Ticks (VirtualClock / MemoryDatagramIo tests — MeshPump is not clock-safe). */
     Manual,
-    /** Own MeshPump + MeshControl like product Start (wall-clock harnesses, e.g. pp-call-probe). */
+    /** Own MeshPump and hand L4 work to AppRuntime workers like product Start (wall-clock harnesses, e.g. pp-call-probe). */
     MeshPump,
   };
   Roe<void> AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr = {},
@@ -159,10 +157,17 @@ private:
   std::function<void(std::function<void()>)> MakeL4IoPost() const;
   /** MeshRuntime::PostAfter — Amp-clock delayed work (deadlines). */
   std::function<void(std::chrono::milliseconds, std::function<void()>)> MakeL4IoAfter() const;
+  /**
+   * Where L4 inbound handlers do their CPU / disk work off the IO strand: AppRuntime workers once
+   * this host drives its own MeshPump (product, wall-clock harnesses); inline on the driving thread
+   * for manual-drive harnesses (no runtime). Nothing posted here may wait on the mesh.
+   */
+  std::function<void(std::function<void()>)> MakeL4WorkerPost(WorkerLane lane) const;
 
   std::unique_ptr<ReachabilityEngine> reachability_;
   MeshPumpThread pump_;
-  std::unique_ptr<MeshControlPool> control_;
+  /** Set while MeshPump drives: L4 work goes to AppRuntime workers (MakeL4WorkerPost). */
+  std::atomic<bool> l4_on_workers_{false};
   std::unique_ptr<pp::amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
   std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
