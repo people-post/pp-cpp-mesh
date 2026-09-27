@@ -10,13 +10,14 @@ TEST(MeshLinkEventLogTest, FormatsDroppedWithReasonAndAge) {
   event.dial_key = "carrier:QmRelay:3";
   event.peer_id = "QmCaller";
   event.transport = pp::amp::TransportClass::Carrier;
+  event.path_kind = pp::amp::LinkPathKind::Carrier;
   event.handle.id.value = 7;
   event.handle.generation = 2;
   event.reason = pp::amp::LinkDropReason::CarrierClosed;
   event.was_connected = true;
 
   EXPECT_EQ(pbr::FormatLinkEventForLog(event),
-            "link dropped key=carrier:QmRelay:3 peer=QmCaller transport=carrier dir=in id=7.2 "
+            "link dropped key=carrier:QmRelay:3 peer=QmCaller path=carrier dir=in id=7.2 "
             "reason=carrier-closed was_connected=1");
 }
 
@@ -24,6 +25,7 @@ TEST(MeshLinkEventLogTest, FormatsPathChangeEndpoints) {
   pp::amp::LinkEvent event;
   event.kind = pp::amp::LinkEvent::Kind::PathChanged;
   event.dial_key = "QmPeer";
+  event.path_kind = pp::amp::LinkPathKind::Punched;
   event.outbound = true;
   event.previous_remote = pp::adp::IpEndpoint::V4(203, 0, 113, 5, 4001);
   std::array<uint8_t, 16> v6{};
@@ -35,7 +37,7 @@ TEST(MeshLinkEventLogTest, FormatsPathChangeEndpoints) {
   event.remote = pp::adp::IpEndpoint::V6(v6, 4002);
 
   EXPECT_EQ(pbr::FormatLinkEventForLog(event),
-            "link path-changed key=QmPeer peer=- transport=adp dir=out id=0.0 from=203.0.113.5:4001 "
+            "link path-changed key=QmPeer peer=- path=punched dir=out id=0.0 from=203.0.113.5:4001 "
             "to=[2001:db8:0:0:0:0:0:1]:4002");
 }
 
