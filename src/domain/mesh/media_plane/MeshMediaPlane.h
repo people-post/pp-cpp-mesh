@@ -1,13 +1,14 @@
 #pragma once
 
-#include "amp/link/PeerLinkManager.h"
 #include "common/Error.h"
 #include "common/Module.h"
 #include "common/directory/MeshHopTypes.h"
 #include "domain/mesh/host/MeshHost.h"
 #include "domain/mesh/l4/media_relay/IMediaRelayClient.h"
 #include "domain/mesh/l4/media_relay/MediaRelayAttach.h"
+#include "domain/mesh/reachability/CircuitRendezvousCoordinator.h"
 #include "domain/mesh/reachability/MeshReachPorts.h"
+#include "domain/mesh/reachability/PunchIntroducerWalk.h"
 #include "foundation/runtime/DeferredSelf.h"
 
 #include <cstdint>
@@ -19,12 +20,6 @@
 #include "common/PbrCompat.h"
 
 namespace pbr {
-
-/** Cold-punch introducers in preference order: contacts first, then configured seeds. */
-struct MeshPunchIntroducers {
-  std::vector<std::string> contact_peer_ids;
-  std::vector<std::string> seed_peer_ids;
-};
 
 /**
  * What the plane needs from the product. Hop candidates are policy (contacts, directory, DHT,
@@ -44,21 +39,21 @@ struct MeshMediaPlaneDeps {
 };
 
 /**
- * Neutral mesh media objects shared by calls and broadcast (media-client-layers L015): the
- * media_relay client, dial registry + peer listen book, circuit / service reach (with cold and
- * upgrade punch) and rendezvous parking so this node is reachable through org hops.
+ * Owner of the neutral mesh media objects shared by calls and broadcast (media-client-layers
+ * L015): the media_relay client, dial registry + peer listen book, circuit / service reach, and the
+ * reach pieces it is built from — `PunchIntroducerWalk` (punch step) and
+ * `CircuitRendezvousCoordinator` (relay surface for dialing and parking). Composition and lifecycle
+ * only: reach mechanics live in `domain/mesh/reachability`.
  *
  * The owner sequences rewires: dependents holding `RelayClient()` / `Dial()` / `CircuitReach()`
  * must be detached before `Wire`, `ResetRelayClients`, `ResetRelayClient` or teardown replace them.
  *
- * Threading: owner calls on the UI / control thread; parking work runs on the Amp IO thread;
- * async callbacks that capture `this` are dropped after `InvalidateAsyncOps`.
+ * Threading: owner calls on the UI / control thread; async callbacks that capture `this` (and the
+ * rendezvous coordinator's) are dropped after `InvalidateAsyncOps`.
  */
 class MeshMediaPlane : public Module {
 public:
-  using SignalingPunchFn = std::function<void(const std::string& target_peer_id,
-                                              const std::vector<std::string>& my_addrs,
-                                              std::function<void(Roe<void>)> on_done)>;
+  using SignalingPunchFn = PunchIntroducerWalk::SignalingPunchFn;
 
   MeshMediaPlane();
   ~MeshMediaPlane() override;
@@ -71,11 +66,11 @@ public:
   /** Circuit reach chose a rendezvous relay (H011: calls announce it to the call peer). */
   void SetOnRelayChosen(std::function<void(const std::string& relay_peer_id)> callback);
 
-  /** (Re)create relay client, dial registry and circuit reach from the running mesh. */
+  /** (Re)create relay client, dial registry and circuit reach from the running mesh; arm re-park. */
   void Wire();
   /** Tests / harness without MeshHost objects: use these instead (not owned). */
   void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach);
-  /** Drop async callbacks and the re-park listener (mesh stop / teardown). */
+  /** Drop async callbacks, relay-chosen notices and the re-park listener (mesh stop / teardown). */
   void InvalidateAsyncOps();
   void ResetRelayClient();
   /** Relay client + dial registry (capability refresh). */
@@ -109,55 +104,16 @@ public:
   void TryEnsurePeerReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done);
   Roe<void> TryUpgradeToDirect(const std::string& peer_key);
 
-  // --- rendezvous parking -------------------------------------------------------------------
-  void WarmBootstrapSeedSessions();
-  /** StartReserve over the rendezvous surface so ServeDial finds us through org hops (H011). */
-  void ReserveOnBootstrapSeeds();
-  /** StartReserve a specific R1 (chosen / announced by the peer); no-op when empty. */
-  void PreferLateReserve(const std::string& relay_peer_id);
-  /** Reserve, then on_done(true) once seeds are Connected, or false at timeout (H010). */
-  void EnsureBootstrapSeedParkedAsync(std::function<void(bool parked)> on_done, int timeout_ms = 12000);
-  /** Blocking EnsureBootstrapSeedParkedAsync — workers only (MeshPump drives progress). */
-  bool AwaitCircuitReady(int timeout_ms = 12000);
+  /** Rendezvous relays: dial surface for reach, parking so this node is reachable (stable object). */
+  CircuitRendezvousCoordinator& Rendezvous() { return rendezvous_; }
 
 private:
-  struct SeedPark;
-  struct ColdPark;
-
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }
   void WireMediaRelayClient(MeshHost* m, const MeshIoContext& io);
   void WireDialRegistry(MeshHost* m, const MeshIoContext& io);
   void WireCircuitHopReach(MeshHost* m, const MeshIoContext& io);
-  void PostIoOrRun(std::function<void()> task) const;
-
-  void TryColdPunchAsync(const std::string& target_peer_id, std::function<void(Roe<void>)> on_done);
-  void TryUpgradePunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id,
-                            std::function<void(Roe<void>)> on_done);
-
-  std::vector<MeshHopCandidate> RendezvousCandidates(const std::string& exclude_peer_id = {}) const;
-  std::vector<std::string> CollectDialableCircuitRelayIds(const std::string& exclude_peer_id) const;
-  std::vector<std::string> BootstrapSeedPeerIds() const;
-  bool AnyBootstrapSeedConnectedOnIo() const;
-  bool AllBootstrapSeedsConnectedOnIo() const;
-
-  void WarmBootstrapSeedSessionsOnIo();
-  void ReserveOnBootstrapSeedsOnIo();
-  /** Rendezvous surface registered and ordered for parking (sticky R1 / connected first). */
-  std::vector<MeshHopCandidate> OrderedParkSurface(IChatPeerLinks& links);
-  void StartReserveOnRelay(const std::string& relay, const char* label);
-  void ReserveColdSurface(const std::shared_ptr<ColdPark>& park, size_t index, size_t cold_started);
-  void PreferLateReserveOnIo(const std::string& relay_peer_id);
-  void CheckSeedPark(const std::shared_ptr<SeedPark>& park, bool at_deadline);
-  static void FinishSeedPark(const std::shared_ptr<SeedPark>& park, bool parked);
-  static void AbandonSeedPark(const std::shared_ptr<SeedPark>& park);
-
-  /** B27: a rendezvous peer reconnected after a path change — re-StartReserve on it. */
-  void InstallRendezvousReparkListener();
-  void RemoveRendezvousReparkListener();
-  void OnRendezvousPeerReconnected(const std::string& peer_id);
 
   MeshMediaPlaneDeps deps_;
-  SignalingPunchFn signaling_punch_;
   std::function<void(const std::string&)> on_relay_chosen_;
   std::unordered_map<std::string, std::vector<std::string>> peer_listen_mas_;
 
@@ -166,9 +122,8 @@ private:
   std::unique_ptr<ICircuitHopReach> circuit_hop_reach_;
   IDialRegistry* test_dial_ = nullptr;
   ICircuitHopReach* test_circuit_reach_ = nullptr;
-  /** H011 L3.1b/c: last chosen / announced R1 PeerId for park sticky + late-reserve. */
-  std::string chosen_circuit_r1_;
-  pp::amp::PeerLinkManager::PeerConnectedListenerId repark_listener_id_ = 0;
+  PunchIntroducerWalk punch_;
+  CircuitRendezvousCoordinator rendezvous_;
   DeferredSelf deferred_;
 };
 

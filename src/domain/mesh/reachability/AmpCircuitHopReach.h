@@ -57,7 +57,7 @@ public:
 
   /**
    * H011 L3.1c: invoked on Amp IO after a successful bridge Install (chosen R1).
-   * MeshMediaPlane uses this for sticky cache / optional late-reserve announce path.
+   * CircuitRendezvousCoordinator uses this (via MeshMediaPlane) for sticky cache / optional late-reserve announce path.
    */
   using OnRelayChosen = std::function<void(const std::string& relay_peer_key)>;
   void SetOnRelayChosen(OnRelayChosen cb) { on_relay_chosen_ = std::move(cb); }
