@@ -51,7 +51,6 @@ public:
 
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override;
   Roe<void> TryEnsurePeerReachable(const std::string& peer_key) override;
-  Roe<void> TryUpgradeToDirect(const std::string& peer_key) override;
   void AbortPending() override;
   std::string LastGoodRelayPeerKey() const override { return last_good_relay_peer_key_; }
 
@@ -87,9 +86,6 @@ private:
   std::atomic<uint64_t> inflight_tunnel_value_{0};
   /** Last relay that completed a bridge Install (sticky first try — H010). */
   std::string last_good_relay_peer_key_;
-
-  Roe<void> DemoteCircuitHop(const std::string& peer_key, const std::string& target_protocol,
-                             CircuitTunnelId tunnel_id);
 };
 
 } // namespace pbr

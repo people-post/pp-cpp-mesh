@@ -461,14 +461,4 @@ void MeshMediaPlane::TryEnsurePeerReachableAsync(const std::string& peer_key, st
   }
 }
 
-Roe<void> MeshMediaPlane::TryUpgradeToDirect(const std::string& peer_key) {
-  if (!circuit_hop_reach_) {
-    return Error("amp circuit reach required");
-  }
-  if (peer_key.empty()) {
-    return Error("missing peer");
-  }
-  return circuit_hop_reach_->TryUpgradeToDirect(peer_key);
-}
-
 } // namespace pbr

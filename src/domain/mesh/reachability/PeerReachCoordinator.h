@@ -121,6 +121,12 @@ public:
    */
   void AbortCircuitAttempts();
   /**
+   * During a relayed call (call-path-resilience k3): punch toward `peer_id` with the circuit's
+   * relay as introducer. OK once a direct link is Connected — the call moves onto it by itself.
+   * `on_done` on the Connectivity owner.
+   */
+  void UpgradeToDirect(const std::string& peer_id, std::function<void(Roe<void>)> on_done);
+  /**
    * Pick the dial key for a peer known under both an alias (e.g. `account:`) and its mesh PeerId.
    * The PeerId is preferred: the Connected PeerLink lives under it, while the alias can look
    * dialable through a stale entry (dogfood 7bd62: AssociationNotReady forever). When only the

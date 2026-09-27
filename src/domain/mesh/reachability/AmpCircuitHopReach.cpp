@@ -624,53 +624,29 @@ void AmpCircuitHopReach::TryUpgradeToDirectAsync(const std::string& peer_key,
     on_done(Error("circuit upgrade punch unavailable"));
     return;
   }
-
   std::optional<AmpCircuitHopRegistry::Hop> hop = hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId);
-  std::string protocol = pp::amp::kAmpCircuitCarrierProtocolId;
   if (!hop) {
     hop = hops_.Find(peer_key, kMediaRelayProtocolId);
-    protocol = kMediaRelayProtocolId;
   }
   if (!hop) {
     on_done(Error("no circuit hop to upgrade"));
     return;
   }
-
-  const std::string relay_key = hop->relay_peer_key;
-  const CircuitTunnelId tunnel_id = hop->tunnel_id;
-  try_punch_via_introducer_(
-      relay_key, peer_key,
-      [this, peer_key, protocol, tunnel_id, on_done = std::move(on_done)](Roe<void> punched) mutable {
-        if (!punched) {
-          on_done(std::move(punched));
-          return;
-        }
-        if (!links_.GetLinkSnapshot(peer_key).has_endpoint) {
-          on_done(Error("upgrade punch did not yield a direct path"));
-          return;
-        }
-        on_done(DemoteCircuitHop(peer_key, protocol, tunnel_id));
-      });
-}
-
-Roe<void> AmpCircuitHopReach::TryUpgradeToDirect(const std::string& peer_key) {
-  SettledWait<void> wait;
-  TryUpgradeToDirectAsync(peer_key, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
-  const auto deadline = Clock::now() + std::chrono::milliseconds(30000);
-  AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
-  return wait.Wait(std::chrono::milliseconds(1), Error("circuit upgrade timed out"));
-}
-
-Roe<void> AmpCircuitHopReach::DemoteCircuitHop(const std::string& peer_key, const std::string& target_protocol,
-                                               CircuitTunnelId tunnel_id) {
-  if (tunnel_id) {
-    circuit_.CancelTunnel(tunnel_id);
-  }
-  hops_.Clear(peer_key, target_protocol);
-  if (!hops_.HasAny(peer_key)) {
-    hops_.Clear(peer_key);
-  }
-  return {};
+  // The circuit's relay introduces the punch. The circuit itself is left alone: the call moves
+  // onto the direct link make-before-break (call-path-resilience k3) and releases its relayed path.
+  try_punch_via_introducer_(hop->relay_peer_key, peer_key,
+                            [this, peer_key, on_done = std::move(on_done)](Roe<void> punched) mutable {
+                              if (!punched) {
+                                on_done(std::move(punched));
+                                return;
+                              }
+                              const auto snap = links_.SnapshotByPeerId(peer_key);
+                              if (snap.base.phase != pp::amp::PeerLinkPhase::Connected || snap.base.carrier_backed) {
+                                on_done(Error("upgrade punch did not yield a direct link"));
+                                return;
+                              }
+                              on_done(Roe<void>());
+                            });
 }
 
 } // namespace pbr

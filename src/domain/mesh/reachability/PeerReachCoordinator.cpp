@@ -190,6 +190,31 @@ void PeerReachCoordinator::ReleasePeer(const std::string& key) {
   dial->ClearPeerCircuitHop(key);
 }
 
+void PeerReachCoordinator::UpgradeToDirect(const std::string& peer_id, std::function<void(Roe<void>)> on_done) {
+  if (!on_done) {
+    return;
+  }
+  PostStep([this, alive = alive_, peer_id, on_done = std::move(on_done)]() mutable {
+    if (!alive->load(std::memory_order_acquire)) {
+      return;
+    }
+    ICircuitHopReach* circuit = circuit_.load(std::memory_order_acquire);
+    if (!circuit || peer_id.empty()) {
+      on_done(Error(peer_id.empty() ? "missing peer" : "circuit reach not available"));
+      return;
+    }
+    log().info << "direct upgrade punch peer=" << peer_id;
+    // Circuit reach answers on the Amp IO strand: back onto the owner.
+    circuit->TryUpgradeToDirectAsync(peer_id, [alive, on_done = std::move(on_done)](Roe<void> result) mutable {
+      PostStep([alive, on_done = std::move(on_done), result = std::move(result)]() mutable {
+        if (alive->load(std::memory_order_acquire)) {
+          on_done(std::move(result));
+        }
+      });
+    });
+  });
+}
+
 void PeerReachCoordinator::AbortCircuitAttempts() {
   if (ICircuitHopReach* circuit = circuit_.load(std::memory_order_acquire)) {
     circuit->AbortPending();
