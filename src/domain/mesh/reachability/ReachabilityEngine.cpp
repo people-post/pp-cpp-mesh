@@ -130,6 +130,7 @@ void ReachabilityEngine::Complete(ReachabilitySnapshot result, const bool classi
 }
 
 void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
+  PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
   ReachabilitySnapshot result;
   result.measured_at = Clock::now();
 
@@ -172,6 +173,7 @@ void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
 }
 
 void ReachabilityEngine::ProbeSeed(AmpReachabilityProbeDeps deps, ReachabilitySnapshot result) {
+  PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
   if (result.signals.upnp_mapped) {
     upnp_external_ip_ = result.signals.upnp_external_ip;
     upnp_external_port_ = result.signals.upnp_external_port;

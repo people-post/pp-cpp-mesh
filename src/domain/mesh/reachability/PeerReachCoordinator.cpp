@@ -313,6 +313,7 @@ void PeerReachCoordinator::ClearBackoff(const Attempt& a) {
 }
 
 void PeerReachCoordinator::Start(const AttemptPtr& a) {
+  PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
   if (a->settled.load(std::memory_order_acquire)) {
     return;
   }
@@ -395,6 +396,7 @@ bool PeerReachCoordinator::TrySettleConnected(const AttemptPtr& a) {
 }
 
 void PeerReachCoordinator::Tick(const AttemptPtr& a) {
+  PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
   if (a->settled.load(std::memory_order_acquire)) {
     return;
   }

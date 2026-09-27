@@ -147,6 +147,7 @@ void MeshMediaPlane::SignalingPunchBurstAsync(std::vector<std::string> peer_addr
 }
 
 void MeshMediaPlane::RefreshHopPolicyOnOwner() {
+  PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
   if (!wired_) {
     return;  // unwired: the product's inputs (and its mesh) may be going away
   }
@@ -361,6 +362,7 @@ void MeshMediaPlane::PublishListenBook() {
 
 std::string MeshMediaPlane::RegisterPeerListenMultiaddrsOnOwner(const std::string& key,
                                                                 const std::vector<std::string>& multiaddrs) {
+  PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
   if (key.empty() || multiaddrs.empty()) {
     return {};
   }
