@@ -5,7 +5,9 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <future>
 #include <string>
+#include <thread>
 
 namespace pbr {
 namespace {
@@ -238,6 +240,37 @@ TEST_F(AmpMediaRelayClientLossTest, ObserversHearReplacementDetachAndLoss) {
   EXPECT_EQ(seen[2], MediaRelayClientLoss::TransportLost);
   EXPECT_EQ(handler_calls, 1) << "the legacy slot only hears transport loss";
   client_->RemoveClientTransportLostObserver(token);
+}
+
+// One-way media (a broadcaster only sends, a viewer only receives) leaves one end without RX:
+// the client marks its hop link hot so keepalive echoes keep it alive past the 5 s cold window.
+TEST_F(AmpMediaRelayClientLossTest, PublishOnlyClientSurvivesLongSilenceFromTheHop) {
+  std::atomic<int> lost{0};
+  client_->SetClientTransportLostHandler([&lost]() { lost.fetch_add(1); });
+  Attach("publish-only");
+  for (int i = 0; i < 12000; ++i) {  // 12 s of virtual time, nothing received from the hop
+    harness_->PumpBoth();
+  }
+  EXPECT_EQ(lost.load(), 0);
+  EXPECT_TRUE(client_->IsAttached());
+}
+
+// A write the mux refuses (here: an oversized frame) fails the channel inside SendFrame, and its
+// closed callback reports the loss. SendFrame used to enqueue under the coordinator lock, which that
+// callback takes too: the sending thread (the engine's capture thread) deadlocked, then the pump.
+TEST_F(AmpMediaRelayClientLossTest, AWriteThatFailsTheChannelDoesNotDeadlockTheSender) {
+  std::atomic<int> lost{0};
+  client_->SetClientTransportLostHandler([&lost]() { lost.fetch_add(1); });
+  Attach("sender");
+  MediaDataFrame oversized;
+  oversized.stream_id = 7;
+  oversized.payload.assign(32u * 1024u * 1024u, 0xAB);
+  auto sent = std::async(std::launch::async, [&]() { return client_->SendFrame(oversized); });
+  ASSERT_EQ(sent.wait_for(std::chrono::seconds(5)), std::future_status::ready) << "sender deadlocked";
+  (void)sent.get();  // queued, then the mux refused it and failed the channel
+  harness_->PumpUntil([&lost] { return lost.load() > 0; }, 200);
+  EXPECT_EQ(lost.load(), 1);
+  EXPECT_FALSE(client_->IsAttached());
 }
 
 } // namespace
