@@ -1,6 +1,8 @@
 #include "domain/mesh/media_plane/MeshMediaPlane.h"
+#include "foundation/runtime/AppRuntime.h"
 
 #include <gtest/gtest.h>
+#include <atomic>
 #include <string>
 #include <utility>
 #include <vector>
@@ -60,6 +62,42 @@ TEST(MeshMediaPlaneTest, WireWithoutAMeshLeavesNoSharedObjects) {
   EXPECT_EQ(ports.service_reach, nullptr);
   EXPECT_FALSE(plane.AmpRelayAvailable());
   EXPECT_FALSE(plane.TryEnsurePeerReachable("peer"));
+}
+
+// thread-ownership t3-2b: candidate policy is evaluated on the Connectivity owner — never on the
+// Amp IO strand — and the IO side reads the published snapshot.
+TEST(MeshMediaPlaneTest, HopPolicyIsEvaluatedOnTheConnectivityOwnerAndPublished) {
+  AppRuntime::Initialize(ManualOwnerRuntimeConfig());
+  {
+    MeshMediaPlane plane;
+    std::atomic<int> evaluations{0};
+    std::atomic<bool> off_owner{false};
+    std::string seed = "12D3KooWSeedA";
+    MeshMediaPlaneDeps deps;
+    deps.bootstrap_seeds = [&]() {
+      ++evaluations;
+      if (!AppRuntime::CurrentlyOn(OwnerThreadId::Connectivity)) {
+        off_owner = true;
+      }
+      MeshHopCandidate hop;
+      hop.peer_id = seed;
+      return std::vector<MeshHopCandidate>{hop};
+    };
+    plane.SetDeps(std::move(deps));
+    plane.Wire();  // no mesh: nothing wired, but the policy is read once
+    ASSERT_EQ(plane.HopPolicy()->bootstrap_seeds.size(), 1u);
+    EXPECT_EQ(plane.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedA");
+
+    seed = "12D3KooWSeedB";
+    const int before = evaluations.load();
+    plane.RefreshHopPolicy();
+    EXPECT_EQ(evaluations.load(), before) << "posted to the owner, not run by the caller";
+    EXPECT_EQ(plane.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedA");
+    AppRuntime::RunOwnerTasks(OwnerThreadId::Connectivity);
+    EXPECT_EQ(plane.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedB");
+    EXPECT_FALSE(off_owner.load()) << "providers only ever run on the Connectivity owner";
+  }
+  AppRuntime::Shutdown();
 }
 
 } // namespace

@@ -6,6 +6,8 @@
 #include "foundation/runtime/AppRuntime.h"
 
 #include <algorithm>
+#include <utility>
+#include <chrono>
 #include "common/PbrCompat.h"
 
 namespace pbr {
@@ -25,6 +27,8 @@ std::string PeerIdFromListenMultiaddr(const std::string& ma) {
 
 /** The plane's owner (thread-ownership T001): connectivity decisions, not Amp I/O. */
 constexpr OwnerThreadId kOwner = OwnerThreadId::Connectivity;
+/** Candidate policy inputs (contacts, directory, DHT, seeds) change without notice: re-read. */
+constexpr std::chrono::milliseconds kHopPolicyRefresh{5000};
 
 } // namespace
 
@@ -41,11 +45,12 @@ MeshMediaPlane::~MeshMediaPlane() {
 void MeshMediaPlane::SetDeps(MeshMediaPlaneDeps deps) {
   AppRuntime::RunAndWait(kOwner, [&]() {
     deps_ = std::move(deps);
-    punch_.SetDeps({deps_.mesh, deps_.punch_introducers});
+    // The IO side (punch walk, rendezvous) reads the owner's policy snapshot, never the providers.
+    punch_.SetDeps({deps_.mesh, [this]() { return HopPolicy()->punch_introducers; }});
     CircuitRendezvousDeps rendezvous;
     rendezvous.mesh = deps_.mesh;
-    rendezvous.rendezvous_candidates = deps_.rendezvous_candidates;
-    rendezvous.bootstrap_seeds = deps_.bootstrap_seeds;
+    rendezvous.rendezvous_candidates = [this]() { return HopPolicy()->rendezvous_candidates; };
+    rendezvous.bootstrap_seeds = [this]() { return HopPolicy()->bootstrap_seeds; };
     rendezvous.last_good_relay = [this]() {
       ICircuitHopReach* reach = CircuitReach();
       return reach ? reach->LastGoodRelayPeerKey() : std::string();
@@ -76,11 +81,52 @@ void MeshMediaPlane::Wire() {
       // Exclusive Amp Drive: io_pump is empty; MeshPump (or a harness Tick loop) progresses Amp.
       io = chat->io;
     }
+    RefreshHopPolicyOnOwner();
+    ArmHopPolicyRefresh();
     WireMediaRelayClient(m, io);
     WireDialRegistry(m, io);
     WireCircuitHopReach(m, io);
     rendezvous_.InstallReparkListener();
   });
+}
+
+void MeshMediaPlane::RefreshHopPolicy() {
+  AppRuntime::PostToOwnerOrRun(kOwner, [this, alive = alive_]() {
+    if (alive->load(std::memory_order_acquire)) {
+      RefreshHopPolicyOnOwner();
+    }
+  });
+}
+
+std::shared_ptr<const MeshHopPolicy> MeshMediaPlane::HopPolicy() const {
+  std::lock_guard lock(hop_policy_mu_);
+  return hop_policy_;
+}
+
+void MeshMediaPlane::RefreshHopPolicyOnOwner() {
+  auto policy = std::make_shared<MeshHopPolicy>();
+  if (deps_.rendezvous_candidates) {
+    policy->rendezvous_candidates = deps_.rendezvous_candidates();
+  }
+  if (deps_.bootstrap_seeds) {
+    policy->bootstrap_seeds = deps_.bootstrap_seeds();
+  }
+  if (deps_.punch_introducers) {
+    policy->punch_introducers = deps_.punch_introducers();
+  }
+  std::lock_guard lock(hop_policy_mu_);
+  hop_policy_ = std::move(policy);
+}
+
+void MeshMediaPlane::ArmHopPolicyRefresh() {
+  if (hop_policy_timer_ != 0) {
+    AppRuntime::CancelCoordinatorTimer(std::exchange(hop_policy_timer_, 0));
+  }
+  hop_policy_timer_ = AppRuntime::ScheduleOn(kOwner, kHopPolicyRefresh, deferred_.Bind([this]() {
+    hop_policy_timer_ = 0;
+    RefreshHopPolicyOnOwner();
+    ArmHopPolicyRefresh();
+  }));
 }
 
 bool MeshMediaPlane::AmpRelayAvailable() const {
@@ -177,6 +223,9 @@ MediaRelayAttachPorts MeshMediaPlane::RelayAttachPorts() const {
 void MeshMediaPlane::InvalidateAsyncOps() {
   AppRuntime::RunAndWait(kOwner, [&]() {
     rendezvous_.Invalidate();
+    if (hop_policy_timer_ != 0) {
+      AppRuntime::CancelCoordinatorTimer(std::exchange(hop_policy_timer_, 0));
+    }
     if (auto* amp = dynamic_cast<AmpCircuitHopReach*>(circuit_hop_reach_.get())) {
       amp->SetOnRelayChosen({});
     }

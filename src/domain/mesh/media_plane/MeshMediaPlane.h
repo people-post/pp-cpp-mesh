@@ -25,7 +25,9 @@ namespace pbr {
 
 /**
  * What the plane needs from the product. Hop candidates are policy (contacts, directory, DHT,
- * seeds) the wiring feature computes — `domain/mesh` does not read contacts.
+ * seeds) the wiring feature computes — `domain/mesh` does not read contacts. The three policy
+ * providers are evaluated on the Connectivity owner (at Wire, every few seconds, and on
+ * `RefreshHopPolicy`); the Amp IO side only reads the resulting `MeshHopPolicy` snapshot.
  */
 struct MeshMediaPlaneDeps {
   std::function<MeshHost*()> mesh;
@@ -60,6 +62,13 @@ struct MeshMediaPlaneDeps {
  * callbacks that capture `this` (and the rendezvous coordinator's) are dropped after
  * `InvalidateAsyncOps`.
  */
+/** Candidate policy as of the owner's last refresh (read on the Amp IO strand). */
+struct MeshHopPolicy {
+  std::vector<MeshHopCandidate> rendezvous_candidates;
+  std::vector<MeshHopCandidate> bootstrap_seeds;
+  MeshPunchIntroducers punch_introducers;
+};
+
 class MeshMediaPlane : public Module {
 public:
   using SignalingPunchFn = PunchIntroducerWalk::SignalingPunchFn;
@@ -72,6 +81,11 @@ public:
   void SetDeps(MeshMediaPlaneDeps deps);
   /** Last-resort punch through a consumer's own signaling when Amp introducers are exhausted (H012). */
   void SetSignalingPunch(SignalingPunchFn punch);
+  /** Recompute the candidate policy on the owner now (contacts / directory / seeds changed). */
+  void RefreshHopPolicy();
+  /** Any thread: the policy the IO side sees. */
+  std::shared_ptr<const MeshHopPolicy> HopPolicy() const;
+
   /** Circuit reach chose a rendezvous relay (H011: calls announce it to the call peer). */
   void SetOnRelayChosen(std::function<void(const std::string& relay_peer_id)> callback);
 
@@ -123,6 +137,9 @@ public:
 private:
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }
   std::string RegisterPeerListenMultiaddrsOnOwner(const std::string& key, const std::vector<std::string>& multiaddrs);
+  void RefreshHopPolicyOnOwner();
+  /** Re-evaluate the policy periodically while wired (the inputs change without notice). */
+  void ArmHopPolicyRefresh();
   void PublishListenBook();
   void WireMediaRelayClient(MeshHost* m, const MeshIoContext& io);
   void WireDialRegistry(MeshHost* m, const MeshIoContext& io);
@@ -134,6 +151,9 @@ private:
   mutable std::mutex listen_book_mu_;
   std::shared_ptr<const ListenBook> listen_book_ = std::make_shared<const ListenBook>();
   std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
+  mutable std::mutex hop_policy_mu_;
+  std::shared_ptr<const MeshHopPolicy> hop_policy_ = std::make_shared<const MeshHopPolicy>();
+  uint64_t hop_policy_timer_ = 0;  // owner
 
   std::unique_ptr<IMediaRelayClient> media_relay_client_;
   std::unique_ptr<PeerSessionDialRegistry> dial_registry_;
