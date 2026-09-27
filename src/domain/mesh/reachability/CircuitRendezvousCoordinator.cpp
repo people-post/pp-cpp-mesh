@@ -63,9 +63,11 @@ void CircuitRendezvousCoordinator::SetDeps(CircuitRendezvousDeps deps) {
 }
 
 void CircuitRendezvousCoordinator::NoteChosenRelay(const std::string& relay_peer_id) {
-  if (!relay_peer_id.empty()) {
-    chosen_circuit_r1_ = relay_peer_id;
+  if (relay_peer_id.empty()) {
+    return;
   }
+  // The sticky R1 is read while ordering the park surface, on the IO strand: written there too.
+  PostIoOrRun(deferred_.Bind([this, relay_peer_id]() { chosen_circuit_r1_ = relay_peer_id; }));
 }
 
 void CircuitRendezvousCoordinator::Invalidate() {
@@ -347,7 +349,7 @@ void CircuitRendezvousCoordinator::PreferLateReserve(const std::string& relay_pe
   if (relay_peer_id.empty()) {
     return;
   }
-  chosen_circuit_r1_ = relay_peer_id;
+  NoteChosenRelay(relay_peer_id);
   MeshHost* m = mesh();
   if (!m || !m->AmpCircuitTunnel() || !m->AmpCircuitTunnel()->IsStarted() || !m->ChatDeps()) {
     log().warning << "circuit late-reserve skipped: tunnel not started peer=" << relay_peer_id;

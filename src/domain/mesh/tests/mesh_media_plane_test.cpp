@@ -26,23 +26,29 @@ TEST(MeshMediaPlaneTest, ListenBookMergesAndRegistersDirectEndpointsWithoutADial
   plane.SetDeps(std::move(deps));
 
   const std::string pub = Ma("203.0.113.7", 4001);
-  const std::string peer_id = plane.RegisterPeerListenMultiaddrs("account:bob", {pub});
+  // No runtime here: the owner step runs inline.
+  std::string peer_id;
+  plane.RegisterPeerListenMultiaddrs("account:bob", {pub}, [&peer_id](const std::string& id) { peer_id = id; });
   EXPECT_EQ(peer_id, kPeer);
   ASSERT_FALSE(registered.empty());
   EXPECT_EQ(registered.back().second, pub);
-  EXPECT_EQ(plane.PeerListenBook().at("account:bob"), std::vector<std::string>{pub});
+  EXPECT_EQ(plane.PeerListenBook()->at("account:bob"), std::vector<std::string>{pub});
 
   const std::string second = Ma("198.51.100.9", 4002);
-  (void)plane.RegisterPeerListenMultiaddrs("account:bob", {pub, second});
-  const auto book = plane.PeerListenBook().at("account:bob");
+  plane.RegisterPeerListenMultiaddrs("account:bob", {pub, second});
+  const auto book = plane.PeerListenBook()->at("account:bob");
   EXPECT_EQ(book.size(), 2u) << "merged without duplicates";
 }
 
 TEST(MeshMediaPlaneTest, EmptyInputsRegisterNothing) {
   MeshMediaPlane plane;
-  EXPECT_TRUE(plane.RegisterPeerListenMultiaddrs("", {Ma("203.0.113.7", 4001)}).empty());
-  EXPECT_TRUE(plane.RegisterPeerListenMultiaddrs("account:bob", {}).empty());
-  EXPECT_TRUE(plane.PeerListenBook().empty());
+  std::string peer_id = "unset";
+  plane.RegisterPeerListenMultiaddrs("", {Ma("203.0.113.7", 4001)}, [&peer_id](const std::string& id) { peer_id = id; });
+  EXPECT_TRUE(peer_id.empty());
+  peer_id = "unset";
+  plane.RegisterPeerListenMultiaddrs("account:bob", {}, [&peer_id](const std::string& id) { peer_id = id; });
+  EXPECT_TRUE(peer_id.empty());
+  EXPECT_TRUE(plane.PeerListenBook()->empty());
 }
 
 // No mesh: nothing is wired, and every shared object reads as absent rather than dangling.

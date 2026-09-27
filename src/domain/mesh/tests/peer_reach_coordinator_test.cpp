@@ -21,7 +21,7 @@ constexpr const char* kPeer = "12D3KooWReachPeer";
 constexpr const char* kPrivateMa = "/ip4/10.0.0.2/udp/1/p2p/12D3KooWReachPeer";
 constexpr const char* kPublicMa = "/ip4/203.0.113.7/udp/1/p2p/12D3KooWReachPeer";
 
-/** Dial registry fake; state is read on the Coordinator, so every access takes the lock. */
+/** Dial registry fake; state is read on the Connectivity owner, so every access takes the lock. */
 class FakeDialRegistry final : public IDialRegistry {
 public:
   Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) override {

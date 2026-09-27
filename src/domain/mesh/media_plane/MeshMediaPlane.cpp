@@ -23,6 +23,9 @@ std::string PeerIdFromListenMultiaddr(const std::string& ma) {
   return peer_id;
 }
 
+/** The plane's owner (thread-ownership T001): connectivity decisions, not Amp I/O. */
+constexpr OwnerThreadId kOwner = OwnerThreadId::Connectivity;
+
 } // namespace
 
 MeshMediaPlane::MeshMediaPlane() {
@@ -30,44 +33,54 @@ MeshMediaPlane::MeshMediaPlane() {
 }
 
 MeshMediaPlane::~MeshMediaPlane() {
+  // On the owner, so no queued registration runs against a plane being destroyed.
+  AppRuntime::RunAndWait(kOwner, [this]() { alive_->store(false, std::memory_order_release); });
   Clear();
 }
 
 void MeshMediaPlane::SetDeps(MeshMediaPlaneDeps deps) {
-  deps_ = std::move(deps);
-  punch_.SetDeps({deps_.mesh, deps_.punch_introducers});
-  CircuitRendezvousDeps rendezvous;
-  rendezvous.mesh = deps_.mesh;
-  rendezvous.rendezvous_candidates = deps_.rendezvous_candidates;
-  rendezvous.bootstrap_seeds = deps_.bootstrap_seeds;
-  rendezvous.last_good_relay = [this]() {
-    ICircuitHopReach* reach = CircuitReach();
-    return reach ? reach->LastGoodRelayPeerKey() : std::string();
-  };
-  rendezvous_.SetDeps(std::move(rendezvous));
+  AppRuntime::RunAndWait(kOwner, [&]() {
+    deps_ = std::move(deps);
+    punch_.SetDeps({deps_.mesh, deps_.punch_introducers});
+    CircuitRendezvousDeps rendezvous;
+    rendezvous.mesh = deps_.mesh;
+    rendezvous.rendezvous_candidates = deps_.rendezvous_candidates;
+    rendezvous.bootstrap_seeds = deps_.bootstrap_seeds;
+    rendezvous.last_good_relay = [this]() {
+      ICircuitHopReach* reach = CircuitReach();
+      return reach ? reach->LastGoodRelayPeerKey() : std::string();
+    };
+    rendezvous_.SetDeps(std::move(rendezvous));
+  });
 }
 
 void MeshMediaPlane::SetSignalingPunch(SignalingPunchFn punch) {
-  punch_.SetSignalingPunch(std::move(punch));
+  AppRuntime::RunAndWait(kOwner, [&]() {
+    punch_.SetSignalingPunch(std::move(punch));
+  });
 }
 
 void MeshMediaPlane::SetOnRelayChosen(std::function<void(const std::string&)> callback) {
-  on_relay_chosen_ = std::move(callback);
+  AppRuntime::RunAndWait(kOwner, [&]() {
+    on_relay_chosen_ = std::move(callback);
+  });
 }
 
 // --- wiring ---------------------------------------------------------------------------------------
 
 void MeshMediaPlane::Wire() {
-  MeshHost* m = mesh();
-  MeshIoContext io;
-  if (auto chat = m ? m->ChatDeps() : std::nullopt) {
-    // Exclusive Amp Drive: io_pump is empty; MeshPump (or a harness Tick loop) progresses Amp.
-    io = chat->io;
-  }
-  WireMediaRelayClient(m, io);
-  WireDialRegistry(m, io);
-  WireCircuitHopReach(m, io);
-  rendezvous_.InstallReparkListener();
+  AppRuntime::RunAndWait(kOwner, [&]() {
+    MeshHost* m = mesh();
+    MeshIoContext io;
+    if (auto chat = m ? m->ChatDeps() : std::nullopt) {
+      // Exclusive Amp Drive: io_pump is empty; MeshPump (or a harness Tick loop) progresses Amp.
+      io = chat->io;
+    }
+    WireMediaRelayClient(m, io);
+    WireDialRegistry(m, io);
+    WireCircuitHopReach(m, io);
+    rendezvous_.InstallReparkListener();
+  });
 }
 
 bool MeshMediaPlane::AmpRelayAvailable() const {
@@ -118,23 +131,31 @@ void MeshMediaPlane::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io) {
         punch->TryUpgradePunchAsync(introducer_peer_key, target_peer_id, std::move(on_done));
       },
       io.post_io, io.post_after);
-  reach->SetOnRelayChosen(deferred_.Bind([this](const std::string& relay_peer_key) {
+  // Circuit reach reports on the Amp IO strand: the plane's state and its consumer hook are ours.
+  reach->SetOnRelayChosen([this, alive = deferred_.token(), snap = deferred_.Snapshot()](const std::string& relay_peer_key) {
     if (relay_peer_key.empty()) {
       return;
     }
-    rendezvous_.NoteChosenRelay(relay_peer_key);
-    log().info << "circuit rendezvous chosen R1=" << relay_peer_key;
-    if (on_relay_chosen_) {
-      on_relay_chosen_(relay_peer_key);
-    }
-  }));
+    AppRuntime::PostToOwnerOrRun(kOwner, [this, alive, snap, relay_peer_key]() {
+      if (!DeferredSelf::Alive(alive, snap)) {
+        return;
+      }
+      rendezvous_.NoteChosenRelay(relay_peer_key);
+      log().info << "circuit rendezvous chosen R1=" << relay_peer_key;
+      if (on_relay_chosen_) {
+        on_relay_chosen_(relay_peer_key);
+      }
+    });
+  });
   circuit_hop_reach_ = std::move(reach);
   log().info << "circuit-hop reach=amp";
 }
 
 void MeshMediaPlane::BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach) {
-  test_dial_ = dial;
-  test_circuit_reach_ = circuit_reach;
+  AppRuntime::RunAndWait(kOwner, [&]() {
+    test_dial_ = dial;
+    test_circuit_reach_ = circuit_reach;
+  });
 }
 
 IDialRegistry* MeshMediaPlane::Dial() const {
@@ -154,43 +175,80 @@ MediaRelayAttachPorts MeshMediaPlane::RelayAttachPorts() const {
 }
 
 void MeshMediaPlane::InvalidateAsyncOps() {
-  rendezvous_.Invalidate();
-  if (auto* amp = dynamic_cast<AmpCircuitHopReach*>(circuit_hop_reach_.get())) {
-    amp->SetOnRelayChosen({});
-  }
-  deferred_.Invalidate();
+  AppRuntime::RunAndWait(kOwner, [&]() {
+    rendezvous_.Invalidate();
+    if (auto* amp = dynamic_cast<AmpCircuitHopReach*>(circuit_hop_reach_.get())) {
+      amp->SetOnRelayChosen({});
+    }
+    deferred_.Invalidate();
+  });
 }
 
 void MeshMediaPlane::ResetRelayClient() {
-  media_relay_client_.reset();
+  AppRuntime::RunAndWait(kOwner, [&]() {
+    media_relay_client_.reset();
+  });
 }
 
 void MeshMediaPlane::ResetRelayClients() {
-  media_relay_client_.reset();
-  dial_registry_.reset();
+  AppRuntime::RunAndWait(kOwner, [&]() {
+    media_relay_client_.reset();
+    dial_registry_.reset();
+  });
 }
 
 void MeshMediaPlane::ResetAfterMeshStop() {
-  media_relay_client_.reset();
-  dial_registry_.reset();
-  circuit_hop_reach_.reset();
+  AppRuntime::RunAndWait(kOwner, [&]() {
+    media_relay_client_.reset();
+    dial_registry_.reset();
+    circuit_hop_reach_.reset();
+  });
 }
 
 void MeshMediaPlane::Clear() {
-  InvalidateAsyncOps();
-  media_relay_client_.reset();
-  dial_registry_.reset();
-  circuit_hop_reach_.reset();
-  test_dial_ = nullptr;
-  test_circuit_reach_ = nullptr;
-  rendezvous_.Clear();
-  peer_listen_mas_.clear();
+  AppRuntime::RunAndWait(kOwner, [&]() {
+    InvalidateAsyncOps();
+    media_relay_client_.reset();
+    dial_registry_.reset();
+    circuit_hop_reach_.reset();
+    test_dial_ = nullptr;
+    test_circuit_reach_ = nullptr;
+    rendezvous_.Clear();
+    peer_listen_mas_.clear();
+    PublishListenBook();
+  });
 }
 
 // --- peer listen book -----------------------------------------------------------------------------
 
-std::string MeshMediaPlane::RegisterPeerListenMultiaddrs(const std::string& key,
-                                                         const std::vector<std::string>& multiaddrs) {
+void MeshMediaPlane::RegisterPeerListenMultiaddrs(const std::string& key, const std::vector<std::string>& multiaddrs,
+                                                  std::function<void(const std::string& peer_id)> on_registered) {
+  AppRuntime::PostToOwnerOrRun(kOwner, [this, alive = alive_, key, multiaddrs,
+                                        on_registered = std::move(on_registered)]() {
+    if (!alive->load(std::memory_order_acquire)) {
+      return;  // the plane is gone (cleared on the owner by its destructor)
+    }
+    const std::string peer_id = RegisterPeerListenMultiaddrsOnOwner(key, multiaddrs);
+    PublishListenBook();
+    if (on_registered) {
+      on_registered(peer_id);
+    }
+  });
+}
+
+std::shared_ptr<const MeshMediaPlane::ListenBook> MeshMediaPlane::PeerListenBook() const {
+  std::lock_guard lock(listen_book_mu_);
+  return listen_book_;
+}
+
+void MeshMediaPlane::PublishListenBook() {
+  auto book = std::make_shared<const ListenBook>(peer_listen_mas_);
+  std::lock_guard lock(listen_book_mu_);
+  listen_book_ = std::move(book);
+}
+
+std::string MeshMediaPlane::RegisterPeerListenMultiaddrsOnOwner(const std::string& key,
+                                                                const std::vector<std::string>& multiaddrs) {
   if (key.empty() || multiaddrs.empty()) {
     return {};
   }

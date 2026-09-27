@@ -34,6 +34,26 @@ constexpr int kAssocRedialBackoffMs = 1500;
  */
 constexpr int kSeedParkAwaitMs = 12000;
 
+/** Reach state lives on the Connectivity owner (thread-ownership T001); the Coordinator strand
+ *  only when the runtime has no owners. */
+constexpr OwnerThreadId kOwner = OwnerThreadId::Connectivity;
+
+void PostStep(std::function<void()> step) {
+  if (AppRuntime::HasOwner(kOwner)) {
+    AppRuntime::PostTo(kOwner, std::move(step));
+  } else {
+    AppRuntime::PostCoordinatorNormal(std::move(step));
+  }
+}
+
+void ScheduleStep(const std::chrono::milliseconds delay, std::function<void()> step) {
+  if (AppRuntime::HasOwner(kOwner)) {
+    (void)AppRuntime::ScheduleOn(kOwner, delay, std::move(step));
+  } else {
+    (void)AppRuntime::ScheduleCoordinatorOneShot(delay, std::move(step));
+  }
+}
+
 } // namespace
 
 const char* PeerLinkKindName(const PeerLinkKind kind) {
@@ -50,7 +70,7 @@ const char* PeerLinkKindName(const PeerLinkKind kind) {
   return "?";
 }
 
-/** One Ensure. Fields below `settled` are Coordinator-strand only. */
+/** One Ensure. Fields below `settled` are Connectivity-owner only. */
 struct PeerReachCoordinator::Attempt {
   PeerReachId id = 0;
   PeerReachRequest req;
@@ -117,7 +137,7 @@ PeerReachId PeerReachCoordinator::Ensure(PeerReachRequest request, Done on_done)
     a->dial_budget_ms = dial_budget_ms_;
     attempts_[a->id] = a;
   }
-  AppRuntime::PostCoordinatorNormal([this, alive = alive_, a]() {
+  PostStep([this, alive = alive_, a]() {
     if (alive->load(std::memory_order_acquire)) {
       Start(a);
     }
@@ -239,7 +259,7 @@ void PeerReachCoordinator::Finish(const AttemptPtr& a, Roe<PeerReachResult> resu
 }
 
 void PeerReachCoordinator::ScheduleTick(const AttemptPtr& a, const int delay_ms) {
-  (void)AppRuntime::ScheduleCoordinatorOneShot(std::chrono::milliseconds(delay_ms),
+  ScheduleStep(std::chrono::milliseconds(delay_ms),
                                                [this, alive = alive_, a]() {
                                                  if (alive->load(std::memory_order_acquire)) {
                                                    Tick(a);
@@ -341,7 +361,7 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
   // Hard deadline independent of the tick chain (dogfood af934e: EnsureAssociation never called
   // back). Covers the peer's dial overlap (V049) + circuit slack. Must not touch dial state —
   // it can fire mid-StartBridge and race PeerLinkManager::FinishDial (dogfood 091029).
-  (void)AppRuntime::ScheduleCoordinatorOneShot(
+  ScheduleStep(
       std::chrono::milliseconds(a->dial_budget_ms + kPeerDialOverlapMs + kCircuitEnsureBudgetMs + 250),
       [this, alive = alive_, a]() {
         if (!alive->load(std::memory_order_acquire) || a->settled.load(std::memory_order_acquire)) {
@@ -428,7 +448,7 @@ bool PeerReachCoordinator::MaybeParkBeforePrivateDial(const AttemptPtr& a) {
   log().info << "seed park before private Preferred peer=" << a->Primary();
   a->seed_park(
       [this, alive = alive_, a](bool parked) {
-        AppRuntime::PostCoordinatorNormal([this, alive, a, parked]() {
+        PostStep([this, alive, a, parked]() {
           if (!alive->load(std::memory_order_acquire)) {
             return;
           }
@@ -472,7 +492,7 @@ bool PeerReachCoordinator::MaybeStartAssociation(const AttemptPtr& a) {
     // Runs on Amp IO (FinishDial) — snapshot link state before the Coordinator hop.
     const bool connected_now = static_cast<bool>(assoc) && AnyConnected(*a);
     const bool direct_now = connected_now && AnyConnectedDirect(*a);
-    AppRuntime::PostCoordinatorNormal(
+    PostStep(
         [this, alive, a, assoc = std::move(assoc), connected_now, direct_now]() mutable {
           if (alive->load(std::memory_order_acquire)) {
             OnAssociationDone(a, std::move(assoc), connected_now, direct_now);
@@ -490,7 +510,7 @@ void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, Roe<void> asso
     return;
   }
   const auto rearm = [this, a]() {
-    (void)AppRuntime::ScheduleCoordinatorOneShot(std::chrono::milliseconds(kAssocRedialBackoffMs),
+    ScheduleStep(std::chrono::milliseconds(kAssocRedialBackoffMs),
                                                  [this, alive = alive_, a]() {
                                                    if (!alive->load(std::memory_order_acquire)) {
                                                      return;
@@ -562,7 +582,7 @@ bool PeerReachCoordinator::MaybeStartCircuit(const AttemptPtr& a) {
   if (a->seed_park) {
     a->seed_park(
         [this, alive = alive_, a, allow_circuit](bool parked) {
-          AppRuntime::PostCoordinatorNormal([this, alive, a, allow_circuit, parked]() {
+          PostStep([this, alive, a, allow_circuit, parked]() {
             if (!alive->load(std::memory_order_acquire)) {
               return;
             }
@@ -600,7 +620,7 @@ void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const bool allow_cir
         const bool connected_now = AnyConnected(*a);
         // Connected only through a relay carrier is not a punch.
         const bool relayed_now = AnyCircuitHop(*a) || (connected_now && !AnyConnectedDirect(*a));
-        AppRuntime::PostCoordinatorNormal(
+        PostStep(
             [this, alive, a, via = std::move(via), connected_now, relayed_now]() mutable {
               if (alive->load(std::memory_order_acquire)) {
                 OnCircuitDone(a, std::move(via), connected_now, relayed_now);

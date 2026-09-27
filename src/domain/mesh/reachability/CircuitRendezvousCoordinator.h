@@ -88,7 +88,7 @@ private:
   void OnRendezvousPeerReconnected(const std::string& peer_id);
 
   CircuitRendezvousDeps deps_;
-  /** H011 L3.1b/c: last chosen / announced R1 PeerId for park sticky + late-reserve. */
+  /** H011 L3.1b/c: last chosen / announced R1 PeerId for park sticky + late-reserve (IO strand). */
   std::string chosen_circuit_r1_;
   pp::amp::PeerLinkManager::PeerConnectedListenerId repark_listener_id_ = 0;
   DeferredSelf deferred_;

@@ -70,9 +70,10 @@ using PeerReachId = uint64_t;
  * punch (ICircuitHopReach), gated on a Connected bootstrap seed park. Knows nothing about what
  * the link will carry.
  *
- * Threading: all reach state lives on the Coordinator strand. `on_done` runs at most once — on
- * the Coordinator, or inline on the thread that calls Cancel / CancelAll. Destruction drops
- * pending callbacks without running them.
+ * Threading: all reach state lives on the Connectivity owner (`pp-connectivity`; the
+ * Coordinator strand when the runtime has no owners). `on_done` runs at most once — on that
+ * owner, or inline on the thread that calls Cancel / CancelAll; callers hop to their own owner.
+ * Destruction drops pending callbacks without running them.
  */
 class PeerReachCoordinator : public Module {
 public:

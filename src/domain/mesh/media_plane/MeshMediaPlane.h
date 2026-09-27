@@ -11,6 +11,8 @@
 #include "domain/mesh/reachability/PunchIntroducerWalk.h"
 #include "foundation/runtime/DeferredSelf.h"
 
+#include <atomic>
+#include <mutex>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -48,8 +50,15 @@ struct MeshMediaPlaneDeps {
  * The owner sequences rewires: dependents holding `RelayClient()` / `Dial()` / `CircuitReach()`
  * must be detached before `Wire`, `ResetRelayClients`, `ResetRelayClient` or teardown replace them.
  *
- * Threading: owner calls on the UI / control thread; async callbacks that capture `this` (and the
- * rendezvous coordinator's) are dropped after `InvalidateAsyncOps`.
+ * Threading (thread-ownership t3-2): the plane lives on the Connectivity owner (`pp-connectivity`).
+ * Lifecycle edges (deps, hooks, Wire / Reset / Clear, test path) run there and the caller waits
+ * (`AppRuntime::RunAndWait` — callers are UI or the media-sessions owner, never below it). Listen
+ * registrations post there; the listen book is read as a published snapshot. Circuit reach's
+ * relay-chosen notice hops from Amp IO to the owner, and the consumer hook runs there — consumers
+ * hop to their own owner. The object accessors (`RelayClient` / `Dial` / `CircuitReach`) are read by
+ * consumers at their bind points, between the owner's rewire edges (L015 sequencing). Async
+ * callbacks that capture `this` (and the rendezvous coordinator's) are dropped after
+ * `InvalidateAsyncOps`.
  */
 class MeshMediaPlane : public Module {
 public:
@@ -90,11 +99,15 @@ public:
 
   // --- peer listen book ---------------------------------------------------------------------
   /**
-   * Rank, merge and register a peer's listen multiaddrs under `key` (account id or PeerId).
-   * Returns the PeerId of the best dialable addr (empty when none was dialable).
+   * Rank, merge and register a peer's listen multiaddrs under `key` (account id or PeerId), on the
+   * owner. `on_registered` (on the owner) gets the PeerId of the best dialable addr (empty when none
+   * was dialable).
    */
-  std::string RegisterPeerListenMultiaddrs(const std::string& key, const std::vector<std::string>& multiaddrs);
-  std::unordered_map<std::string, std::vector<std::string>> PeerListenBook() const { return peer_listen_mas_; }
+  void RegisterPeerListenMultiaddrs(const std::string& key, const std::vector<std::string>& multiaddrs,
+                                    std::function<void(const std::string& peer_id)> on_registered = {});
+  using ListenBook = std::unordered_map<std::string, std::vector<std::string>>;
+  /** Any thread: the book as of the owner's last registration. */
+  std::shared_ptr<const ListenBook> PeerListenBook() const;
   /** LAN-confirmed: a connected Amp link (mDNS / LAN dial). */
   bool PeerLanConfirmed(const std::string& peer_id) const;
 
@@ -109,13 +122,18 @@ public:
 
 private:
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }
+  std::string RegisterPeerListenMultiaddrsOnOwner(const std::string& key, const std::vector<std::string>& multiaddrs);
+  void PublishListenBook();
   void WireMediaRelayClient(MeshHost* m, const MeshIoContext& io);
   void WireDialRegistry(MeshHost* m, const MeshIoContext& io);
   void WireCircuitHopReach(MeshHost* m, const MeshIoContext& io);
 
   MeshMediaPlaneDeps deps_;
   std::function<void(const std::string&)> on_relay_chosen_;
-  std::unordered_map<std::string, std::vector<std::string>> peer_listen_mas_;
+  ListenBook peer_listen_mas_;  // owner
+  mutable std::mutex listen_book_mu_;
+  std::shared_ptr<const ListenBook> listen_book_ = std::make_shared<const ListenBook>();
+  std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
 
   std::unique_ptr<IMediaRelayClient> media_relay_client_;
   std::unique_ptr<PeerSessionDialRegistry> dial_registry_;
