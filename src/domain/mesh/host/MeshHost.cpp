@@ -83,13 +83,12 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
     return peer_id.error();
   }
 
-  // Prefer dual-stack :: when the host already has a global IPv6 (N013 / Reachable-via-v6).
-  // IPV6_V6ONLY=0 is cleared in pp-cpp-amp so IPv4-mapped peers still work.
-  const bool prefer_v6 = !reachability_netif::GlobalIpv6Addresses().empty();
-  auto bound = prefer_v6
-                   ? pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V6({}, config.amp_udp_port))
-                   : pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
-  if (!bound && prefer_v6) {
+  // Always dual-stack :: (call-path-resilience K010): the socket then serves IPv4 and IPv6 for the
+  // whole run, so moving from an IPv4-only network to IPv6-only cellular (NAT64) needs no rebind.
+  // pp-cpp-amp clears IPV6_V6ONLY and maps IPv4 peers both ways; advertise / probe targets come
+  // from the interfaces, not the bind family. IPv4 only when the OS has no IPv6 socket support.
+  auto bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V6({}, config.amp_udp_port));
+  if (!bound) {
     bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
   }
   if (!bound) {

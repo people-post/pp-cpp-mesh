@@ -33,6 +33,13 @@ void RegisterDialableEndpoint(IChatPeerLinks& links, const MeshHopCandidate& hop
   }
 }
 
+/**
+ * Once ≥1 seed is Connected, how long the park still waits for the others (the dialer may bridge
+ * through any seed — dogfood ae4900eb). Before: the whole 12 s deadline whenever one seed was
+ * unreachable, which delayed the answerer's CallAccept by 12 s (call-path-resilience k2).
+ */
+constexpr std::chrono::milliseconds kSeedParkGrace{2000};
+
 } // namespace
 
 /** One EnsureBootstrapSeedParkedAsync wait: settles once (listener, deadline or immediate check). */
@@ -41,6 +48,8 @@ struct CircuitRendezvousCoordinator::SeedPark {
   pp::amp::PeerLinkManager* links = nullptr;
   std::atomic<pp::amp::PeerLinkManager::PeerConnectedListenerId> listener_id{0};
   std::atomic<uint64_t> deadline_timer{0};
+  /** Armed when the first seed connects: the rest get a short grace, not the whole deadline. */
+  std::atomic<uint64_t> grace_timer{0};
   std::function<void(bool)> on_done;
 };
 
@@ -449,17 +458,38 @@ void CircuitRendezvousCoordinator::CheckSeedPark(const std::shared_ptr<SeedPark>
   if (park->settled.load(std::memory_order_acquire)) {
     return;
   }
-  if (AllBootstrapSeedsConnectedOnIo()) {
-    log().info << "bootstrap seed park ok (all seeds Connected)";
-    FinishSeedPark(park, true);
-  } else if (at_deadline) {
-    const bool any = AnyBootstrapSeedConnectedOnIo();
-    if (any) {
-      log().info << "bootstrap seed park ok (partial — deadline with ≥1 Connected)";
+  const bool all = AllBootstrapSeedsConnectedOnIo();
+  const bool any = all || AnyBootstrapSeedConnectedOnIo();
+  switch (DecideSeedParkStep(all, any, at_deadline, park->grace_timer.load() != 0)) {
+  case SeedParkStep::SettleOk:
+    if (all) {
+      log().info << "bootstrap seed park ok (all seeds Connected)";
     } else {
-      log().warning << "bootstrap seed park timeout (no Connected seed)";
+      log().info << "bootstrap seed park ok (partial — ≥1 Connected after grace / deadline)";
     }
-    FinishSeedPark(park, any);
+    FinishSeedPark(park, true);
+    return;
+  case SeedParkStep::SettleFail:
+    log().warning << "bootstrap seed park timeout (no Connected seed)";
+    FinishSeedPark(park, false);
+    return;
+  case SeedParkStep::ArmGrace: {
+    const uint64_t timer = AppRuntime::ScheduleCoordinatorOneShot(
+        kSeedParkGrace, [this, park, alive = deferred_.token(), snap = deferred_.Snapshot()]() {
+          if (!DeferredSelf::Alive(alive, snap)) {
+            AbandonSeedPark(park);
+            return;
+          }
+          PostIoOrRun(deferred_.Bind([this, park]() { CheckSeedPark(park, /*at_deadline=*/true); }));
+        });
+    uint64_t expected = 0;
+    if (!park->grace_timer.compare_exchange_strong(expected, timer) && timer != 0) {
+      AppRuntime::CancelCoordinatorTimer(timer);  // raced another check: one grace is enough
+    }
+    return;
+  }
+  case SeedParkStep::Wait:
+    return;
   }
 }
 
@@ -471,6 +501,9 @@ void CircuitRendezvousCoordinator::FinishSeedPark(const std::shared_ptr<SeedPark
     park->links->RemovePeerConnectedListener(id);
   }
   if (const auto timer = park->deadline_timer.exchange(0); timer != 0) {
+    AppRuntime::CancelCoordinatorTimer(timer);
+  }
+  if (const auto timer = park->grace_timer.exchange(0); timer != 0) {
     AppRuntime::CancelCoordinatorTimer(timer);
   }
   park->on_done(parked);
