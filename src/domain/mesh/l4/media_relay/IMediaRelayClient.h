@@ -60,15 +60,11 @@ public:
   /** After AcceptAndAttach + StartSfu — begin inbound frame delivery. */
   virtual void StartClientFrameReader() = 0;
   /**
-   * Unexpected guest duplex death (not Detach). Default no-op for fakes that never lose transport.
-   * Handler may be invoked on the mesh io thread.
-   */
-  virtual void SetClientTransportLostHandler(std::function<void()> /*handler*/) {}
-  /**
-   * Additional session-end observers (a feature other than the one owning the Set handler slot —
-   * e.g. broadcast next to calls): transport loss, replacement by another attach, and Detach. Every
-   * observer hears every end; each checks whether it owned the session (remove the observer before
-   * your own Detach). Returns a token for Remove (0 = unsupported). May run on the mesh io thread.
+   * Client session-end observers (each feature that attaches registers its own): transport loss,
+   * replacement by another attach, and Detach. Every observer hears every end; each decides whether
+   * the session was its own (e.g. remove the observer before your own Detach, or react to
+   * TransportLost only). Returns a token for Remove (0 = unsupported). Delivered on the mesh io
+   * thread, never under the client's lock; a notice already queued may still arrive after Remove.
    */
   virtual uint64_t AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> /*observer*/) {
     return 0;

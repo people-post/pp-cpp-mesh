@@ -193,28 +193,28 @@ protected:
   }
 };
 
-// The calls' handler is installed once (mesh wiring) — every later attach must keep it armed, or
+// Features register once (calls at mesh wiring) — every later attach must keep the observer, or
 // guest reattach-on-loss never runs after the first attach.
-TEST_F(AmpMediaRelayClientLossTest, HandlerStaysArmedAcrossAttaches) {
+TEST_F(AmpMediaRelayClientLossTest, ObserverStaysRegisteredAcrossAttaches) {
   std::atomic<int> lost{0};
-  client_->SetClientTransportLostHandler([&lost]() { lost.fetch_add(1); });
+  const uint64_t token = client_->AddClientTransportLostObserver([&lost](MediaRelayClientLoss loss) {
+    if (loss == MediaRelayClientLoss::TransportLost) {
+      lost.fetch_add(1);
+    }
+  });
   Attach("session-1");
   Attach("session-2");
   hop_->Stop();  // hop goes away: the client channel dies
   harness_->PumpUntil([&lost] { return lost.load() > 0; }, 800);
   EXPECT_EQ(lost.load(), 1);
+  client_->RemoveClientTransportLostObserver(token);
 }
 
-// Observers (a second feature) hear losses, replacement by another attach and a Detach they did
-// not make — and never the handler slot's owner's own replacement as a "lost".
+// Observers hear losses, replacement by another attach and a Detach, each named — so a feature
+// that only reattaches on a dead transport never mistakes a replacement for a loss.
 TEST_F(AmpMediaRelayClientLossTest, ObserversHearReplacementDetachAndLoss) {
   std::mutex mu;
   std::vector<MediaRelayClientLoss> seen;
-  int handler_calls = 0;
-  client_->SetClientTransportLostHandler([&]() {
-    std::lock_guard lock(mu);
-    ++handler_calls;
-  });
   const uint64_t token = client_->AddClientTransportLostObserver([&](MediaRelayClientLoss loss) {
     std::lock_guard lock(mu);
     seen.push_back(loss);
@@ -238,7 +238,6 @@ TEST_F(AmpMediaRelayClientLossTest, ObserversHearReplacementDetachAndLoss) {
   EXPECT_EQ(seen[0], MediaRelayClientLoss::Replaced);
   EXPECT_EQ(seen[1], MediaRelayClientLoss::Detached);
   EXPECT_EQ(seen[2], MediaRelayClientLoss::TransportLost);
-  EXPECT_EQ(handler_calls, 1) << "the legacy slot only hears transport loss";
   client_->RemoveClientTransportLostObserver(token);
 }
 
@@ -246,13 +245,18 @@ TEST_F(AmpMediaRelayClientLossTest, ObserversHearReplacementDetachAndLoss) {
 // the client marks its hop link hot so keepalive echoes keep it alive past the 5 s cold window.
 TEST_F(AmpMediaRelayClientLossTest, PublishOnlyClientSurvivesLongSilenceFromTheHop) {
   std::atomic<int> lost{0};
-  client_->SetClientTransportLostHandler([&lost]() { lost.fetch_add(1); });
+  const uint64_t token = client_->AddClientTransportLostObserver([&lost](MediaRelayClientLoss loss) {
+    if (loss == MediaRelayClientLoss::TransportLost) {
+      lost.fetch_add(1);
+    }
+  });
   Attach("publish-only");
   for (int i = 0; i < 12000; ++i) {  // 12 s of virtual time, nothing received from the hop
     harness_->PumpBoth();
   }
   EXPECT_EQ(lost.load(), 0);
   EXPECT_TRUE(client_->IsAttached());
+  client_->RemoveClientTransportLostObserver(token);
 }
 
 // A write the mux refuses (here: an oversized frame) fails the channel inside SendFrame, and its
@@ -260,7 +264,11 @@ TEST_F(AmpMediaRelayClientLossTest, PublishOnlyClientSurvivesLongSilenceFromTheH
 // callback takes too: the sending thread (the engine's capture thread) deadlocked, then the pump.
 TEST_F(AmpMediaRelayClientLossTest, AWriteThatFailsTheChannelDoesNotDeadlockTheSender) {
   std::atomic<int> lost{0};
-  client_->SetClientTransportLostHandler([&lost]() { lost.fetch_add(1); });
+  const uint64_t token = client_->AddClientTransportLostObserver([&lost](MediaRelayClientLoss loss) {
+    if (loss == MediaRelayClientLoss::TransportLost) {
+      lost.fetch_add(1);
+    }
+  });
   Attach("sender");
   MediaDataFrame oversized;
   oversized.stream_id = 7;
@@ -271,6 +279,7 @@ TEST_F(AmpMediaRelayClientLossTest, AWriteThatFailsTheChannelDoesNotDeadlockTheS
   harness_->PumpUntil([&lost] { return lost.load() > 0; }, 200);
   EXPECT_EQ(lost.load(), 1);
   EXPECT_FALSE(client_->IsAttached());
+  client_->RemoveClientTransportLostObserver(token);
 }
 
 } // namespace

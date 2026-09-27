@@ -59,7 +59,6 @@ public:
   bool IsSessionActive(MediaRelaySessionId id) const;
 
   void StartClientFrameReader();
-  void SetClientTransportLostHandler(std::function<void()> handler);
   uint64_t AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> observer);
   void RemoveClientTransportLostObserver(uint64_t token);
   Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& call_id,

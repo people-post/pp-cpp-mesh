@@ -129,10 +129,6 @@ Roe<MediaRelayAttachResult> AmpMediaRelayClient::AcceptAndAttach(
 
 void AmpMediaRelayClient::StartClientFrameReader() { coordinator_.StartClientFrameReader(); }
 
-void AmpMediaRelayClient::SetClientTransportLostHandler(std::function<void()> handler) {
-  coordinator_.SetClientTransportLostHandler(std::move(handler));
-}
-
 uint64_t AmpMediaRelayClient::AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> observer) {
   return coordinator_.AddClientTransportLostObserver(std::move(observer));
 }
