@@ -55,6 +55,12 @@ struct PeerReachRequest {
   bool exclude_direct = false;
   /** Previous "connected" link was stale — drop it and redial (B39). */
   bool fresh_link = false;
+  /**
+   * Await may punch toward the peer (call-path policy, k6). False: wait for the peer's circuit
+   * only — a mobile pair anchors on the relay, and a punched path dies with the next rebind.
+   * Reach still punches after a circuit miss (a last resort, whatever the policy).
+   */
+  bool allow_punch = true;
 };
 
 struct PeerReachResult {

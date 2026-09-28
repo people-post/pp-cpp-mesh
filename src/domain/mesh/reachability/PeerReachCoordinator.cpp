@@ -638,6 +638,12 @@ void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const bool allow_cir
     a->circuit_inflight = false;
     return;
   }
+  if (!allow_circuit && !a->req.allow_punch) {
+    // Punch-only await with punching off: nothing to kick — the tick waits for the peer's circuit.
+    a->circuit_inflight = false;
+    log().info << "await without punch (path policy) peer=" << a->Primary();
+    return;
+  }
   ICircuitHopReach* circuit = circuit_.load(std::memory_order_acquire);
   if (!circuit) {
     a->circuit_inflight = false;
