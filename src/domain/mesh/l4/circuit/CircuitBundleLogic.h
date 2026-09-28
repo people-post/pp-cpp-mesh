@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
 #include "common/directory/RelayScope.h"
 
 #include <cstdint>
@@ -35,11 +36,17 @@ enum class CircuitTunnelRole {
   RelayServe,
 };
 
+/** Relay-wide standby circuits, and per dialer PeerId (K009 per-account cap, device-scoped). */
+inline constexpr size_t kCircuitDefaultMaxStandby = 64;
+inline constexpr size_t kCircuitDefaultMaxStandbyPerDialer = 4;
+
 enum class CircuitAdmitDecision {
   Allow = 0,
   RefuseStranger,
   RefuseNotReady,
   RefuseBadOp,
+  /** K003: standby capacity (for this priority) or the dialer's standby cap is used up. */
+  RefuseStandbyFull,
 };
 
 struct CircuitAdmitContext {
@@ -49,6 +56,12 @@ struct CircuitAdmitContext {
   std::string op;
   RelayScopeMask serve_scope_mask = kRelayScopeVolunteerServe;
   std::unordered_set<std::string> contact_peer_ids;
+  /** K003 standby admission: this request's priority and the relay's live standby circuits. */
+  CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None;
+  size_t standby_total = 0;
+  size_t standby_from_dialer = 0;
+  size_t max_standby = kCircuitDefaultMaxStandby;
+  size_t max_standby_per_dialer = kCircuitDefaultMaxStandbyPerDialer;
 };
 
 CircuitAdmitDecision DecideCircuitAdmit(const CircuitAdmitContext& ctx);

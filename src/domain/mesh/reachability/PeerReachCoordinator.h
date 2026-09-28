@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
 #include "domain/mesh/reachability/MeshReachPorts.h"
 
 #include "common/Module.h"
@@ -55,6 +56,14 @@ struct PeerReachRequest {
   bool exclude_direct = false;
   /** Previous "connected" link was stale — drop it and redial (B39). */
   bool fresh_link = false;
+  /**
+   * Await may punch toward the peer (call-path policy, k6). False: wait for the peer's circuit
+   * only — a mobile pair anchors on the relay, and a punched path dies with the next rebind.
+   * Reach still punches after a circuit miss (a last resort, whatever the policy).
+   */
+  bool allow_punch = true;
+  /** exclude_direct for a call's standby (K003): the relay may refuse it for load, lowest first. */
+  CircuitStandbyPriority circuit_standby_priority = CircuitStandbyPriority::None;
 };
 
 struct PeerReachResult {
@@ -121,6 +130,12 @@ public:
    */
   void AbortCircuitAttempts();
   /**
+   * During a relayed call (call-path-resilience k3): punch toward `peer_id` with the circuit's
+   * relay as introducer. OK once a direct link is Connected — the call moves onto it by itself.
+   * `on_done` on the Connectivity owner.
+   */
+  void UpgradeToDirect(const std::string& peer_id, std::function<void(Roe<void>)> on_done);
+  /**
    * Pick the dial key for a peer known under both an alias (e.g. `account:`) and its mesh PeerId.
    * The PeerId is preferred: the Connected PeerLink lives under it, while the alias can look
    * dialable through a stale entry (dogfood 7bd62: AssociationNotReady forever). When only the
@@ -152,6 +167,7 @@ private:
   bool AnyConnectedDirect(const Attempt& a) const;
   bool AnyDialable(const Attempt& a) const;
   bool AnyCircuitHop(const Attempt& a) const;
+  bool AnyConnectedRelayed(const Attempt& a) const;
   bool PreferredIsPublic(const Attempt& a) const;
   void ClearBackoff(const Attempt& a);
 

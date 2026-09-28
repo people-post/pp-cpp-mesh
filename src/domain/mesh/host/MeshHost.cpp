@@ -21,9 +21,19 @@
 #include "amp/L2/Types.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "foundation/identity/PeerIdUtil.h"
+#include "common/Logger.h"
 #include "common/PbrCompat.h"
 
 namespace pbr {
+
+namespace {
+
+logging::Logger& MeshHostLog() {
+  static logging::Logger logger = logging::getLogger("MeshHost");
+  return logger;
+}
+
+} // namespace
 
 MeshHost::MeshHost() : reachability_(std::make_unique<ReachabilityEngine>()) {}
 
@@ -493,6 +503,39 @@ void MeshHost::StartReachabilityProbe(bool try_upnp_first) {
     return;
   }
   reachability_->StartProbe(MakeReachabilityDeps(try_upnp_first));
+}
+
+void MeshHost::OnLocalNetworkChanged(const LocalNetworkChange& change) {
+  const LocalNetworkReaction reaction = DecideLocalNetworkReaction(change);
+  const uint64_t gen = network_change_gen_.fetch_add(1, std::memory_order_acq_rel) + 1;
+  MeshHostLog().info << "local network changed online=" << (change.was_online ? 1 : 0) << "->" << (change.online ? 1 : 0)
+             << " attachment_changed=" << (change.attachment_changed ? 1 : 0)
+             << " probe_links=" << (reaction.probe_links ? 1 : 0);
+  if (!amp_) {
+    return;
+  }
+  if (reaction.probe_links) {
+    amp_->Runtime().NotifyNetworkChanged();
+  }
+  if (reaction.reprobe_reachability) {
+    MakeL4IoAfter()(kReachabilityReprobeAfterNetworkChange, [this, gen]() { ReprobeAfterNetworkChange(gen, 5); });
+  }
+}
+
+void MeshHost::ReprobeAfterNetworkChange(const uint64_t gen, const int attempts_left) {
+  if (gen != network_change_gen_.load(std::memory_order_acquire) || !amp_) {
+    return;  // superseded by a newer change (it schedules its own)
+  }
+  if (reachability_->IsProbing()) {
+    // A probe from the old network is still out; its answer would be stale — probe again after it.
+    if (attempts_left > 0) {
+      MakeL4IoAfter()(std::chrono::seconds(1), [this, gen, attempts_left]() {
+        ReprobeAfterNetworkChange(gen, attempts_left - 1);
+      });
+    }
+    return;
+  }
+  StartReachabilityProbe(false);
 }
 
 void MeshHost::RunReachabilityProbeBlocking(bool try_upnp_first) {

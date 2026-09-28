@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
 #include "domain/mesh/host/MeshPorts.h"
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"  // kRealtimeProtocolId
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
@@ -48,6 +49,10 @@ public:
   }
   /** Connected over a direct (ADP) link — IsConnected also counts a relay carrier link. */
   virtual bool IsConnectedDirect(const std::string& peer_key) const { return IsConnected(peer_key); }
+  /** A relay carrier link is Connected (whether or not a direct one is too). */
+  virtual bool IsConnectedRelayed(const std::string& peer_key) const {
+    return IsConnected(peer_key) && !IsConnectedDirect(peer_key);
+  }
   /** Kick ADP dial/handshake; optional for fakes. */
   virtual void EnsureAssociation(const std::string& peer_key,
                                  std::function<void(Roe<void>)> on_done) {
@@ -95,15 +100,24 @@ public:
       on_done(TryEnsurePeerReachable(peer_key));
     }
   }
-  /** L3.25c: punch via circuit R1 as introducer, then demote the circuit hop. */
-  virtual Roe<void> TryUpgradeToDirect(const std::string& peer_key) {
-    (void)peer_key;
-    return Error("circuit upgrade not available");
+  /**
+   * A relayed link to the peer even when a direct one is up (TX-only escalation, a call's relay
+   * standby — k6): a circuit only, never a punch; OK once a relay carrier link is Connected.
+   */
+  virtual void TryEnsureRelayedAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
+                                     CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None) {
+    (void)standby_priority;
+    TryEnsurePeerReachableAsync(peer_key, std::move(on_done), /*allow_circuit=*/true);
   }
-  virtual void TryUpgradeToDirectAsync(const std::string& peer_key,
-                                       std::function<void(Roe<void>)> on_done) {
+  /**
+   * During a relayed call: punch toward the peer with the circuit's relay as introducer. OK once a
+   * direct link to the peer is Connected — the call then moves onto it (make-before-break,
+   * call-path-resilience k3) and the relay stays its fallback. Never demotes the circuit itself.
+   */
+  virtual void TryUpgradeToDirectAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done) {
+    (void)peer_key;
     if (on_done) {
-      on_done(TryUpgradeToDirect(peer_key));
+      on_done(Error("circuit upgrade not available"));
     }
   }
   /** Abort in-flight EnsureViaCircuit / punch chains (ConnectFailed / Leave / teardown). */
@@ -192,6 +206,10 @@ public:
 
   bool IsConnected(const std::string& peer_key) const override {
     return amp_links_ && amp_links_->IsConnected(peer_key);
+  }
+
+  bool IsConnectedRelayed(const std::string& peer_key) const override {
+    return amp_links_ && amp_links_->IsConnectedRelayed(peer_key);
   }
 
   bool IsConnectedDirect(const std::string& peer_key) const override {
@@ -298,11 +316,8 @@ private:
 class CircuitHopReachClient final : public ICircuitHopReach {
 public:
   CircuitHopReachClient(std::function<Roe<void>(const std::string&)> try_media_hop_reach,
-                        std::function<Roe<void>(const std::string&)> try_peer_reach,
-                        std::function<Roe<void>(const std::string&)> try_upgrade = {})
-      : try_media_hop_reach_(std::move(try_media_hop_reach)),
-        try_peer_reach_(std::move(try_peer_reach)),
-        try_upgrade_(std::move(try_upgrade)) {}
+                        std::function<Roe<void>(const std::string&)> try_peer_reach)
+      : try_media_hop_reach_(std::move(try_media_hop_reach)), try_peer_reach_(std::move(try_peer_reach)) {}
 
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override {
     if (!try_media_hop_reach_) {
@@ -318,17 +333,9 @@ public:
     return try_peer_reach_(peer_key);
   }
 
-  Roe<void> TryUpgradeToDirect(const std::string& peer_key) override {
-    if (!try_upgrade_) {
-      return Error("circuit upgrade not available");
-    }
-    return try_upgrade_(peer_key);
-  }
-
 private:
   std::function<Roe<void>(const std::string&)> try_media_hop_reach_;
   std::function<Roe<void>(const std::string&)> try_peer_reach_;
-  std::function<Roe<void>(const std::string&)> try_upgrade_;
 };
 
 } // namespace pbr

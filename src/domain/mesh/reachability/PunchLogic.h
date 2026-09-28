@@ -30,6 +30,14 @@ std::optional<PunchResult> DecodePunchResult(const Object& root);
 /** Keep only ADP multiaddrs; cap list length. */
 std::vector<std::string> SanitizePunchAddrs(const std::vector<std::string>& addrs, size_t max_addrs = 8);
 
+/**
+ * Introducer side: a peer's candidates, led by the endpoint the introducer itself sees for it (its
+ * NAT mapping toward the introducer — on port-preserving NATs the address the other peer must burst
+ * to). A peer rarely knows that address itself (only a seed dial-back teaches it).
+ */
+std::vector<std::string> WithObservedPunchAddr(const std::optional<std::string>& observed,
+                                               const std::vector<std::string>& addrs);
+
 /** Epoch still open relative to start + window. */
 bool PunchWindowOpen(int64_t start_ms, int window_ms, int64_t now_ms);
 
