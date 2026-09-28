@@ -496,27 +496,32 @@ TEST(AmpPunchCoordinatorTest, Stage7_BurstDialAfterDeferredDrain) {
 }
 
 /**
- * L3.25 gap: sync-window expiry — unreachable candidate addrs so burst never auths
- * within the epoch → coded PunchFailed (caller falls through to circuit under H002).
+ * Cold punch A → B via introducer I where both peers report only unreachable ("blackhole")
+ * candidates. With `a_b_reachable` false A and B cannot reach each other at all; true leaves the
+ * endpoints the introducer observes for them reachable.
  */
-TEST(AmpPunchCoordinatorTest, SyncWindowExpiryReturnsPunchFailed) {
-  auto created = pbr::test::AmpMeshTripleHarness::Create();
-  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
-  auto harness = std::move(*created);
+struct BlackholePunchOutcome {
+  AmpPunchCoordinator::PunchRoe punched = AmpPunchCoordinator::PunchRoe::error(
+      AmpPunchCoordinator::Failure::Of(AmpPunchCoordinator::Err::PunchFailed, "not run"));
+  bool a_connected_to_b = false;
+};
 
-  // Accept stays on for A↔I / B↔I; punch candidates intentionally blackhole.
+BlackholePunchOutcome RunBlackholeCandidatePunch(const bool a_b_reachable) {
+  BlackholePunchOutcome out;
+  auto created = pbr::test::AmpMeshTripleHarness::Create();
+  EXPECT_TRUE(static_cast<bool>(created)) << created.error().message;
+  if (!created) {
+    return out;
+  }
+  auto harness = std::move(*created);
   harness->ep_a->SetAcceptEnabled(true);
   harness->ep_b->SetAcceptEnabled(true);
-
-  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("introducer", harness->ma_r)));
-  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("introducer", harness->ma_r)));
-  ASSERT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_a, harness->ma_a)));
-  ASSERT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_b, harness->ma_b)));
-
-  const std::string blackhole_a =
-      "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + harness->peer_id_a;
-  const std::string blackhole_b =
-      "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + harness->peer_id_b;
+  EXPECT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("introducer", harness->ma_r)));
+  EXPECT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("introducer", harness->ma_r)));
+  EXPECT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_a, harness->ma_a)));
+  EXPECT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_b, harness->ma_b)));
+  const std::string blackhole_a = "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + harness->peer_id_a;
+  const std::string blackhole_b = "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + harness->peer_id_b;
 
   std::function<void()> shared_pump;
   auto pump_bridge = [&]() {
@@ -546,25 +551,42 @@ TEST(AmpPunchCoordinatorTest, SyncWindowExpiryReturnsPunchFailed) {
     b_ready = static_cast<bool>(r);
   });
   harness->PumpUntil([&] { return a_ready && b_ready; }, 2000);
-  ASSERT_TRUE(a_ready);
-  ASSERT_TRUE(b_ready);
-  ASSERT_FALSE(harness->mgr_a().IsConnected(harness->peer_id_b));
-
-  // Short epoch: burst dials blackhole MAs and must not claim a direct PeerLink.
-  auto punched = punch_a.TryColdPunch("introducer", harness->peer_id_b, {blackhole_a}, 200);
-  ASSERT_FALSE(static_cast<bool>(punched));
-  EXPECT_EQ(punched.error().GetCode(), AmpPunchCoordinator::Err::PunchFailed);
-  const std::string& err = punched.error().message;
-  EXPECT_TRUE(err.find("window expired") != std::string::npos ||
-              err.find("timed out") != std::string::npos ||
-              err.find("punch burst") != std::string::npos)
-      << err;
+  EXPECT_TRUE(a_ready && b_ready);
   EXPECT_FALSE(harness->mgr_a().IsConnected(harness->peer_id_b));
-  EXPECT_EQ(harness->mgr_a().CountConnectedLinksForPeerId(harness->peer_id_b), 0u);
+  if (!a_b_reachable) {
+    harness->io_a->SetUnreachable(harness->addr_b, true);
+    harness->io_b->SetUnreachable(harness->addr_a, true);
+  }
 
+  out.punched = punch_a.TryColdPunch("introducer", harness->peer_id_b, {blackhole_a}, a_b_reachable ? 2000 : 200);
+  out.a_connected_to_b = harness->mgr_a().CountConnectedLinksForPeerId(harness->peer_id_b) > 0;
   punch_a.Stop();
   punch_i.Stop();
   punch_b.Stop();
+  return out;
+}
+
+/**
+ * L3.25 gap: sync-window expiry — A and B cannot reach each other, so the burst never auths within
+ * the epoch → coded PunchFailed (caller falls through to circuit under H002).
+ */
+TEST(AmpPunchCoordinatorTest, SyncWindowExpiryReturnsPunchFailed) {
+  const auto out = RunBlackholeCandidatePunch(/*a_b_reachable=*/false);
+  ASSERT_FALSE(static_cast<bool>(out.punched));
+  EXPECT_EQ(out.punched.error().GetCode(), AmpPunchCoordinator::Err::PunchFailed);
+  const std::string& err = out.punched.error().message;
+  EXPECT_TRUE(err.find("window expired") != std::string::npos || err.find("timed out") != std::string::npos ||
+              err.find("punch burst") != std::string::npos || err.find("unreachable") != std::string::npos)
+      << err;
+  EXPECT_FALSE(out.a_connected_to_b);
+}
+
+// k7: neither peer knows a reachable address of its own (behind NAT, no seed dial-back yet); the
+// introducer offers each the endpoint it observes for the other, and the punch lands.
+TEST(AmpPunchCoordinatorTest, IntroducerObservedEndpointsLetThePunchLand) {
+  const auto out = RunBlackholeCandidatePunch(/*a_b_reachable=*/true);
+  ASSERT_TRUE(static_cast<bool>(out.punched)) << out.punched.error().message;
+  EXPECT_TRUE(out.a_connected_to_b);
 }
 
 } // namespace
