@@ -2,6 +2,7 @@
 
 #include "foundation/data/Config.h"
 #include "amp/link/AmpStack.h"
+#include "domain/mesh/host/LocalNetworkChange.h"
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "domain/mesh/dht/AmpDhtProtocol.h"
 #include "domain/mesh/discovery/AmpDirectoryProtocol.h"
@@ -137,6 +138,12 @@ public:
 
   /** Build deps and run Amp reachability probe (async). */
   void StartReachabilityProbe(bool try_upnp_first = false);
+  /**
+   * k5: the device's network changed (any thread). Per `DecideLocalNetworkReaction`: Amp probes
+   * every direct link and evicts the silent ones fast; reachability is probed again once that
+   * settled, refreshing advertised and punch addresses. A newer change supersedes a pending re-probe.
+   */
+  void OnLocalNetworkChanged(const LocalNetworkChange& change);
   void RunReachabilityProbeBlocking(bool try_upnp_first = false);
 
 private:
@@ -168,6 +175,9 @@ private:
   MeshPumpThread pump_;
   /** Set while MeshPump drives: L4 work goes to AppRuntime workers (MakeL4WorkerPost). */
   std::atomic<bool> l4_on_workers_{false};
+  /** k5: the latest network change; a delayed re-probe for an older one stands down. */
+  std::atomic<uint64_t> network_change_gen_{0};
+  void ReprobeAfterNetworkChange(uint64_t gen, int attempts_left);
   std::unique_ptr<pp::amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
   std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
