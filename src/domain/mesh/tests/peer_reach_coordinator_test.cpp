@@ -280,9 +280,11 @@ TEST_F(PeerReachCoordinatorTest, AwaitWithoutPunchWaitsForThePeersCircuit) {
   auto req = Request(PeerReachMode::Await);
   req.allow_punch = false;
   auto out = Run(req);
+  // Inside this fixture's shortened await budget (300 ms; production extends it past the peer's
+  // dial overlap + circuit budget): the offerer's circuit arrives while we wait, unpunched.
   std::thread peer([this] {
-    std::this_thread::sleep_for(std::chrono::milliseconds(400));
-    dial_->Connect(kPeer, /*carrier=*/true, /*hop=*/true);  // the offerer's circuit arrives
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    dial_->Connect(kPeer, /*carrier=*/true, /*hop=*/true);
   });
   const bool done = WaitDone(out, std::chrono::seconds(10));
   peer.join();
