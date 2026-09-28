@@ -48,6 +48,8 @@ public:
                                         bool allow_circuit = true) override;
   void TryUpgradeToDirectAsync(const std::string& peer_key,
                                std::function<void(Roe<void>)> on_done) override;
+  void TryEnsureRelayedAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
+                             CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None) override;
 
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override;
   Roe<void> TryEnsurePeerReachable(const std::string& peer_key) override;
@@ -64,7 +66,8 @@ public:
 private:
   void EnsureViaCircuitAsync(const std::string& target_peer_id, const std::string& target_protocol,
                              bool register_endpoint, bool nested_session,
-                             std::function<void(Roe<void>)> on_done);
+                             std::function<void(Roe<void>)> on_done,
+                             CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None);
 
   void NoteInflightTunnel(CircuitTunnelId id);
   void ClearInflightTunnel(CircuitTunnelId id);

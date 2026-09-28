@@ -310,6 +310,12 @@ bool PeerReachCoordinator::AnyDialable(const Attempt& a) const {
                              [dial](const std::string& k) { return dial->IsDialable(k); });
 }
 
+bool PeerReachCoordinator::AnyConnectedRelayed(const Attempt& a) const {
+  IDialRegistry* dial = dial_.load(std::memory_order_acquire);
+  return dial && std::any_of(a.req.keys.begin(), a.req.keys.end(),
+                             [dial](const std::string& k) { return dial->IsConnectedRelayed(k); });
+}
+
 bool PeerReachCoordinator::AnyCircuitHop(const Attempt& a) const {
   IDialRegistry* dial = dial_.load(std::memory_order_acquire);
   return dial && std::any_of(a.req.keys.begin(), a.req.keys.end(),
@@ -403,12 +409,14 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
 bool PeerReachCoordinator::TrySettleConnected(const AttemptPtr& a) {
   const bool mutating = a->circuit_inflight || (a->assoc_started && !a->assoc_done);
   const bool wait_for_circuit = a->req.exclude_direct && !a->circuit_started && !AnyCircuitHop(*a);
-  if (mutating || wait_for_circuit || !AnyConnected(*a)) {
+  // exclude_direct wants the relay: the direct link the caller already has does not settle it.
+  const bool have_link = a->req.exclude_direct ? AnyConnectedRelayed(*a) : AnyConnected(*a);
+  if (mutating || wait_for_circuit || !have_link) {
     return false;
   }
   PeerReachResult r;
   // The relay carrier also reads "connected" — only ADP counts as direct / punched.
-  if (AnyCircuitHop(*a) || !AnyConnectedDirect(*a)) {
+  if (a->req.exclude_direct || AnyCircuitHop(*a) || !AnyConnectedDirect(*a)) {
     r.kind = PeerLinkKind::Relayed;
   } else if (a->circuit_started) {
     r.kind = PeerLinkKind::Punched;
@@ -649,24 +657,26 @@ void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const bool allow_cir
     a->circuit_inflight = false;
     return;
   }
-  circuit->TryEnsurePeerReachableAsync(
-      a->Primary(),
-      [this, alive = alive_, a](Roe<void> via) {
-        if (!alive->load(std::memory_order_acquire)) {
-          return;
-        }
-        // Finishes on Amp IO — snapshot before the Coordinator hop.
-        const bool connected_now = AnyConnected(*a);
-        // Connected only through a relay carrier is not a punch.
-        const bool relayed_now = AnyCircuitHop(*a) || (connected_now && !AnyConnectedDirect(*a));
-        PostStep(
-            [this, alive, a, via = std::move(via), connected_now, relayed_now]() mutable {
-              if (alive->load(std::memory_order_acquire)) {
-                OnCircuitDone(a, std::move(via), connected_now, relayed_now);
-              }
-            });
-      },
-      allow_circuit);
+  auto on_via = [this, alive = alive_, a](Roe<void> via) {
+    if (!alive->load(std::memory_order_acquire)) {
+      return;
+    }
+    // Finishes on Amp IO — snapshot before the Coordinator hop.
+    const bool connected_now = a->req.exclude_direct ? AnyConnectedRelayed(*a) : AnyConnected(*a);
+    // Connected only through a relay carrier is not a punch.
+    const bool relayed_now = a->req.exclude_direct || AnyCircuitHop(*a) || (connected_now && !AnyConnectedDirect(*a));
+    PostStep([this, alive, a, via = std::move(via), connected_now, relayed_now]() mutable {
+      if (alive->load(std::memory_order_acquire)) {
+        OnCircuitDone(a, std::move(via), connected_now, relayed_now);
+      }
+    });
+  };
+  if (a->req.exclude_direct) {
+    // A relayed link is the point (TX-only escalation, relay standby): a direct link does not count.
+    circuit->TryEnsureRelayedAsync(a->Primary(), std::move(on_via), a->req.circuit_standby_priority);
+  } else {
+    circuit->TryEnsurePeerReachableAsync(a->Primary(), std::move(on_via), allow_circuit);
+  }
 }
 
 void PeerReachCoordinator::OnCircuitDone(const AttemptPtr& a, Roe<void> via, const bool connected_now,

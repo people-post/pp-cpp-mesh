@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
 #include "domain/mesh/host/MeshPorts.h"
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"  // kRealtimeProtocolId
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
@@ -48,6 +49,10 @@ public:
   }
   /** Connected over a direct (ADP) link — IsConnected also counts a relay carrier link. */
   virtual bool IsConnectedDirect(const std::string& peer_key) const { return IsConnected(peer_key); }
+  /** A relay carrier link is Connected (whether or not a direct one is too). */
+  virtual bool IsConnectedRelayed(const std::string& peer_key) const {
+    return IsConnected(peer_key) && !IsConnectedDirect(peer_key);
+  }
   /** Kick ADP dial/handshake; optional for fakes. */
   virtual void EnsureAssociation(const std::string& peer_key,
                                  std::function<void(Roe<void>)> on_done) {
@@ -94,6 +99,15 @@ public:
     if (on_done) {
       on_done(TryEnsurePeerReachable(peer_key));
     }
+  }
+  /**
+   * A relayed link to the peer even when a direct one is up (TX-only escalation, a call's relay
+   * standby — k6): a circuit only, never a punch; OK once a relay carrier link is Connected.
+   */
+  virtual void TryEnsureRelayedAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
+                                     CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None) {
+    (void)standby_priority;
+    TryEnsurePeerReachableAsync(peer_key, std::move(on_done), /*allow_circuit=*/true);
   }
   /**
    * During a relayed call: punch toward the peer with the circuit's relay as introducer. OK once a
@@ -192,6 +206,10 @@ public:
 
   bool IsConnected(const std::string& peer_key) const override {
     return amp_links_ && amp_links_->IsConnected(peer_key);
+  }
+
+  bool IsConnectedRelayed(const std::string& peer_key) const override {
+    return amp_links_ && amp_links_->IsConnectedRelayed(peer_key);
   }
 
   bool IsConnectedDirect(const std::string& peer_key) const override {

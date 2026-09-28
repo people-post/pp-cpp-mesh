@@ -161,6 +161,14 @@ public:
     return runtime_.WithIoLock([&] { return links_.IsConnected(peer_key); });
   }
 
+  bool IsConnectedRelayed(const std::string& peer_id) const override {
+    return runtime_.WithIoLock([&] {
+      const auto snap = links_.GetSnapshotByPeerId(peer_id, pp::amp::TransportClass::Carrier);
+      return snap.transport == pp::amp::TransportClass::Carrier &&
+             snap.base.phase == pp::amp::PeerLinkPhase::Connected;
+    });
+  }
+
   bool IsReachable(const std::string& peer_id) const override {
     return runtime_.WithIoLock([&] { return links_.IsReachable(peer_id); });
   }

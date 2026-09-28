@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
 #include "domain/mesh/reachability/MeshReachPorts.h"
 
 #include "common/Module.h"
@@ -61,6 +62,8 @@ struct PeerReachRequest {
    * Reach still punches after a circuit miss (a last resort, whatever the policy).
    */
   bool allow_punch = true;
+  /** exclude_direct for a call's standby (K003): the relay may refuse it for load, lowest first. */
+  CircuitStandbyPriority circuit_standby_priority = CircuitStandbyPriority::None;
 };
 
 struct PeerReachResult {
@@ -164,6 +167,7 @@ private:
   bool AnyConnectedDirect(const Attempt& a) const;
   bool AnyDialable(const Attempt& a) const;
   bool AnyCircuitHop(const Attempt& a) const;
+  bool AnyConnectedRelayed(const Attempt& a) const;
   bool PreferredIsPublic(const Attempt& a) const;
   void ClearBackoff(const Attempt& a);
 
