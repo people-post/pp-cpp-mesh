@@ -19,6 +19,8 @@ public:
   void Remove(const std::string& peer_id);
 
 private:
+  void PruneExpiredLocked(int64_t now);
+
   mutable std::mutex mutex_;
   std::unordered_map<std::string, PeerRoutingRecord> by_peer_id_;
 };

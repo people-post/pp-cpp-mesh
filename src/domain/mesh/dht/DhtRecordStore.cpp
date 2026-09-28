@@ -6,9 +6,19 @@
 
 namespace pbr {
 
+namespace {
+/** Peer-controlled ttl (see AmpDhtProtocol inbound "store") — cap so a record can't outlive this. */
+constexpr int64_t kMaxRecordTtlSeconds = 24 * 3600;
+/** Bound total memory: one entry per distinct peer_id (unbounded otherwise — a DoS vector). */
+constexpr size_t kMaxRecords = 4096;
+} // namespace
+
 bool DhtRecordStore::Put(PeerRoutingRecord record) {
   if (record.peer_id.empty()) {
     return false;
+  }
+  if (record.ttl_seconds > kMaxRecordTtlSeconds) {
+    record.ttl_seconds = kMaxRecordTtlSeconds;
   }
   const int64_t now = static_cast<int64_t>(std::time(nullptr));
   if (PeerRoutingRecordExpired(record, now)) {
@@ -19,8 +29,25 @@ bool DhtRecordStore::Put(PeerRoutingRecord record) {
   if (it != by_peer_id_.end() && it->second.seq > record.seq) {
     return false;
   }
+  if (it == by_peer_id_.end() && by_peer_id_.size() >= kMaxRecords) {
+    PruneExpiredLocked(now);
+    if (by_peer_id_.size() >= kMaxRecords) {
+      return false; // Full of still-live records — refuse rather than evict a good one.
+    }
+  }
   by_peer_id_[record.peer_id] = std::move(record);
   return true;
+}
+
+/** Caller holds mutex_. */
+void DhtRecordStore::PruneExpiredLocked(const int64_t now) {
+  for (auto it = by_peer_id_.begin(); it != by_peer_id_.end();) {
+    if (PeerRoutingRecordExpired(it->second, now)) {
+      it = by_peer_id_.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 std::vector<PeerRoutingRecord> DhtRecordStore::Snapshot() const {
