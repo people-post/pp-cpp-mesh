@@ -93,5 +93,31 @@ TEST(AmpDialBackProtocolTest, ProbeRejectsNonAdpTarget) {
   seed.Stop();
 }
 
+TEST(AmpDialBackProtocolTest, ProbeRejectsTargetNotMatchingObservedHost) {
+  auto created = pbr::test::AmpMeshHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("client", harness->ma_a)));
+
+  auto pump = [&]() { harness->PumpBoth(); };
+  AmpDialBackProtocol seed(*harness->runtime_b, pump);
+  AmpDialBackProtocol client(*harness->runtime_a, pump);
+  seed.Start();
+  client.Start();
+
+  // A well-formed ADP target whose host is not the client's own observed connection: the seed
+  // must not become an open "dial anywhere for anyone" relay for an arbitrary third party.
+  const std::string third_party = "/ip4/203.0.113.9/udp/9999/adp/1.0.0/p2p/" + harness->peer_id_a;
+  auto probed = client.Probe("seed", {third_party}, 2000);
+  ASSERT_TRUE(static_cast<bool>(probed)) << probed.error().message;
+  EXPECT_FALSE(probed->ok);
+  EXPECT_NE(probed->error.find("observed host"), std::string::npos) << probed->error;
+
+  client.Stop();
+  seed.Stop();
+}
+
 } // namespace
 } // namespace pbr
