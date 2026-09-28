@@ -259,10 +259,11 @@ void MeshMediaPlane::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io) {
   log().info << "circuit-hop reach=amp";
 }
 
-void MeshMediaPlane::BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach) {
+void MeshMediaPlane::BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach, IMediaRelayClient* relay) {
   AppRuntime::RunAndWait(kOwner, [&]() {
     test_dial_ = dial;
     test_circuit_reach_ = circuit_reach;
+    test_relay_ = relay;
   });
 }
 
@@ -276,7 +277,7 @@ ICircuitHopReach* MeshMediaPlane::CircuitReach() const {
 
 MediaRelayAttachPorts MeshMediaPlane::RelayAttachPorts() const {
   MediaRelayAttachPorts ports;
-  ports.relay = media_relay_client_.get();
+  ports.relay = RelayClient();
   ports.dial = Dial();
   ports.service_reach = CircuitReach();
   return ports;
@@ -326,6 +327,7 @@ void MeshMediaPlane::Clear() {
     circuit_hop_reach_.reset();
     test_dial_ = nullptr;
     test_circuit_reach_ = nullptr;
+    test_relay_ = nullptr;
     rendezvous_.Clear();
     peer_listen_mas_.clear();
     PublishListenBook();

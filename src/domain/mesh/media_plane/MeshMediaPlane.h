@@ -117,8 +117,11 @@ public:
 
   /** (Re)create relay client, dial registry and circuit reach from the running mesh; arm re-park. */
   void Wire();
-  /** Tests / harness without MeshHost objects: use these instead (not owned). */
-  void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach);
+  /**
+   * Tests / harness without MeshHost objects: use these instead (not owned). `relay` stands in for
+   * the Amp media_relay client (group-call compose); null keeps the wired one.
+   */
+  void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach, IMediaRelayClient* relay = nullptr);
   /** Drop async callbacks, relay-chosen notices and the re-park listener (mesh stop / teardown). */
   void InvalidateAsyncOps();
   void ResetRelayClient();
@@ -129,7 +132,7 @@ public:
   /** Everything, including the listen book (owner teardown). */
   void Clear();
 
-  IMediaRelayClient* RelayClient() const { return media_relay_client_.get(); }
+  IMediaRelayClient* RelayClient() const { return test_relay_ ? test_relay_ : media_relay_client_.get(); }
   IDialRegistry* Dial() const;
   ICircuitHopReach* CircuitReach() const;
   /** media_relay client + dial + service reach, for `AttachToMediaRelayAsync` users. */
@@ -189,6 +192,7 @@ private:
   std::unique_ptr<ICircuitHopReach> circuit_hop_reach_;
   IDialRegistry* test_dial_ = nullptr;
   ICircuitHopReach* test_circuit_reach_ = nullptr;
+  IMediaRelayClient* test_relay_ = nullptr;
   PunchIntroducerWalk punch_;
   CircuitRendezvousCoordinator rendezvous_;
   DeferredSelf deferred_;
