@@ -76,6 +76,25 @@ void QuoteThenAttach(MediaRelayAttachPorts ports, MediaRelayAttachRequest reques
       kQuoteTimeoutMs);
 }
 
+/**
+ * Register the hop hint and make its service reachable (circuit when not dialable), then `next` off
+ * the IO strand. Registration is posted to Amp IO: quoting right after it would find no endpoint.
+ */
+void ReachHopService(const MediaRelayAttachPorts& ports, const MediaRelayAttachRequest& request,
+                     std::function<void()> next) {
+  if (!request.hop_multiaddr.empty()) {
+    (void)ports.dial->RegisterEndpoint(request.hop_peer_id, request.hop_multiaddr);
+    ports.dial->ClearDialBackoff(request.hop_peer_id);
+  }
+  if (!ports.dial->IsDialable(request.hop_peer_id) && ports.service_reach) {
+    // Service reach finishes on Amp IO — continue on a worker, not the IO strand.
+    ports.service_reach->TryEnsureHopReachableAsync(
+        request.hop_peer_id, [next = std::move(next)](Roe<void>) mutable { PostOffIo(std::move(next)); });
+    return;
+  }
+  next();
+}
+
 } // namespace
 
 void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRequest request,
@@ -91,24 +110,34 @@ void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttac
     on_done(Error("missing hop_peer_id"));
     return;
   }
-  if (!request.hop_multiaddr.empty()) {
-    (void)ports.dial->RegisterEndpoint(request.hop_peer_id, request.hop_multiaddr);
-    ports.dial->ClearDialBackoff(request.hop_peer_id);
-  }
-  if (!ports.dial->IsDialable(request.hop_peer_id) && ports.service_reach) {
-    // Service reach finishes on Amp IO — continue on a worker, not the IO strand.
-    const std::string hop = request.hop_peer_id;
-    ports.service_reach->TryEnsureHopReachableAsync(
-        hop, [ports, request = std::move(request), hooks = std::move(hooks),
-              on_done = std::move(on_done)](Roe<void>) mutable {
-          PostOffIo([ports, request = std::move(request), hooks = std::move(hooks),
-                            on_done = std::move(on_done)]() mutable {
-            QuoteThenAttach(ports, std::move(request), std::move(hooks), std::move(on_done));
-          });
-        });
+  const MediaRelayAttachRequest reach_request = request;
+  ReachHopService(ports, reach_request, [ports, request = std::move(request), hooks = std::move(hooks),
+                                         on_done = std::move(on_done)]() mutable {
+    QuoteThenAttach(ports, std::move(request), std::move(hooks), std::move(on_done));
+  });
+}
+
+void QuoteMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRequest request,
+                          std::function<void(Roe<MediaRelayQuote>)> on_done) {
+  if (!on_done) {
     return;
   }
-  QuoteThenAttach(ports, std::move(request), std::move(hooks), std::move(on_done));
+  if (!ports.relay || !ports.dial) {
+    on_done(Error("media_relay not available"));
+    return;
+  }
+  if (request.hop_peer_id.empty()) {
+    on_done(Error("missing hop_peer_id"));
+    return;
+  }
+  const MediaRelayAttachRequest reach_request = request;
+  ReachHopService(ports, reach_request, [ports, request = std::move(request), on_done = std::move(on_done)]() mutable {
+    if (!ports.dial->IsDialable(request.hop_peer_id)) {
+      on_done(Error("hop not dialable"));
+      return;
+    }
+    ports.relay->RequestQuoteAsync(request.hop_peer_id, request.quote, std::move(on_done), kQuoteTimeoutMs);
+  });
 }
 
 } // namespace pbr

@@ -60,4 +60,12 @@ void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttac
                              MediaRelayAttachHooks hooks,
                              std::function<void(Roe<MediaRelayAttached>)> on_done);
 
+/**
+ * Quote only — the same reach steps as `AttachToMediaRelayAsync` (register the hint, service reach
+ * when not dialable), then a quote, no AcceptAndAttach. A reachability / capacity probe (V050: an
+ * invitee checks the planned hop while ringing). Completes on whatever thread the relay client does.
+ */
+void QuoteMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRequest request,
+                          std::function<void(Roe<MediaRelayQuote>)> on_done);
+
 } // namespace pbr
