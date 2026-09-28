@@ -50,6 +50,8 @@ public:
 
   /** When false, inbound bridges are refused (outbound StartBridge still works). */
   void SetServeInbound(bool serve);
+  /** K003 standby circuits served at once: relay-wide and per dialer PeerId (0 keeps the default). */
+  void SetStandbyLimits(size_t max_standby, size_t max_per_dialer);
   bool ServeInbound() const;
 
   /** Cancel all in-flight / bridging tunnels (Leave / shutdown). */

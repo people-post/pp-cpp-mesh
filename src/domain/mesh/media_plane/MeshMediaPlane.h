@@ -155,7 +155,6 @@ public:
   Roe<void> TryEnsureCircuitHopReachable(const std::string& hop_peer_id);
   Roe<void> TryEnsurePeerReachable(const std::string& peer_key);
   void TryEnsurePeerReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done);
-  Roe<void> TryUpgradeToDirect(const std::string& peer_key);
 
   /** Rendezvous relays: dial surface for reach, parking so this node is reachable (stable object). */
   CircuitRendezvousCoordinator& Rendezvous() { return rendezvous_; }

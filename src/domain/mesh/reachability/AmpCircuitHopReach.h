@@ -48,10 +48,11 @@ public:
                                         bool allow_circuit = true) override;
   void TryUpgradeToDirectAsync(const std::string& peer_key,
                                std::function<void(Roe<void>)> on_done) override;
+  void TryEnsureRelayedAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
+                             CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None) override;
 
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override;
   Roe<void> TryEnsurePeerReachable(const std::string& peer_key) override;
-  Roe<void> TryUpgradeToDirect(const std::string& peer_key) override;
   void AbortPending() override;
   std::string LastGoodRelayPeerKey() const override { return last_good_relay_peer_key_; }
 
@@ -65,7 +66,8 @@ public:
 private:
   void EnsureViaCircuitAsync(const std::string& target_peer_id, const std::string& target_protocol,
                              bool register_endpoint, bool nested_session,
-                             std::function<void(Roe<void>)> on_done);
+                             std::function<void(Roe<void>)> on_done,
+                             CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None);
 
   void NoteInflightTunnel(CircuitTunnelId id);
   void ClearInflightTunnel(CircuitTunnelId id);
@@ -87,9 +89,6 @@ private:
   std::atomic<uint64_t> inflight_tunnel_value_{0};
   /** Last relay that completed a bridge Install (sticky first try — H010). */
   std::string last_good_relay_peer_key_;
-
-  Roe<void> DemoteCircuitHop(const std::string& peer_key, const std::string& target_protocol,
-                             CircuitTunnelId tunnel_id);
 };
 
 } // namespace pbr

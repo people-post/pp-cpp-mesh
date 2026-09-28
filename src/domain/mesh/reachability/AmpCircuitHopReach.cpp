@@ -187,17 +187,50 @@ void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key
   }
 }
 
+void AmpCircuitHopReach::TryEnsureRelayedAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
+                                               const CircuitStandbyPriority standby_priority) {
+  if (!on_done) {
+    return;
+  }
+  if (peer_key.empty()) {
+    on_done(Error("missing peer"));
+    return;
+  }
+  auto run = [this, peer_key, standby_priority, on_done = std::move(on_done)]() mutable {
+    if (links_.IsConnectedRelayed(peer_key)) {
+      on_done(Roe<void>());
+      return;
+    }
+    AmpReachLog().info << "TryEnsureRelayed circuit (a relayed link beside any direct one) target=" << peer_key;
+    EnsureViaCircuitAsync(peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
+                          /*nested_session=*/true, [this, peer_key, on_done = std::move(on_done)](Roe<void> via) mutable {
+                            if (links_.IsConnectedRelayed(peer_key)) {
+                              on_done(Roe<void>());
+                              return;
+                            }
+                            on_done(via ? Roe<void>(Error("no relayed link after circuit")) : via);
+                          },
+                          standby_priority);
+  };
+  if (post_io_) {
+    post_io_(std::move(run));
+  } else {
+    run();
+  }
+}
+
 void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id,
                                                const std::string& target_protocol,
                                                const bool register_endpoint, const bool nested_session,
-                                               std::function<void(Roe<void>)> on_done) {
+                                               std::function<void(Roe<void>)> on_done,
+                                               const CircuitStandbyPriority standby_priority) {
   if (!on_done) {
     return;
   }
   // PeerLinkManager is Amp-IO only. CallMedia Connect ticks on Coordinator while MeshPump
   // Ticks on IO — ClearDialBackoff / snapshot / OpenChannel off-strand AVs around dial
   // timeout (dogfood 085210, ~8s after StartBridge).
-  auto run = [this, target_peer_id, target_protocol, register_endpoint, nested_session,
+  auto run = [this, target_peer_id, target_protocol, register_endpoint, nested_session, standby_priority,
               on_done = std::move(on_done)]() mutable {
   if (!circuit_.IsStarted()) {
     on_done(Error("amp circuit-relay not available"));
@@ -211,7 +244,9 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
     on_done(Roe<void>());
     return;
   }
-  if (nested_session && links_.IsConnected(target_peer_id)) {
+  // A nested session exists to give the peer a relay carrier link: only one of those settles it
+  // (a direct link beside it does not — relay standby / TX-only escalation want the relay).
+  if (nested_session && links_.IsConnectedRelayed(target_peer_id)) {
     on_done(Roe<void>());
     return;
   }
@@ -250,6 +285,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   CircuitBridgeTarget bridge_target;
   bridge_target.target_peer_id = target_peer_id;
   bridge_target.target_protocol = target_protocol;
+  bridge_target.standby_priority = standby_priority;
   // Nested call-media: peer-id-only. Punch/sync often registers the peer's *private*
   // advertise MA on the dialer; sending that as target_multiaddr makes the hop
   // overwrite its SNAT-learned book entry and fail dual-NAT (dogfood / hard-w5 Phase-2).
@@ -624,53 +660,29 @@ void AmpCircuitHopReach::TryUpgradeToDirectAsync(const std::string& peer_key,
     on_done(Error("circuit upgrade punch unavailable"));
     return;
   }
-
   std::optional<AmpCircuitHopRegistry::Hop> hop = hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId);
-  std::string protocol = pp::amp::kAmpCircuitCarrierProtocolId;
   if (!hop) {
     hop = hops_.Find(peer_key, kMediaRelayProtocolId);
-    protocol = kMediaRelayProtocolId;
   }
   if (!hop) {
     on_done(Error("no circuit hop to upgrade"));
     return;
   }
-
-  const std::string relay_key = hop->relay_peer_key;
-  const CircuitTunnelId tunnel_id = hop->tunnel_id;
-  try_punch_via_introducer_(
-      relay_key, peer_key,
-      [this, peer_key, protocol, tunnel_id, on_done = std::move(on_done)](Roe<void> punched) mutable {
-        if (!punched) {
-          on_done(std::move(punched));
-          return;
-        }
-        if (!links_.GetLinkSnapshot(peer_key).has_endpoint) {
-          on_done(Error("upgrade punch did not yield a direct path"));
-          return;
-        }
-        on_done(DemoteCircuitHop(peer_key, protocol, tunnel_id));
-      });
-}
-
-Roe<void> AmpCircuitHopReach::TryUpgradeToDirect(const std::string& peer_key) {
-  SettledWait<void> wait;
-  TryUpgradeToDirectAsync(peer_key, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
-  const auto deadline = Clock::now() + std::chrono::milliseconds(30000);
-  AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
-  return wait.Wait(std::chrono::milliseconds(1), Error("circuit upgrade timed out"));
-}
-
-Roe<void> AmpCircuitHopReach::DemoteCircuitHop(const std::string& peer_key, const std::string& target_protocol,
-                                               CircuitTunnelId tunnel_id) {
-  if (tunnel_id) {
-    circuit_.CancelTunnel(tunnel_id);
-  }
-  hops_.Clear(peer_key, target_protocol);
-  if (!hops_.HasAny(peer_key)) {
-    hops_.Clear(peer_key);
-  }
-  return {};
+  // The circuit's relay introduces the punch. The circuit itself is left alone: the call moves
+  // onto the direct link make-before-break (call-path-resilience k3) and releases its relayed path.
+  try_punch_via_introducer_(hop->relay_peer_key, peer_key,
+                            [this, peer_key, on_done = std::move(on_done)](Roe<void> punched) mutable {
+                              if (!punched) {
+                                on_done(std::move(punched));
+                                return;
+                              }
+                              const auto snap = links_.SnapshotByPeerId(peer_key);
+                              if (snap.base.phase != pp::amp::PeerLinkPhase::Connected || snap.base.carrier_backed) {
+                                on_done(Error("upgrade punch did not yield a direct link"));
+                                return;
+                              }
+                              on_done(Roe<void>());
+                            });
 }
 
 } // namespace pbr

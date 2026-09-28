@@ -141,6 +141,11 @@ public:
 
   virtual MeshPeerLinkSnapshot GetLinkSnapshot(const std::string& peer_key) const = 0;
   virtual pp::amp::LinkSnapshotEx SnapshotByPeerId(const std::string& peer_id) const = 0;
+  /** A relay-carrier (nested) link to the peer is Connected — beside any direct one (A024). */
+  virtual bool IsConnectedRelayed(const std::string& peer_id) const {
+    (void)peer_id;
+    return false;
+  }
   virtual bool IsConnected(const std::string& peer_key) const = 0;
   virtual bool IsReachable(const std::string& peer_id) const = 0;
 

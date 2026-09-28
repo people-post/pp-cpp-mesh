@@ -177,6 +177,17 @@ std::vector<std::string> SanitizePunchAddrs(const std::vector<std::string>& addr
   return out;
 }
 
+std::vector<std::string> WithObservedPunchAddr(const std::optional<std::string>& observed,
+                                               const std::vector<std::string>& addrs) {
+  std::vector<std::string> merged;
+  merged.reserve(addrs.size() + 1);
+  if (observed && !observed->empty()) {
+    merged.push_back(*observed);
+  }
+  merged.insert(merged.end(), addrs.begin(), addrs.end());
+  return SanitizePunchAddrs(merged);
+}
+
 bool PunchWindowOpen(int64_t start_ms, int window_ms, int64_t now_ms) {
   if (window_ms <= 0) {
     return false;

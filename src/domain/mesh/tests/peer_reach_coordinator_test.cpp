@@ -274,6 +274,27 @@ TEST_F(PeerReachCoordinatorTest, AwaitSkipsPrivateDialAndPunchesOnly) {
   EXPECT_EQ((*out->result)->kind, PeerLinkKind::Punched);
 }
 
+// k6: a mobile pair's awaiting side does not punch — it waits for the peer's circuit to land.
+TEST_F(PeerReachCoordinatorTest, AwaitWithoutPunchWaitsForThePeersCircuit) {
+  dial_->endpoints[kPeer] = kPrivateMa;
+  auto req = Request(PeerReachMode::Await);
+  req.allow_punch = false;
+  auto out = Run(req);
+  // Inside this fixture's shortened await budget (300 ms; production extends it past the peer's
+  // dial overlap + circuit budget): the offerer's circuit arrives while we wait, unpunched.
+  std::thread peer([this] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    dial_->Connect(kPeer, /*carrier=*/true, /*hop=*/true);
+  });
+  const bool done = WaitDone(out, std::chrono::seconds(10));
+  peer.join();
+  ASSERT_TRUE(done);
+  ASSERT_TRUE(*out->result) << out->result->error().message;
+  EXPECT_EQ(circuit_->calls.load(), 0) << "no punch";
+  EXPECT_EQ(dial_->ensure_calls.load(), 0);
+  EXPECT_EQ((*out->result)->kind, PeerLinkKind::Relayed);
+}
+
 // TX-only escalate: exclude_direct builds a circuit even from Await and over a connected link.
 TEST_F(PeerReachCoordinatorTest, ExcludeDirectForcesCircuit) {
   dial_->Connect(kPeer);
