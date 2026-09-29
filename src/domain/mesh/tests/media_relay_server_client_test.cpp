@@ -1,4 +1,5 @@
-#include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
+#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
 #include "domain/mesh/tests/support/mesh_test_harness.h"
 #include "common/directory/RelayScope.h"
 
@@ -12,7 +13,7 @@
 namespace pbr {
 namespace {
 
-class AmpMediaRelayCoordinatorTest : public ::testing::Test {
+class MediaRelayServerClientTest : public ::testing::Test {
 protected:
   void SetUp() override {
     auto created = pbr::test::AmpMeshHarness::Create();
@@ -21,9 +22,12 @@ protected:
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_a().RegisterEndpoint("hop", harness_->ma_b)));
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_b().RegisterEndpoint("client", harness_->ma_a)));
 
-    hop_ = std::make_unique<AmpMediaRelayCoordinator>(*harness_->runtime_b);
-    client_ = std::make_unique<AmpMediaRelayCoordinator>(*harness_->runtime_a);
+    hop_ = std::make_unique<MediaRelayServer>(*harness_->runtime_b);
+    // The hop node's own client (local hop): joins hop_'s sessions without dialing itself.
+    hop_client_ = std::make_unique<MediaRelayClientCoordinator>(*harness_->runtime_b, hop_.get());
+    client_ = std::make_unique<MediaRelayClientCoordinator>(*harness_->runtime_a);
     hop_->Start();
+    hop_client_->Start();
     client_->Start();
   }
 
@@ -31,10 +35,14 @@ protected:
     if (client_) {
       client_->Stop();
     }
+    if (hop_client_) {
+      hop_client_->Stop();
+    }
     if (hop_) {
       hop_->Stop();
     }
     client_.reset();
+    hop_client_.reset();
     hop_.reset();
     harness_.reset();
   }
@@ -58,11 +66,12 @@ protected:
   };
 
   std::unique_ptr<pbr::test::AmpMeshHarness> harness_;
-  std::unique_ptr<AmpMediaRelayCoordinator> hop_;
-  std::unique_ptr<AmpMediaRelayCoordinator> client_;
+  std::unique_ptr<MediaRelayServer> hop_;
+  std::unique_ptr<MediaRelayClientCoordinator> hop_client_;
+  std::unique_ptr<MediaRelayClientCoordinator> client_;
 };
 
-TEST_F(AmpMediaRelayCoordinatorTest, QuoteRoundTrip) {
+TEST_F(MediaRelayServerClientTest, QuoteRoundTrip) {
   MediaRelayQuoteRequest req;
   req.session_id = "call-amp-quote";
   req.participants = 2;
@@ -77,7 +86,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, QuoteRoundTrip) {
   EXPECT_EQ(wait.result->pricing_mode, "volunteer");
 }
 
-TEST_F(AmpMediaRelayCoordinatorTest, AcceptAndAttachRoundTrip) {
+TEST_F(MediaRelayServerClientTest, AcceptAndAttachRoundTrip) {
   MediaRelayQuoteRequest req;
   req.session_id = "call-amp-attach";
 
@@ -99,7 +108,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, AcceptAndAttachRoundTrip) {
   EXPECT_TRUE(client_->IsAttached());
 }
 
-TEST_F(AmpMediaRelayCoordinatorTest, AdmitRefusesStrangerOnQuote) {
+TEST_F(MediaRelayServerClientTest, AdmitRefusesStrangerOnQuote) {
   MediaRelayAdmissionPolicy policy;
   policy.serve_scope_mask = kRelayScopeLinkSiteSocial;
   policy.contact_peer_ids = {"not-the-client"};
@@ -115,7 +124,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, AdmitRefusesStrangerOnQuote) {
   EXPECT_NE(wait.result.error().message.find("stranger"), std::string::npos);
 }
 
-TEST_F(AmpMediaRelayCoordinatorTest, LocalHopFanoutRoundTrip) {
+TEST_F(MediaRelayServerClientTest, LocalHopFanoutRoundTrip) {
   // Ownership canary (A027): adopt into client_ then EnqueueOutbound (Subscribe) must work.
   const std::string call_id = "call-amp-fanout";
   MediaRelayQuoteRequest req;
@@ -138,12 +147,12 @@ TEST_F(AmpMediaRelayCoordinatorTest, LocalHopFanoutRoundTrip) {
   client_->StartClientFrameReader();
 
   std::atomic<int> local_frames{0};
-  auto local = hop_->AttachAsLocalHop(call_id, [&local_frames](MediaDataFrame) { local_frames.fetch_add(1); });
+  auto local = hop_client_->AttachAsLocalHop(call_id, [&local_frames](MediaDataFrame) { local_frames.fetch_add(1); });
   ASSERT_TRUE(local);
 
   ASSERT_TRUE(client_->Subscribe(7, 0));
-  ASSERT_TRUE(hop_->Subscribe(7, 0));
-  ASSERT_TRUE(hop_->Subscribe(8, 0));
+  ASSERT_TRUE(hop_client_->Subscribe(7, 0));
+  ASSERT_TRUE(hop_client_->Subscribe(8, 0));
   // Host fan-out applies subscriptions only after the wire JSON is pumped.
   for (int i = 0; i < 40; ++i) {
     harness_->PumpBoth();
@@ -153,7 +162,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, LocalHopFanoutRoundTrip) {
   uplink.stream_id = 7;
   uplink.channel_id = 0;
   uplink.payload = {1, 2, 3};
-  ASSERT_TRUE(hop_->SendFrame(uplink));
+  ASSERT_TRUE(hop_client_->SendFrame(uplink));
 
   harness_->PumpUntil([&] { return guest_frames.load() >= 1; }, 800);
   EXPECT_GE(guest_frames.load(), 1);
@@ -168,7 +177,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, LocalHopFanoutRoundTrip) {
   EXPECT_GE(local_frames.load(), 1);
 
   client_->Detach();
-  hop_->Detach();
+  hop_client_->Detach();
 }
 
 } // namespace
@@ -177,7 +186,7 @@ TEST_F(AmpMediaRelayCoordinatorTest, LocalHopFanoutRoundTrip) {
 namespace pbr {
 namespace {
 
-class AmpMediaRelayClientLossTest : public AmpMediaRelayCoordinatorTest {
+class AmpMediaRelayClientLossTest : public MediaRelayServerClientTest {
 protected:
   void Attach(const std::string& session) {
     MediaRelayQuoteRequest req;

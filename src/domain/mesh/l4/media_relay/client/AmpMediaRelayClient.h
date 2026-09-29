@@ -1,7 +1,7 @@
 #pragma once
 
-#include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
-#include "domain/mesh/l4/media_relay/IMediaRelayClient.h"
+#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
 
 #include <chrono>
 #include <functional>
@@ -10,7 +10,7 @@
 namespace pbr {
 
 /**
- * IMediaRelayClient over AmpMediaRelayCoordinator ([A020]).
+ * IMediaRelayClient over MediaRelayClientCoordinator ([A020]).
  * Prefer RequestQuoteAsync / AcceptAndAttachAsync when MeshPump + PostToIo are available;
  * sync wrappers park (do not Tick while MeshPump owns Drive).
  */
@@ -20,7 +20,7 @@ public:
   using IoPost = std::function<void(std::function<void()>)>;
   using IoAfter = std::function<void(std::chrono::milliseconds, std::function<void()>)>;
 
-  AmpMediaRelayClient(AmpMediaRelayCoordinator& coordinator, IoPump io_pump, std::string local_peer_id,
+  AmpMediaRelayClient(MediaRelayClientCoordinator& coordinator, IoPump io_pump, std::string local_peer_id,
                       IoPost post_io = {}, IoAfter post_after = {});
 
   Roe<std::string> LocalPeerIdBase58() const override;
@@ -55,7 +55,7 @@ public:
   CallHopHealth HealthSnapshot() const override;
 
 private:
-  AmpMediaRelayCoordinator& coordinator_;
+  MediaRelayClientCoordinator& coordinator_;
   IoPump io_pump_;
   IoPost post_io_;
   IoAfter post_after_;

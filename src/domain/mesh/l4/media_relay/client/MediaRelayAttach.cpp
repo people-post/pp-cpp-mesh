@@ -1,4 +1,4 @@
-#include "domain/mesh/l4/media_relay/MediaRelayAttach.h"
+#include "domain/mesh/l4/media_relay/client/MediaRelayAttach.h"
 
 #include "foundation/runtime/AppRuntime.h"
 

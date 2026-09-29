@@ -1,4 +1,4 @@
-#include "domain/mesh/l4/media_relay/AmpMediaRelayClient.h"
+#include "domain/mesh/l4/media_relay/client/AmpMediaRelayClient.h"
 
 #include "common/SettledWait.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
@@ -14,7 +14,7 @@ using Clock = std::chrono::steady_clock;
 
 } // namespace
 
-AmpMediaRelayClient::AmpMediaRelayClient(AmpMediaRelayCoordinator& coordinator, IoPump io_pump,
+AmpMediaRelayClient::AmpMediaRelayClient(MediaRelayClientCoordinator& coordinator, IoPump io_pump,
                                          std::string local_peer_id, IoPost post_io, IoAfter post_after)
     : coordinator_(coordinator), io_pump_(std::move(io_pump)), post_io_(std::move(post_io)),
       post_after_(std::move(post_after)), local_peer_id_(std::move(local_peer_id)) {}

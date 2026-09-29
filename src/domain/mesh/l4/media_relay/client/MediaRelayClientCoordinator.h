@@ -1,12 +1,12 @@
 #pragma once
 
-#include "amp/L3/ChannelSession.h"
 #include "amp/link/MeshRuntime.h"
 #include "common/media/CallMediaHealth.h"
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/media_relay/MediaRelayBundleLogic.h"
-#include "domain/mesh/l4/media_relay/IMediaRelayClient.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
+#include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
+#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
 
 #include "common/Error.h"
 #include "common/PbrCompat.h"
@@ -18,30 +18,31 @@
 namespace pbr {
 
 /**
- * Non-blocking `/pp-browser/datagram-relay/1.0.0` on MeshRuntime ([A022]).
- * MeshHost owns an instance when Amp is up. SoftMigrate uses AmpMediaRelayClient ([A020]).
- * Circuit-backed hops adopt sessions from AmpCircuitHopRegistry (D9 step 5c).
+ * Client side of `/pp-browser/datagram-relay/1.0.0` on MeshRuntime ([A022]): outbound quote and
+ * accept → attach bundles to a hop, then the one attached client session (subscribe / send /
+ * frames / loss observers). Circuit-backed hops adopt sessions from AmpCircuitHopRegistry (D9 step
+ * 5c). MeshHost owns one when Amp is up; `AmpMediaRelayClient` adapts it to `IMediaRelayClient`
+ * ([A020]).
+ *
+ * `local_server` (optional, must outlive this) is this node's `MediaRelayServer`: when the hop is
+ * this node, `AttachAsLocalHop` joins the hosted session without dialing itself.
  */
-class AmpMediaRelayCoordinator {
+class MediaRelayClientCoordinator {
 public:
   using QuoteFinished = std::function<void(Roe<MediaRelayQuote>)>;
   using AttachFinished = std::function<void(Roe<MediaRelayAttachResult>)>;
   using FrameHandler = std::function<void(MediaDataFrame)>;
 
-  explicit AmpMediaRelayCoordinator(pp::amp::MeshRuntime& runtime);
-  ~AmpMediaRelayCoordinator();
+  explicit MediaRelayClientCoordinator(pp::amp::MeshRuntime& runtime, MediaRelayServer* local_server = nullptr);
+  ~MediaRelayClientCoordinator();
 
-  AmpMediaRelayCoordinator(const AmpMediaRelayCoordinator&) = delete;
-  AmpMediaRelayCoordinator& operator=(const AmpMediaRelayCoordinator&) = delete;
+  MediaRelayClientCoordinator(const MediaRelayClientCoordinator&) = delete;
+  MediaRelayClientCoordinator& operator=(const MediaRelayClientCoordinator&) = delete;
 
   void Start();
   void Stop();
   bool IsStarted() const;
 
-  /** When false, inbound protocol handler refuses new dials (outbound client still works). */
-  void SetServeInbound(bool serve);
-  bool ServeInbound() const;
-  void SetAdmissionPolicy(MediaRelayAdmissionPolicy policy);
   void SetCircuitHopRegistry(AmpCircuitHopRegistry* hops);
 
   MediaRelaySessionId StartQuote(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,

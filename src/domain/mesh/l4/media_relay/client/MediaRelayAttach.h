@@ -1,6 +1,6 @@
 #pragma once
 
-#include "domain/mesh/l4/media_relay/IMediaRelayClient.h"
+#include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/reachability/MeshReachPorts.h"
 #include "foundation/runtime/DeferredSelf.h"

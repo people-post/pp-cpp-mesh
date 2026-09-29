@@ -1,6 +1,6 @@
 #include "domain/mesh/media_plane/MeshMediaPlane.h"
 
-#include "domain/mesh/l4/media_relay/AmpMediaRelayClient.h"
+#include "domain/mesh/l4/media_relay/client/AmpMediaRelayClient.h"
 #include "domain/mesh/reachability/AmpCircuitHopReach.h"
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/reachability/Reachability.h"
@@ -159,7 +159,7 @@ void MeshMediaPlane::RefreshHopPolicyOnOwner() {
     view.local_peer_id = m->Amp()->LocalPeerId();
     view.amp_listen_multiaddr = m->AmpListenMultiaddr();
     view.advertised_listen_multiaddrs = m->AdvertisedListenMultiaddrs();
-    view.media_relay_started = m->AmpMediaRelayCoord() && m->AmpMediaRelayCoord()->IsStarted();
+    view.media_relay_started = m->AmpMediaRelayServer() && m->AmpMediaRelayServer()->IsStarted();
     if (AmpPunchCoordinator* punch = m->AmpPunch()) {
       view.punch_started = punch->IsStarted();
       view.punch_candidate_addrs = punch->LocalCandidateAddrs();
@@ -194,7 +194,7 @@ void MeshMediaPlane::ArmHopPolicyRefresh() {
 
 bool MeshMediaPlane::AmpRelayAvailable() const {
   MeshHost* m = mesh();
-  return m && m->Amp() && m->AmpMediaRelayCoord() && m->AmpMediaRelayCoord()->IsStarted();
+  return m && m->Amp() && m->AmpMediaRelayClientCoord() && m->AmpMediaRelayClientCoord()->IsStarted();
 }
 
 void MeshMediaPlane::WireMediaRelayClient(MeshHost* m, const MeshIoContext& io) {
@@ -203,7 +203,7 @@ void MeshMediaPlane::WireMediaRelayClient(MeshHost* m, const MeshIoContext& io) 
     log().warning << "media-relay transport unavailable (Amp required)";
     return;
   }
-  media_relay_client_ = std::make_unique<AmpMediaRelayClient>(*m->AmpMediaRelayCoord(), io.io_pump,
+  media_relay_client_ = std::make_unique<AmpMediaRelayClient>(*m->AmpMediaRelayClientCoord(), io.io_pump,
                                                               m->Amp()->LocalPeerId(), io.post_io, io.post_after);
   log().info << "media-relay transport=amp";
 }

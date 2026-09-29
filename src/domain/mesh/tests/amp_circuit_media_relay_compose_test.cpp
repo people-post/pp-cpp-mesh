@@ -1,5 +1,6 @@
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
-#include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
+#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 
 #include "domain/mesh/tests/support/mesh_triple_harness.h"
@@ -32,8 +33,8 @@ protected:
     hops_ = std::make_unique<AmpCircuitHopRegistry>();
     circuit_r_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_r);
     circuit_a_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_a);
-    hop_ = std::make_unique<AmpMediaRelayCoordinator>(*harness_->runtime_b);
-    client_ = std::make_unique<AmpMediaRelayCoordinator>(*harness_->runtime_a);
+    hop_ = std::make_unique<MediaRelayServer>(*harness_->runtime_b);
+    client_ = std::make_unique<MediaRelayClientCoordinator>(*harness_->runtime_a);
     client_->SetCircuitHopRegistry(hops_.get());
 
     circuit_r_->Start();
@@ -43,7 +44,6 @@ protected:
     hop_->Start();
     hop_->SetServeInbound(true);
     client_->Start();
-    client_->SetServeInbound(false);
   }
 
   void TearDown() override {
@@ -89,8 +89,8 @@ protected:
   std::unique_ptr<AmpCircuitHopRegistry> hops_;
   std::unique_ptr<CircuitTunnelCoordinator> circuit_r_;
   std::unique_ptr<CircuitTunnelCoordinator> circuit_a_;
-  std::unique_ptr<AmpMediaRelayCoordinator> hop_;
-  std::unique_ptr<AmpMediaRelayCoordinator> client_;
+  std::unique_ptr<MediaRelayServer> hop_;
+  std::unique_ptr<MediaRelayClientCoordinator> client_;
 };
 
 TEST_F(AmpCircuitMediaRelayComposeTest, CircuitBackedQuoteAndAttach) {

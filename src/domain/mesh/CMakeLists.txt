@@ -47,15 +47,17 @@ set(PP_DOMAIN_MESH_L4_CIRCUIT_SOURCES
   l4/circuit/CircuitTunnelCoordinator.cpp
 )
 
+# media_relay: shared wire / decisions at the root; serve/ = the hop side, client/ = the attaching side.
 set(PP_DOMAIN_MESH_L4_MEDIA_RELAY_SOURCES
   l4/media_relay/MediaRelayFrames.cpp
-  l4/media_relay/MediaRelayAttachSm.cpp
   l4/media_relay/MediaRelayLogic.cpp
   l4/media_relay/MediaRelayBundleLogic.cpp
-  l4/media_relay/AmpMediaRelayCoordinator.cpp
-  l4/media_relay/AmpMediaRelayClient.cpp
-  l4/media_relay/MediaRelayAttach.cpp
-  l4/media_relay/MediaRelayFrameCrypto.cpp
+  l4/media_relay/serve/MediaRelayAttachSm.cpp
+  l4/media_relay/serve/MediaRelayServer.cpp
+  l4/media_relay/client/MediaRelayClientCoordinator.cpp
+  l4/media_relay/client/AmpMediaRelayClient.cpp
+  l4/media_relay/client/MediaRelayAttach.cpp
+  l4/media_relay/client/MediaRelayFrameCrypto.cpp
 )
 
 set(PP_DOMAIN_MESH_L4_CALL_MEDIA_SOURCES
