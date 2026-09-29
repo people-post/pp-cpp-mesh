@@ -1,4 +1,4 @@
-#include "domain/net/PublicAddress.h"
+#include "common/net/PublicAddress.h"
 
 #include <gtest/gtest.h>
 

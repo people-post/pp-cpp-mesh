@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -153,6 +155,71 @@ TEST(DialBackServerClientTest, ProbeFiltersToObservedHostBeforeCappingTargetCoun
   ASSERT_TRUE(static_cast<bool>(probed)) << probed.error().message;
   EXPECT_TRUE(probed->ok) << probed->error;
   EXPECT_EQ(probed->dialed, harness->ma_a);
+
+  client.Stop();
+  seed.Stop();
+}
+
+pp::adp::IpEndpoint V6(std::initializer_list<uint8_t> bytes) {
+  std::array<uint8_t, 16> addr{};
+  size_t i = 0;
+  for (const uint8_t b : bytes) {
+    addr[i++] = b;
+  }
+  return pp::adp::IpEndpoint::V6(addr, 4001);
+}
+
+// Which hosts a seed dials for a requester: its own address (v4), its own /64 (v6 — a SLAAC
+// privacy source still vouches for the stable advertised address), or across families only a
+// public-routable target. Never a private / loopback / link-local third party.
+TEST(DialBackTargetAllowedTest, OwnHostOwnPrefixOrPublicAcrossFamilies) {
+  const auto observed_v4 = pp::adp::IpEndpoint::V4(198, 51, 7, 20, 40000);
+  EXPECT_TRUE(DialBackTargetAllowed(pp::adp::IpEndpoint::V4(198, 51, 7, 20, 4001), observed_v4)) << "port ignored";
+  EXPECT_FALSE(DialBackTargetAllowed(pp::adp::IpEndpoint::V4(198, 51, 7, 21, 4001), observed_v4));
+  EXPECT_FALSE(DialBackTargetAllowed(pp::adp::IpEndpoint::V4(8, 8, 8, 8, 4001), observed_v4))
+      << "another public v4 host is a third party";
+
+  const auto observed_v6 = V6({0x20, 0x01, 0x48, 0x60, 0x12, 0x34, 0x56, 0x78, 0xaa, 0xbb, 0, 0, 0, 0, 0, 1});
+  EXPECT_TRUE(DialBackTargetAllowed(V6({0x20, 0x01, 0x48, 0x60, 0x12, 0x34, 0x56, 0x78, 0, 0, 0, 0, 0, 0, 0, 9}),
+                                    observed_v6))
+      << "same /64 (privacy source vs stable address)";
+  EXPECT_FALSE(DialBackTargetAllowed(V6({0x20, 0x01, 0x48, 0x60, 0x12, 0x34, 0x56, 0x79, 0, 0, 0, 0, 0, 0, 0, 9}),
+                                     observed_v6))
+      << "another /64";
+
+  // Across families: the global v6 targets reach ranks first, while the link runs over v4.
+  EXPECT_TRUE(DialBackTargetAllowed(V6({0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0x88, 0x88}),
+                                    observed_v4));
+  EXPECT_FALSE(DialBackTargetAllowed(V6({0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}), observed_v4))
+      << "link-local";
+  EXPECT_FALSE(DialBackTargetAllowed(V6({0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}), observed_v4)) << "ULA";
+  EXPECT_FALSE(DialBackTargetAllowed(pp::adp::IpEndpoint::V4(10, 0, 0, 1, 4001), observed_v6)) << "private v4";
+  EXPECT_TRUE(DialBackTargetAllowed(pp::adp::IpEndpoint::V4(8, 8, 8, 8, 4001), observed_v6));
+}
+
+// Review regression: a client whose link to the seed runs over IPv4 still gets its global IPv6
+// target dialed (it used to be filtered out, so the client looked unreachable over IPv6).
+TEST(DialBackServerClientTest, GlobalV6TargetIsDialedOverAV4Link) {
+  auto created = pbr::test::AmpMeshHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("client", harness->ma_a)));
+
+  auto pump = [&]() { harness->PumpBoth(); };
+  DialBackServer seed(*harness->runtime_b);
+  DialBackClient client(*harness->runtime_a, pump);
+  seed.Start();
+  client.Start();
+
+  const std::string global_v6 = "/ip6/2001:4860:4860::8888/udp/9999/adp/1.0.0/p2p/" + harness->peer_id_a;
+  auto probed = client.Probe("seed", {global_v6}, 2000);
+  ASSERT_TRUE(static_cast<bool>(probed)) << probed.error().message;
+  // Nothing answers at that address in the harness, so the dial itself fails — but the seed tried
+  // it (it was not dropped by the host filter as "no target_multiaddrs").
+  EXPECT_EQ(probed->error.find("no target_multiaddrs"), std::string::npos) << probed->error;
+  EXPECT_EQ(probed->dialed, global_v6);
 
   client.Stop();
   seed.Stop();

@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstring>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -77,15 +76,6 @@ void ClearProbeInflight(InflightProbes& state, const std::string& remote_peer_id
   state.peers.erase(remote_peer_id);
 }
 
-/** True when two endpoints are the same host (port/scope ignored — NAT commonly rewrites the port). */
-bool SameHost(const pp::adp::IpEndpoint& a, const pp::adp::IpEndpoint& b) {
-  if (a.family != b.family) {
-    return false;
-  }
-  const size_t n = a.family == pp::adp::IpEndpoint::Family::V4 ? 4 : 16;
-  return std::memcmp(a.addr.data(), b.addr.data(), n) == 0;
-}
-
 /**
  * Dial the next usable target: association or its deadline, whichever settles first, then the next
  * target — the first association that lands answers the probe. Callbacks on the IO strand; nothing
@@ -106,9 +96,9 @@ void DialNextTarget(std::shared_ptr<DialTargetsWalk> walk) {
       out.dialed = ma;
       continue;
     }
-    // Only ever dial back to the requester's own observed host: otherwise any peer could turn
-    // this node into an open probe/relay against arbitrary third-party addresses.
-    if (!walk->observed_host || !SameHost(parsed_target->endpoint, *walk->observed_host)) {
+    // Only dial the requester's own host (see DialBackTargetAllowed): otherwise any peer could
+    // turn this node into an open probe/relay against arbitrary third-party addresses.
+    if (!walk->observed_host || !DialBackTargetAllowed(parsed_target->endpoint, *walk->observed_host)) {
       out.error = "target is not the requester's observed host";
       out.dialed = ma;
       continue;
@@ -180,7 +170,7 @@ struct DialBackServer::Impl {
   /**
    * B26: the seed's view of the client's Amp UDP endpoint on this association — comes from the
    * authenticated connection, not anything the peer put in the request, so it also doubles as
-   * the only host `target_multiaddrs` are allowed to name (see SameHost). IO strand only (link
+   * what decides which hosts `target_multiaddrs` may name (see DialBackTargetAllowed). IO strand only (link
    * state is IO-affine).
    */
   std::optional<pp::adp::IpEndpoint> ObservedEndpointOnIo(const std::string& remote_peer_id) {
@@ -256,7 +246,7 @@ struct DialBackServer::Impl {
           continue;
         }
         auto parsed_target = pp::amp::ParseAdpMultiaddr(*s);
-        if (!parsed_target || !observed_host || !SameHost(parsed_target->endpoint, *observed_host)) {
+        if (!parsed_target || !observed_host || !DialBackTargetAllowed(parsed_target->endpoint, *observed_host)) {
           continue;
         }
         targets.push_back(*s);
