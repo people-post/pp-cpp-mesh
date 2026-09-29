@@ -1,7 +1,7 @@
 #pragma once
 
-#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
-#include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "domain/mesh/host/MeshPorts.h"
 #include "domain/mesh/reach/MeshReachPorts.h"
 #include "foundation/runtime/DeferredSelf.h"
@@ -15,7 +15,7 @@
 namespace pbr {
 
 /**
- * ICircuitHopReach over Amp CircuitTunnelCoordinator + AmpCircuitHopRegistry ([A020]).
+ * ICircuitHopReach over Amp CircuitClientCoordinator + AmpCircuitHopRegistry ([A020]).
  * Reach for relay hops and peers (NAT) when Amp is the mesh transport entry.
  *
  * Prefer TryEnsure*Async. Product Wire passes empty io_pump + post_io when MeshPump runs
@@ -36,7 +36,7 @@ public:
       std::function<void(const std::string& introducer_peer_key, const std::string& target_peer_id,
                          std::function<void(Roe<void>)> on_done)>;
 
-  AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops, IChatPeerLinks& links,
+  AmpCircuitHopReach(CircuitClientCoordinator& circuit, AmpCircuitHopRegistry& hops, IChatPeerLinks& links,
                      IoPump io_pump, CollectRelays collect_relays, TryPunchAsync try_punch = {},
                      TryPunchViaIntroducerAsync try_punch_via_introducer = {}, IoPost post_io = {},
                      IoAfter post_after = {});
@@ -73,7 +73,7 @@ private:
   void ClearInflightTunnel(CircuitTunnelId id);
   CircuitTunnelId TakeInflightTunnel();
 
-  CircuitTunnelCoordinator& circuit_;
+  CircuitClientCoordinator& circuit_;
   AmpCircuitHopRegistry& hops_;
   IChatPeerLinks& links_;
   IoPump io_pump_;

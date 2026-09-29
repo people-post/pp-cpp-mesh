@@ -1,4 +1,4 @@
-#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 
 namespace pbr {
 

@@ -1,9 +1,9 @@
 #include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
 
 #include "common/directory/MeshHopDial.h"
-#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/CircuitRendezvousPolicy.h"
-#include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "foundation/runtime/AppRuntime.h"
 
 #include <algorithm>
@@ -220,7 +220,7 @@ void CircuitRendezvousCoordinator::WarmBootstrapSeedSessionsOnIo() {
 
 void CircuitRendezvousCoordinator::ReserveOnBootstrapSeeds() {
   MeshHost* m = mesh();
-  if (!m || !m->AmpCircuitTunnel() || !m->AmpCircuitTunnel()->IsStarted()) {
+  if (!m || !m->AmpCircuitClient() || !m->AmpCircuitClient()->IsStarted()) {
     log().warning << "circuit reserve skipped: amp circuit tunnel not started";
     return;
   }
@@ -270,7 +270,7 @@ std::vector<MeshHopCandidate> CircuitRendezvousCoordinator::OrderedParkSurface(I
 void CircuitRendezvousCoordinator::ReserveOnBootstrapSeedsOnIo() {
   MeshHost* m = mesh();
   auto chat = m ? m->ChatDeps() : std::nullopt;
-  if (!chat || !m->AmpCircuitTunnel() || !m->AmpCircuitTunnel()->IsStarted()) {
+  if (!chat || !m->AmpCircuitClient() || !m->AmpCircuitClient()->IsStarted()) {
     log().warning << "circuit reserve on-io skipped: tunnel not started";
     return;
   }
@@ -326,7 +326,7 @@ void CircuitRendezvousCoordinator::ReserveColdSurface(const std::shared_ptr<Cold
 void CircuitRendezvousCoordinator::StartReserveOnRelay(const std::string& relay, const char* label) {
   MeshHost* m = mesh();
   auto chat = m ? m->ChatDeps() : std::nullopt;
-  if (!chat || !m->AmpCircuitTunnel() || !m->AmpCircuitTunnel()->IsStarted()) {
+  if (!chat || !m->AmpCircuitClient() || !m->AmpCircuitClient()->IsStarted()) {
     return;
   }
   if (ReachableOnlyViaCarrier(chat->links, relay)) {
@@ -334,7 +334,7 @@ void CircuitRendezvousCoordinator::StartReserveOnRelay(const std::string& relay,
     return;
   }
   const std::string what = label;
-  const auto id = m->AmpCircuitTunnel()->StartReserve(
+  const auto id = m->AmpCircuitClient()->StartReserve(
       relay,
       deferred_.Bind([this, relay, what](Roe<CircuitTunnelBridgeResult> result) {
         if (!result || !result->ok) {
@@ -360,7 +360,7 @@ void CircuitRendezvousCoordinator::PreferLateReserve(const std::string& relay_pe
   }
   NoteChosenRelay(relay_peer_id);
   MeshHost* m = mesh();
-  if (!m || !m->AmpCircuitTunnel() || !m->AmpCircuitTunnel()->IsStarted() || !m->ChatDeps()) {
+  if (!m || !m->AmpCircuitClient() || !m->AmpCircuitClient()->IsStarted() || !m->ChatDeps()) {
     log().warning << "circuit late-reserve skipped: tunnel not started peer=" << relay_peer_id;
     return;
   }
@@ -370,7 +370,7 @@ void CircuitRendezvousCoordinator::PreferLateReserve(const std::string& relay_pe
 void CircuitRendezvousCoordinator::PreferLateReserveOnIo(const std::string& relay_peer_id) {
   MeshHost* m = mesh();
   auto chat = m ? m->ChatDeps() : std::nullopt;
-  if (!chat || relay_peer_id.empty() || !m->AmpCircuitTunnel() || !m->AmpCircuitTunnel()->IsStarted()) {
+  if (!chat || relay_peer_id.empty() || !m->AmpCircuitClient() || !m->AmpCircuitClient()->IsStarted()) {
     return;
   }
   // Ensure the chosen R1 has a dialable MA when the surface knows one.
@@ -512,7 +512,7 @@ void CircuitRendezvousCoordinator::FinishSeedPark(const std::shared_ptr<SeedPark
 void CircuitRendezvousCoordinator::InstallReparkListener() {
   RemoveReparkListener();
   MeshHost* m = mesh();
-  if (!m || !m->Amp() || !m->AmpCircuitTunnel() || !m->AmpCircuitTunnel()->IsStarted()) {
+  if (!m || !m->Amp() || !m->AmpCircuitClient() || !m->AmpCircuitClient()->IsStarted()) {
     return;
   }
   repark_listener_id_ = m->Amp()->Runtime().Links().AddPeerConnectedListener(
@@ -532,7 +532,7 @@ void CircuitRendezvousCoordinator::RemoveReparkListener() {
 
 void CircuitRendezvousCoordinator::OnRendezvousPeerReconnected(const std::string& peer_id) {
   MeshHost* m = mesh();
-  if (peer_id.empty() || !m || !m->AmpCircuitTunnel() || !m->AmpCircuitTunnel()->IsStarted()) {
+  if (peer_id.empty() || !m || !m->AmpCircuitClient() || !m->AmpCircuitClient()->IsStarted()) {
     return;
   }
   const auto surface = RendezvousCandidates();

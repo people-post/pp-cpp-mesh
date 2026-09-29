@@ -1,7 +1,8 @@
-#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
 #include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
-#include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
 
 #include "domain/mesh/tests/support/mesh_triple_harness.h"
 
@@ -31,8 +32,8 @@ protected:
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_b().RegisterEndpoint("relay", harness_->ma_r)));
 
     hops_ = std::make_unique<AmpCircuitHopRegistry>();
-    circuit_r_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_r);
-    circuit_a_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_a);
+    circuit_r_ = std::make_unique<CircuitRelayServer>(*harness_->runtime_r);
+    circuit_a_ = std::make_unique<CircuitClientCoordinator>(*harness_->runtime_a);
     hop_ = std::make_unique<MediaRelayServer>(*harness_->runtime_b);
     client_ = std::make_unique<MediaRelayClientCoordinator>(*harness_->runtime_a);
     client_->SetCircuitHopRegistry(hops_.get());
@@ -40,7 +41,6 @@ protected:
     circuit_r_->Start();
     circuit_r_->SetServeInbound(true);
     circuit_a_->Start();
-    circuit_a_->SetServeInbound(false);
     hop_->Start();
     hop_->SetServeInbound(true);
     client_->Start();
@@ -87,8 +87,8 @@ protected:
 
   std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness_;
   std::unique_ptr<AmpCircuitHopRegistry> hops_;
-  std::unique_ptr<CircuitTunnelCoordinator> circuit_r_;
-  std::unique_ptr<CircuitTunnelCoordinator> circuit_a_;
+  std::unique_ptr<CircuitRelayServer> circuit_r_;
+  std::unique_ptr<CircuitClientCoordinator> circuit_a_;
   std::unique_ptr<MediaRelayServer> hop_;
   std::unique_ptr<MediaRelayClientCoordinator> client_;
 };

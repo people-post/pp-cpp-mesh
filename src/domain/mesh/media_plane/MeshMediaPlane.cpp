@@ -221,7 +221,7 @@ void MeshMediaPlane::WireDialRegistry(MeshHost* m, const MeshIoContext& io) {
 }
 
 void MeshMediaPlane::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io) {
-  const bool use_amp_circuit = AmpRelayAvailable() && m->AmpCircuitTunnel() && m->AmpCircuitTunnel()->IsStarted() &&
+  const bool use_amp_circuit = AmpRelayAvailable() && m->AmpCircuitClient() && m->AmpCircuitClient()->IsStarted() &&
                                m->AmpCircuitHops();
   auto circuit = use_amp_circuit ? m->CircuitDeps() : std::nullopt;
   if (!circuit) {

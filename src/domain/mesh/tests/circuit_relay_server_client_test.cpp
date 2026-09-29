@@ -1,4 +1,5 @@
-#include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
 
 #include "domain/mesh/l4/shared/ProductChannelPolicies.h"
 #include "amp/L3/ChannelSession.h"
@@ -17,7 +18,7 @@ namespace {
 
 inline constexpr const char* kAmpBridgeTargetProtocol = "/pp-browser/circuit-relay-bridge-test/1.0.0";
 
-class CircuitTunnelCoordinatorTest : public ::testing::Test {
+class CircuitRelayServerClientTest : public ::testing::Test {
 protected:
   void SetUp() override {
     auto created = pbr::test::AmpMeshTripleHarness::Create();
@@ -30,9 +31,9 @@ protected:
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_r().RegisterEndpoint("b", harness_->ma_b)));
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_r().RegisterEndpoint(harness_->peer_id_b, harness_->ma_b)));
 
-    relay_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_r);
-    client_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_a);
-    client_b_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_b);
+    relay_ = std::make_unique<CircuitRelayServer>(*harness_->runtime_r);
+    client_ = std::make_unique<CircuitClientCoordinator>(*harness_->runtime_a);
+    client_b_ = std::make_unique<CircuitClientCoordinator>(*harness_->runtime_b);
     relay_->Start();
     client_->Start();
     client_b_->Start();
@@ -81,7 +82,7 @@ protected:
     std::atomic<bool> done{false};
     Roe<CircuitTunnelBridgeResult> result = Error("pending");
 
-    CircuitTunnelCoordinator::BridgeFinished Fn() {
+    CircuitClientCoordinator::BridgeFinished Fn() {
       return [this](Roe<CircuitTunnelBridgeResult> r) {
         result = std::move(r);
         done.store(true, std::memory_order_release);
@@ -95,16 +96,16 @@ protected:
   };
 
   std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness_;
-  std::unique_ptr<CircuitTunnelCoordinator> relay_;
-  std::unique_ptr<CircuitTunnelCoordinator> client_;
-  std::unique_ptr<CircuitTunnelCoordinator> client_b_;
+  std::unique_ptr<CircuitRelayServer> relay_;
+  std::unique_ptr<CircuitClientCoordinator> client_;
+  std::unique_ptr<CircuitClientCoordinator> client_b_;
   std::shared_ptr<pp::amp::ChannelSession> target_session_;
   std::mutex target_mu_;
   bool target_got_ = false;
   std::vector<uint8_t> target_received_;
 };
 
-TEST_F(CircuitTunnelCoordinatorTest, BridgeForwardsPayload) {
+TEST_F(CircuitRelayServerClientTest, BridgeForwardsPayload) {
   ArmTargetReader();
 
   CircuitBridgeTarget target;
@@ -133,7 +134,7 @@ TEST_F(CircuitTunnelCoordinatorTest, BridgeForwardsPayload) {
   }
 }
 
-TEST_F(CircuitTunnelCoordinatorTest, BridgeForwardsReversePayload) {
+TEST_F(CircuitRelayServerClientTest, BridgeForwardsReversePayload) {
   ArmTargetReader();
 
   std::mutex client_mu;
@@ -179,7 +180,7 @@ TEST_F(CircuitTunnelCoordinatorTest, BridgeForwardsReversePayload) {
   }
 }
 
-TEST_F(CircuitTunnelCoordinatorTest, StrangerRefusedWhenContactsOnly) {
+TEST_F(CircuitRelayServerClientTest, StrangerRefusedWhenContactsOnly) {
   CircuitRelayAdmissionPolicy policy;
   policy.prefer_contacts_only = true;
   policy.serve_scope_mask = kRelayScopeLinkSiteSocial;
@@ -199,7 +200,7 @@ TEST_F(CircuitTunnelCoordinatorTest, StrangerRefusedWhenContactsOnly) {
   EXPECT_NE(wait.result.error().message.find("stranger"), std::string::npos);
 }
 
-TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridge) {
+TEST_F(CircuitRelayServerClientTest, ReserveThenBridge) {
   ArmTargetReader();
 
   // B parks on R first (double-NAT answerer pattern).
@@ -240,7 +241,7 @@ TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridge) {
 
 // Dogfood 2026-09-24: a cold relay link idled past the 5 s ADP liveness window and was evicted
 // with the answerer's reservation ("Couldn't connect"). Held reservations keep the relay link hot.
-TEST_F(CircuitTunnelCoordinatorTest, ReserveKeepsRelayLinkHotUntilReleased) {
+TEST_F(CircuitRelayServerClientTest, ReserveKeepsRelayLinkHotUntilReleased) {
   BridgeWait reserve_wait;
   auto rid = client_b_->StartReserve("relay", reserve_wait.Fn(), 15000);
   ASSERT_TRUE(rid);
@@ -268,7 +269,7 @@ TEST_F(CircuitTunnelCoordinatorTest, ReserveKeepsRelayLinkHotUntilReleased) {
   EXPECT_TRUE(relay_link == nullptr || !relay_link->IsWarm()) << "released reservation must drop the hot tier";
 }
 
-TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridgePeerIdOnly) {
+TEST_F(CircuitRelayServerClientTest, ReserveThenBridgePeerIdOnly) {
   // Nested call-media: dialer sends peer-id-only. Relay must accept a Connected/reserved
   // target without a dial-book multiaddr (dogfood 997c1c6f).
   ArmTargetReader();
@@ -314,7 +315,7 @@ TEST_F(CircuitTunnelCoordinatorTest, ReserveThenBridgePeerIdOnly) {
   }
 }
 
-TEST_F(CircuitTunnelCoordinatorTest, AbortInflightKeepsStartedAndAllowsNewReserve) {
+TEST_F(CircuitRelayServerClientTest, AbortInflightKeepsStartedAndAllowsNewReserve) {
   // Abort Invalidates PostIo ticket only — lifetime IoTick/handler Bind must survive.
   ASSERT_TRUE(client_->IsStarted());
   client_->AbortInflight();
@@ -336,7 +337,7 @@ TEST_F(CircuitTunnelCoordinatorTest, AbortInflightKeepsStartedAndAllowsNewReserv
   EXPECT_TRUE(result->ok) << result->error;
 }
 
-TEST_F(CircuitTunnelCoordinatorTest, StopRejectsNewStartReserve) {
+TEST_F(CircuitRelayServerClientTest, StopRejectsNewStartReserve) {
   client_->Stop();
   EXPECT_FALSE(client_->IsStarted());
   std::atomic<bool> finished{false};

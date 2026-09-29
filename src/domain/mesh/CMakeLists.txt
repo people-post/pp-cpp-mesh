@@ -87,11 +87,13 @@ _pp_mesh_library(discovery
     discovery/AmpDirectoryProtocol.cpp
   DEPS dht shared)
 
+# circuit: shared wire / policy at the root; serve/ = the relay side, client/ = bridges and reserves.
 _pp_mesh_library(circuit
   SOURCES
-    l4/circuit/AmpCircuitHopRegistry.cpp
     l4/circuit/CircuitBundleLogic.cpp
-    l4/circuit/CircuitTunnelCoordinator.cpp
+    l4/circuit/serve/CircuitRelayServer.cpp
+    l4/circuit/client/CircuitClientCoordinator.cpp
+    l4/circuit/client/AmpCircuitHopRegistry.cpp
   DEPS shared)
 
 # media_relay: shared wire / decisions at the root; serve/ = the hop side, client/ = the attaching side.

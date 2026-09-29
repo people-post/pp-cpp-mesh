@@ -3,7 +3,7 @@
 #include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
 #include "domain/mesh/host/MeshPorts.h"
 #include "domain/mesh/l4/shared/L4ProtocolIds.h"
-#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 
 #include "common/Error.h"
 

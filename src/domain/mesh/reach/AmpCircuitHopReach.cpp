@@ -28,7 +28,7 @@ logging::Logger& AmpReachLog() {
 
 } // namespace
 
-AmpCircuitHopReach::AmpCircuitHopReach(CircuitTunnelCoordinator& circuit, AmpCircuitHopRegistry& hops,
+AmpCircuitHopReach::AmpCircuitHopReach(CircuitClientCoordinator& circuit, AmpCircuitHopRegistry& hops,
                                        IChatPeerLinks& links, IoPump io_pump,
                                        CollectRelays collect_relays, TryPunchAsync try_punch,
                                        TryPunchViaIntroducerAsync try_punch_via_introducer, IoPost post_io,

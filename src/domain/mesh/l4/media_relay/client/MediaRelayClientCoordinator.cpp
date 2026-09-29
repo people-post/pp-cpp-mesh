@@ -621,7 +621,7 @@ void MediaRelayClientCoordinator::AbortInflight() {
   // Sync under lock — never PostIo(raw Impl*) that can outlive Stop/TearDown.
   std::vector<QuoteFinished> quote_cbs;
   std::vector<AttachFinished> attach_cbs;
-  // Strand before mu (IO callbacks hold the strand); see CircuitTunnelCoordinator::AbortInflight.
+  // Strand before mu (IO callbacks hold the strand); see CircuitClientCoordinator::AbortInflight.
   runtime_.WithIoLock([&]() {
     std::lock_guard lock(impl_->mu);
     impl_->DetachClientLocked();

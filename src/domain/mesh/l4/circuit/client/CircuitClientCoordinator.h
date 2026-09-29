@@ -24,41 +24,33 @@ struct CircuitTunnelBridgeResult {
 };
 
 /**
- * Non-blocking `/pp-browser/circuit/1.0.0` tunnels on MeshRuntime ([A022]).
- * MeshHost always Starts the coordinator when Amp is up (outbound client). Inbound hosting
- * is gated by SetServeInbound. SoftMigrate NAT adopts the bridged ChannelSession via
- * AmpCircuitHopRegistry ([A020] / D9 step 5c).
+ * Client side of `/pp-browser/circuit/1.0.0` on MeshRuntime ([A022]): ask a relay to bridge to a
+ * target (`StartBridge`), or park on a relay so it can bridge to us without dialing into our NAT
+ * (`StartReserve`). MeshHost Starts one whenever Amp is up. SoftMigrate NAT adopts the bridged
+ * ChannelSession via AmpCircuitHopRegistry ([A020] / D9 step 5c).
  * No IoPump / nested Pump; OpenChannel + PostToIo callbacks only.
  */
-class CircuitTunnelCoordinator {
+class CircuitClientCoordinator {
 public:
   using FrameHandler = pp::amp::ChannelSession::FrameHandler;
   using ClosedCallback = pp::amp::ChannelSession::ClosedCallback;
   using BridgeFinished = std::function<void(Roe<CircuitTunnelBridgeResult>)>;
 
-  explicit CircuitTunnelCoordinator(pp::amp::MeshRuntime& runtime);
-  ~CircuitTunnelCoordinator();
+  explicit CircuitClientCoordinator(pp::amp::MeshRuntime& runtime);
+  ~CircuitClientCoordinator();
 
-  CircuitTunnelCoordinator(const CircuitTunnelCoordinator&) = delete;
-  CircuitTunnelCoordinator& operator=(const CircuitTunnelCoordinator&) = delete;
+  CircuitClientCoordinator(const CircuitClientCoordinator&) = delete;
+  CircuitClientCoordinator& operator=(const CircuitClientCoordinator&) = delete;
 
   void Start();
   void Stop();
   bool IsStarted() const;
 
-  void SetAdmissionPolicy(CircuitRelayAdmissionPolicy policy);
-
-  /** When false, inbound bridges are refused (outbound StartBridge still works). */
-  void SetServeInbound(bool serve);
-  /** K003 standby circuits served at once: relay-wide and per dialer PeerId (0 keeps the default). */
-  void SetStandbyLimits(size_t max_standby, size_t max_per_dialer);
-  bool ServeInbound() const;
-
-  /** Cancel all in-flight / bridging tunnels (Leave / shutdown). */
+  /** Cancel all in-flight / bridging tunnels and reservations (Leave / shutdown). */
   void AbortInflight();
 
   /**
-   * Client: returns tunnel id immediately; completion via `on_finished` when Bridging or error.
+   * Returns tunnel id immediately; completion via `on_finished` when Bridging or error.
    * Optional `on_payload` receives forwarded DATA after ack.
    */
   CircuitTunnelId StartBridge(const std::string& relay_peer_key, const CircuitBridgeTarget& target,
@@ -66,8 +58,8 @@ public:
                               BridgeFinished on_finished = {}, int timeout_ms = 8000);
 
   /**
-   * Client: park on relay until TTL / CancelTunnel so R can bridge to this PeerId without
-   * dialing into NAT (answerer outbound Session).
+   * Park on relay until TTL / CancelTunnel so R can bridge to this PeerId without dialing into
+   * NAT (answerer outbound Session).
    */
   CircuitTunnelId StartReserve(const std::string& relay_peer_key, BridgeFinished on_finished = {},
                                int timeout_ms = 30000);
@@ -77,7 +69,7 @@ public:
   CircuitTunnelPhase Phase(CircuitTunnelId id) const;
   bool IsTunnelActive(CircuitTunnelId id) const;
 
-  /** Bridging client session (null if not ready / relay-serve). */
+  /** Bridging session (null if not ready). */
   std::shared_ptr<pp::amp::ChannelSession> Session(CircuitTunnelId id) const;
 
 private:

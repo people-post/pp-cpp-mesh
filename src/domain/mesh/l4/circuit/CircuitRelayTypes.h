@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/directory/RelayScope.h"
+#include "domain/mesh/l4/shared/L4ProtocolIds.h"
 #include "common/PbrCompat.h"
 
 #include <memory>
@@ -13,8 +14,6 @@ class Stream;
 
 namespace pbr {
 
-inline constexpr const char* kCircuitProtocolId = "/pp-browser/circuit/1.0.0";
-inline constexpr const char* kCircuitRelayProtocolId = kCircuitProtocolId;
 
 /** Provider admission (nf / N023): scope mask + contact PeerIds. */
 struct CircuitRelayAdmissionPolicy {

@@ -557,7 +557,7 @@ void MediaRelayServer::SetAdmissionPolicy(MediaRelayAdmissionPolicy policy) {
 }
 
 void MediaRelayServer::AbortInflight() {
-  // Strand before mu (IO callbacks hold the strand); see CircuitTunnelCoordinator::AbortInflight.
+  // Strand before mu (IO callbacks hold the strand); see CircuitClientCoordinator::AbortInflight.
   runtime_.WithIoLock([&]() {
     std::lock_guard lock(impl_->mu);
     impl_->DetachLocalLocked();

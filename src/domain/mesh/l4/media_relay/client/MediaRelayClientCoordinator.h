@@ -2,7 +2,7 @@
 
 #include "amp/link/MeshRuntime.h"
 #include "common/media/CallMediaHealth.h"
-#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/media_relay/MediaRelayBundleLogic.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"

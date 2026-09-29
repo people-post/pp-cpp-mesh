@@ -3,14 +3,15 @@
 #include "foundation/data/Config.h"
 #include "amp/link/AmpStack.h"
 #include "domain/mesh/host/LocalNetworkChange.h"
-#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "domain/mesh/dht/AmpDhtProtocol.h"
 #include "domain/mesh/discovery/AmpDirectoryProtocol.h"
 #include "domain/mesh/reachability/AmpDialBackProtocol.h"
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
 #include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
-#include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
 #include "domain/mesh/host/MeshIdentityConfig.h"
 #include "domain/mesh/host/MeshPorts.h"
 #include "foundation/runtime/AppRuntime.h"
@@ -103,7 +104,10 @@ public:
   /** Set when Amp was requested but failed (Start returns error; for diagnostics). */
   const std::string& AmpLastError() const { return amp_last_error_; }
 
-  CircuitTunnelCoordinator* AmpCircuitTunnel();
+  /** circuit serving side (bridge / reserve for others); gated by host_circuit_relay. */
+  CircuitRelayServer* AmpCircuitServer();
+  /** circuit client side (our bridges and reservations on relays). */
+  CircuitClientCoordinator* AmpCircuitClient();
   /** media_relay serving side (inbound quote / attach, hosted sessions); gated by host_media_relay. */
   MediaRelayServer* AmpMediaRelayServer();
   /** media_relay client side (outbound quote / attach, the attached session). */
@@ -184,7 +188,8 @@ private:
   void ReprobeAfterNetworkChange(uint64_t gen, int attempts_left);
   std::unique_ptr<pp::amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
-  std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
+  std::unique_ptr<CircuitRelayServer> amp_circuit_server_;
+  std::unique_ptr<CircuitClientCoordinator> amp_circuit_client_;
   std::unique_ptr<MediaRelayServer> amp_media_relay_server_;
   /** Holds a pointer to the server (local hop): declared after it, so freed first. */
   std::unique_ptr<MediaRelayClientCoordinator> amp_media_relay_client_;

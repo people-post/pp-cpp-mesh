@@ -16,7 +16,7 @@ namespace pbr {
 
 /**
  * Amp analogue of PeerSessionManager circuit hop table ([A020] / D9 step 5c).
- * Maps (peer_key × target_protocol) → bridged ChannelSession from CircuitTunnelCoordinator.
+ * Maps (peer_key × target_protocol) → bridged ChannelSession from CircuitClientCoordinator.
  * OpenChannel is not used for adopted hops — L4 coordinators Bind/SetFrameHandler on the session.
  */
 class AmpCircuitHopRegistry {
