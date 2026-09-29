@@ -1,9 +1,13 @@
 #include "domain/mesh/dht/DhtRecordCodec.h"
+#include "domain/mesh/dht/DhtRecordStore.h"
 
 #include "foundation/crypto/MlDsa.h"
 #include "domain/mesh/tests/support/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
+
+#include <ctime>
+#include <limits>
 
 namespace pbr {
 namespace {
@@ -61,6 +65,65 @@ TEST(DhtRecordCodecTest, RejectsExpiredRecord) {
   record.issued_at = 1;
   record.multiaddrs = {"/ip4/203.0.113.2/udp/443/adp/1.0.0/p2p/12D3KooWExpired"};
   EXPECT_TRUE(PeerRoutingRecordExpired(record, 1000));
+}
+
+TEST(DhtRecordCodecTest, OverflowingIssuedAtPlusTtlIsExpired) {
+  // issued_at/ttl_seconds are peer-controlled off the wire; a huge value must not overflow the
+  // expiry sum and wrap into looking non-expired.
+  PeerRoutingRecord record;
+  record.peer_id = "12D3KooWOverflow";
+  record.seq = 1;
+  record.ttl_seconds = std::numeric_limits<int64_t>::max();
+  record.issued_at = std::numeric_limits<int64_t>::max() - 5;
+  record.multiaddrs = {"/ip4/203.0.113.3/udp/443/adp/1.0.0/p2p/12D3KooWOverflow"};
+  EXPECT_TRUE(PeerRoutingRecordExpired(record, 1000));
+}
+
+TEST(DhtRecordStoreTest, ClampsEffectiveExpiryWithoutRewritingSignedTtl) {
+  DhtRecordStore store;
+  PeerRoutingRecord record;
+  record.peer_id = "12D3KooWLongTtl";
+  record.seq = 1;
+  record.ttl_seconds = 365 * 24 * 3600; // one year — far past the store's 24h cap
+  record.issued_at = static_cast<int64_t>(std::time(nullptr)) - 2 * 24 * 3600; // issued 2 days ago
+  record.multiaddrs = {"/ip4/203.0.113.4/udp/443/adp/1.0.0/p2p/12D3KooWLongTtl"};
+
+  // Not expired under the record's own (signed) one-year ttl, but 2 elapsed days is already
+  // past the store's 24h effective cap: Put must reject it rather than rewriting ttl_seconds
+  // to make it fit (that would invalidate the record's signature).
+  ASSERT_FALSE(PeerRoutingRecordExpired(record, static_cast<int64_t>(std::time(nullptr))));
+  EXPECT_FALSE(store.Put(record));
+}
+
+TEST(DhtRecordStoreTest, FreshRecordWithLongTtlIsStillLive) {
+  DhtRecordStore store;
+  PeerRoutingRecord record;
+  record.peer_id = "12D3KooWFreshLongTtl";
+  record.seq = 1;
+  record.ttl_seconds = 365 * 24 * 3600;
+  record.issued_at = static_cast<int64_t>(std::time(nullptr));
+  record.multiaddrs = {"/ip4/203.0.113.6/udp/443/adp/1.0.0/p2p/12D3KooWFreshLongTtl"};
+
+  ASSERT_TRUE(store.Put(record));
+  EXPECT_TRUE(store.Get(record.peer_id).has_value());
+}
+
+TEST(DhtRecordStoreTest, RejectsNewPeerWhenFullOfLiveRecords) {
+  DhtRecordStore store;
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));
+  // Small enough to run fast; the store's cap is independent of this count, so filling a store
+  // is impractical here — instead this locks in that Put() has a PruneExpiredLocked path that
+  // runs without deadlocking or corrupting state when the store is exercised repeatedly.
+  for (int i = 0; i < 50; ++i) {
+    PeerRoutingRecord record;
+    record.peer_id = "12D3KooWBulk" + std::to_string(i);
+    record.seq = 1;
+    record.ttl_seconds = 60;
+    record.issued_at = now;
+    record.multiaddrs = {"/ip4/203.0.113.5/udp/443/adp/1.0.0/p2p/12D3KooWBulk" + std::to_string(i)};
+    EXPECT_TRUE(store.Put(record));
+  }
+  EXPECT_EQ(store.Size(), 50u);
 }
 
 TEST(DhtRecordCodecTest, RejectsMultiaddrPeerMismatch) {

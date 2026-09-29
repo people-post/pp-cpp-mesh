@@ -6,6 +6,7 @@
 #include "common/Utilities.h"
 
 #include <cstring>
+#include <limits>
 #include <string_view>
 
 namespace pbr {
@@ -149,7 +150,18 @@ bool PeerRoutingRecordExpired(const PeerRoutingRecord& record, const int64_t now
   if (record.ttl_seconds <= 0 || record.issued_at <= 0) {
     return true;
   }
-  return now_seconds > record.issued_at + record.ttl_seconds + grace_seconds;
+  // issued_at/ttl_seconds come off the wire (peer-controlled, see AmpDhtProtocol's inbound
+  // "store"); an adversarial huge value must not overflow the sum and wrap into looking
+  // non-expired — treat anything that would overflow as expired (the safe default).
+  constexpr int64_t kMax = std::numeric_limits<int64_t>::max();
+  if (record.issued_at > kMax - record.ttl_seconds) {
+    return true;
+  }
+  const int64_t expiry = record.issued_at + record.ttl_seconds;
+  if (expiry > kMax - grace_seconds) {
+    return true;
+  }
+  return now_seconds > expiry + grace_seconds;
 }
 
 MeshDirectoryNode MeshDirectoryNodeFromDhtRecord(const PeerRoutingRecord& record) {

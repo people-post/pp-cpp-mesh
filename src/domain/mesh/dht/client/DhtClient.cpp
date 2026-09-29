@@ -2,10 +2,12 @@
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
+#include "amp/link/PeerLink.h"
 #include "domain/mesh/dht/DhtRecordCodec.h"
 #include "common/Utilities.h"
 #include "domain/mesh/shared/AmpChannelOpen.h"
 
+#include <algorithm>
 #include <ctime>
 #include <optional>
 #include "common/PbrCompat.h"
@@ -14,6 +16,14 @@ namespace pbr {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+// find_peer results carry a *third-party* record (the target's, not the responder's): we only
+// know the responder's key, not the target's, so the signature cannot be verified here. Such a
+// record is never persisted to the shared store (so it is never re-served/forwarded to other
+// queriers) and its ttl_seconds is capped short. Note this only bounds the DHT store's own
+// re-serve/cache window: the caller (ConversationsHub::ApplyDhtFindPeerResult) still registers
+// the record's multiaddrs as dial endpoints regardless of ttl_seconds.
+constexpr int64_t kUnverifiedFindPeerRecordTtlCapSeconds = 300;
 
 std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
   return std::vector<uint8_t>(json_utf8.begin(), json_utf8.end());
@@ -299,7 +309,13 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
   struct State {
     std::mutex mutex;
     std::shared_ptr<std::atomic<size_t>> pending;
-    std::optional<PeerRoutingRecord> best;
+    /** Highest-seq record where the answering peer's authenticated link identity is the
+     * record's own peer_id (self-answer, verifiable trust). Tracked separately from
+     * best_third_party so a third party can't suppress a legitimate self-answer by racing it
+     * with a higher (forged) seq. */
+    std::optional<PeerRoutingRecord> best_self;
+    /** Highest-seq record from anyone else about target_peer_id — never verifiable here. */
+    std::optional<PeerRoutingRecord> best_third_party;
     Failure last_failure = Failure::Of(Err::NotFound, "find_peer not found");
     DhtClient* self = nullptr;
   };
@@ -344,8 +360,17 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
                              saw_bad = true;
                              continue;
                            }
-                           if (!state->best || parsed->seq > state->best->seq) {
-                             state->best = std::move(*parsed);
+                           const pp::amp::PeerLink* answering_link = runtime_.Links().FindLink(peer_key);
+                           const bool is_self_answer =
+                               answering_link != nullptr && answering_link->RemotePeerId() == target_peer_id;
+                           if (is_self_answer) {
+                             if (!state->best_self || parsed->seq > state->best_self->seq) {
+                               state->best_self = std::move(*parsed);
+                             }
+                           } else {
+                             if (!state->best_third_party || parsed->seq > state->best_third_party->seq) {
+                               state->best_third_party = std::move(*parsed);
+                             }
                            }
                          } else {
                            saw_bad = true;
@@ -363,11 +388,23 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
                    return;
                  }
                  std::lock_guard lock(state->mutex);
-                 if (state->best) {
-                   store_.Put(*state->best);
+                 // A verified self-answer always wins, regardless of any third-party seq: a
+                 // single malicious query peer could otherwise suppress a legitimate self-answer
+                 // by racing it with a higher forged seq for the same target.
+                 if (state->best_self) {
+                   store_.Put(*state->best_self);
                    DhtFindPeerResult result;
                    result.peer_id = target_peer_id;
-                   result.record = *state->best;
+                   result.record = *state->best_self;
+                   finish_lookup(std::move(result));
+                   return;
+                 }
+                 if (state->best_third_party) {
+                   state->best_third_party->ttl_seconds =
+                       std::min(state->best_third_party->ttl_seconds, kUnverifiedFindPeerRecordTtlCapSeconds);
+                   DhtFindPeerResult result;
+                   result.peer_id = target_peer_id;
+                   result.record = *state->best_third_party;
                    finish_lookup(std::move(result));
                    return;
                  }
