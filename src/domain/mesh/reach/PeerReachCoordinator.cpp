@@ -82,7 +82,6 @@ struct PeerReachCoordinator::Attempt {
   const std::string& Primary() const { return req.keys.front(); }
   bool IsAwait() const { return req.mode == PeerReachMode::Await; }
 
-  int64_t initial_deadline_ms = 0;
   int64_t deadline_ms = 0;
   Error last_error{"peer not connected"};
   bool circuit_started = false;
@@ -388,8 +387,7 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
              << " exclude_direct=" << (a->req.exclude_direct ? 1 : 0)
              << " has_circuit_reach=" << (circuit ? 1 : 0) << " budget_ms=" << a->dial_budget_ms;
 
-  a->initial_deadline_ms = util::NowUnixMs() + a->dial_budget_ms;
-  a->deadline_ms = a->initial_deadline_ms;
+  a->deadline_ms = util::NowUnixMs() + a->dial_budget_ms;
   // Hard deadline independent of the tick chain (dogfood af934e: EnsureAssociation never called
   // back). Covers the peer's dial overlap (V049) + circuit slack. Must not touch dial state —
   // it can fire mid-StartBridge and race PeerLinkManager::FinishDial (dogfood 091029).
@@ -697,17 +695,12 @@ void PeerReachCoordinator::OnCircuitDone(const AttemptPtr& a, Roe<void> via, con
   a->last_error = via ? Error("peer not connected after circuit/punch") : via.error();
   log().info << "circuit/punch miss peer=" << a->Primary() << " err=" << a->last_error.message
              << " via_ok=" << (via ? 1 : 0);
-  // Await, or the seed does not know the peer yet: keep the extended deadline for the peer's
-  // link to land. Otherwise fall back to the short budget.
-  const bool wait_inbound =
-      a->IsAwait() || a->last_error.message.find("not registered") != std::string::npos;
-  if (!wait_inbound) {
-    a->deadline_ms = a->initial_deadline_ms;
-    if (util::NowUnixMs() >= a->deadline_ms) {
-      Finish(a, a->last_error);
-      return;
-    }
-  }
+  // Our own circuit missed, but the peer reaches for us too (V049): its dial or circuit can still
+  // land. Wait the peer-dial overlap for it, as the awaiting side does, instead of failing on the
+  // spent dial budget (#235: the caller gave up at 15 s while the callee's relay link was coming
+  // up). The hard watchdog still caps the whole reach.
+  const int64_t peer_window_ms = a->dial_budget_ms >= kDialBudgetMs ? kPeerDialOverlapMs : a->dial_budget_ms;
+  a->deadline_ms = std::max(a->deadline_ms, util::NowUnixMs() + peer_window_ms);
   ScheduleTick(a, kPollMs);
 }
 
