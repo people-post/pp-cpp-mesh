@@ -79,19 +79,33 @@ TEST(DhtRecordCodecTest, OverflowingIssuedAtPlusTtlIsExpired) {
   EXPECT_TRUE(PeerRoutingRecordExpired(record, 1000));
 }
 
-TEST(DhtRecordStoreTest, ClampsTtlToMax) {
+TEST(DhtRecordStoreTest, ClampsEffectiveExpiryWithoutRewritingSignedTtl) {
   DhtRecordStore store;
   PeerRoutingRecord record;
   record.peer_id = "12D3KooWLongTtl";
   record.seq = 1;
-  record.ttl_seconds = 365 * 24 * 3600; // one year — far past the store's cap
-  record.issued_at = static_cast<int64_t>(std::time(nullptr));
+  record.ttl_seconds = 365 * 24 * 3600; // one year — far past the store's 24h cap
+  record.issued_at = static_cast<int64_t>(std::time(nullptr)) - 2 * 24 * 3600; // issued 2 days ago
   record.multiaddrs = {"/ip4/203.0.113.4/udp/443/adp/1.0.0/p2p/12D3KooWLongTtl"};
 
+  // Not expired under the record's own (signed) one-year ttl, but 2 elapsed days is already
+  // past the store's 24h effective cap: Put must reject it rather than rewriting ttl_seconds
+  // to make it fit (that would invalidate the record's signature).
+  ASSERT_FALSE(PeerRoutingRecordExpired(record, static_cast<int64_t>(std::time(nullptr))));
+  EXPECT_FALSE(store.Put(record));
+}
+
+TEST(DhtRecordStoreTest, FreshRecordWithLongTtlIsStillLive) {
+  DhtRecordStore store;
+  PeerRoutingRecord record;
+  record.peer_id = "12D3KooWFreshLongTtl";
+  record.seq = 1;
+  record.ttl_seconds = 365 * 24 * 3600;
+  record.issued_at = static_cast<int64_t>(std::time(nullptr));
+  record.multiaddrs = {"/ip4/203.0.113.6/udp/443/adp/1.0.0/p2p/12D3KooWFreshLongTtl"};
+
   ASSERT_TRUE(store.Put(record));
-  auto stored = store.Get(record.peer_id);
-  ASSERT_TRUE(stored.has_value());
-  EXPECT_LE(stored->ttl_seconds, 24 * 3600);
+  EXPECT_TRUE(store.Get(record.peer_id).has_value());
 }
 
 TEST(DhtRecordStoreTest, RejectsNewPeerWhenFullOfLiveRecords) {

@@ -22,12 +22,12 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-// find_peer results carry a *third-party* record (the target's, not the responder's), so we
-// cannot verify its signature here — we only know the responder's key, not the target's. Until
-// the protocol carries enough to verify that (A0xx follow-up), such records are never persisted
-// to the shared store (so they are never re-served/forwarded to other queriers) and are handed
-// to the caller with a short, forced TTL so a spoofed record only misdirects a single dial
-// attempt instead of poisoning the cache.
+// find_peer results carry a *third-party* record (the target's, not the responder's): we only
+// know the responder's key, not the target's, so the signature cannot be verified here. Such a
+// record is never persisted to the shared store (so it is never re-served/forwarded to other
+// queriers) and its ttl_seconds is capped short. Note this only bounds the DHT store's own
+// re-serve/cache window: the caller (ConversationsHub::ApplyDhtFindPeerResult) still registers
+// the record's multiaddrs as dial endpoints regardless of ttl_seconds.
 constexpr int64_t kUnverifiedFindPeerRecordTtlCapSeconds = 300;
 
 std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
@@ -525,10 +525,13 @@ void AmpDhtProtocol::FindPeer(const std::string& target_peer_id, std::function<v
   struct State {
     std::mutex mutex;
     std::shared_ptr<std::atomic<size_t>> pending;
-    std::optional<PeerRoutingRecord> best;
-    /** The peer_key whose response produced `best` — used to tell a self-answer from a
-     * third-party one (peer_key is a contact/relay alias, not necessarily target_peer_id). */
-    std::string best_from_peer_key;
+    /** Highest-seq record where the answering peer's authenticated link identity is the
+     * record's own peer_id (self-answer, verifiable trust). Tracked separately from
+     * best_third_party so a third party can't suppress a legitimate self-answer by racing it
+     * with a higher (forged) seq. */
+    std::optional<PeerRoutingRecord> best_self;
+    /** Highest-seq record from anyone else about target_peer_id — never verifiable here. */
+    std::optional<PeerRoutingRecord> best_third_party;
     Failure last_failure = Failure::Of(Err::NotFound, "find_peer not found");
     AmpDhtProtocol* self = nullptr;
   };
@@ -573,9 +576,17 @@ void AmpDhtProtocol::FindPeer(const std::string& target_peer_id, std::function<v
                              saw_bad = true;
                              continue;
                            }
-                           if (!state->best || parsed->seq > state->best->seq) {
-                             state->best = std::move(*parsed);
-                             state->best_from_peer_key = peer_key;
+                           const pp::amp::PeerLink* answering_link = impl_->Links().FindLink(peer_key);
+                           const bool is_self_answer =
+                               answering_link != nullptr && answering_link->RemotePeerId() == target_peer_id;
+                           if (is_self_answer) {
+                             if (!state->best_self || parsed->seq > state->best_self->seq) {
+                               state->best_self = std::move(*parsed);
+                             }
+                           } else {
+                             if (!state->best_third_party || parsed->seq > state->best_third_party->seq) {
+                               state->best_third_party = std::move(*parsed);
+                             }
                            }
                          } else {
                            saw_bad = true;
@@ -593,29 +604,23 @@ void AmpDhtProtocol::FindPeer(const std::string& target_peer_id, std::function<v
                    return;
                  }
                  std::lock_guard lock(state->mutex);
-                 if (state->best) {
-                   // We can only verify a record's signature against the identity of the peer
-                   // we actually hold an authenticated link with (best_from_peer_key is a
-                   // contact/relay alias, not necessarily target_peer_id — resolve it to the
-                   // link's real remote peer id) — see VerifyPeerRoutingRecord's inbound "store"
-                   // caller. A find_peer_result for a *third party* (peer_key answering about
-                   // someone else) carries a record we have no key to check, so it is never
-                   // persisted to the shared store (that would both cache it and let it be
-                   // re-served/forwarded to other queriers) and is capped to a short TTL for
-                   // this one dial attempt. Self-answers (peer_key vouching for its own record,
-                   // as confirmed by the authenticated link) keep prior warm-cache behavior.
-                   const pp::amp::PeerLink* answering_link = impl_->Links().FindLink(state->best_from_peer_key);
-                   const bool is_self_answer =
-                       answering_link != nullptr && answering_link->RemotePeerId() == target_peer_id;
-                   if (!is_self_answer) {
-                     state->best->ttl_seconds =
-                         std::min(state->best->ttl_seconds, kUnverifiedFindPeerRecordTtlCapSeconds);
-                   } else {
-                     store_.Put(*state->best);
-                   }
+                 // A verified self-answer always wins, regardless of any third-party seq: a
+                 // single malicious query peer could otherwise suppress a legitimate self-answer
+                 // by racing it with a higher forged seq for the same target.
+                 if (state->best_self) {
+                   store_.Put(*state->best_self);
                    DhtFindPeerResult result;
                    result.peer_id = target_peer_id;
-                   result.record = *state->best;
+                   result.record = *state->best_self;
+                   finish_lookup(std::move(result));
+                   return;
+                 }
+                 if (state->best_third_party) {
+                   state->best_third_party->ttl_seconds =
+                       std::min(state->best_third_party->ttl_seconds, kUnverifiedFindPeerRecordTtlCapSeconds);
+                   DhtFindPeerResult result;
+                   result.peer_id = target_peer_id;
+                   result.record = *state->best_third_party;
                    finish_lookup(std::move(result));
                    return;
                  }
