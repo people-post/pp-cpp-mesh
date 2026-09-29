@@ -97,7 +97,7 @@ TEST(DialBackServerClientTest, ProbeRejectsNonAdpTarget) {
   seed.Stop();
 }
 
-TEST(AmpDialBackProtocolTest, ProbeRejectsTargetNotMatchingObservedHost) {
+TEST(DialBackServerClientTest, ProbeRejectsTargetNotMatchingObservedHost) {
   auto created = pbr::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
@@ -106,8 +106,8 @@ TEST(AmpDialBackProtocolTest, ProbeRejectsTargetNotMatchingObservedHost) {
   ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("client", harness->ma_a)));
 
   auto pump = [&]() { harness->PumpBoth(); };
-  AmpDialBackProtocol seed(*harness->runtime_b, pump);
-  AmpDialBackProtocol client(*harness->runtime_a, pump);
+  DialBackServer seed(*harness->runtime_b);
+  DialBackClient client(*harness->runtime_a, pump);
   seed.Start();
   client.Start();
 
@@ -125,7 +125,7 @@ TEST(AmpDialBackProtocolTest, ProbeRejectsTargetNotMatchingObservedHost) {
   seed.Stop();
 }
 
-TEST(AmpDialBackProtocolTest, ProbeFiltersToObservedHostBeforeCappingTargetCount) {
+TEST(DialBackServerClientTest, ProbeFiltersToObservedHostBeforeCappingTargetCount) {
   // Regression: targets must be filtered to the requester's observed host BEFORE capping to
   // kMaxDialBackTargets (4). Capping first would let a requester pad the request with 4+
   // non-matching decoys ahead of the one real (matching) target and have that legitimate
@@ -138,8 +138,8 @@ TEST(AmpDialBackProtocolTest, ProbeFiltersToObservedHostBeforeCappingTargetCount
   ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("client", harness->ma_a)));
 
   auto pump = [&]() { harness->PumpBoth(); };
-  AmpDialBackProtocol seed(*harness->runtime_b, pump);
-  AmpDialBackProtocol client(*harness->runtime_a, pump);
+  DialBackServer seed(*harness->runtime_b);
+  DialBackClient client(*harness->runtime_a, pump);
   seed.Start();
   client.Start();
 
