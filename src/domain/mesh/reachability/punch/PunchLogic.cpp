@@ -1,4 +1,4 @@
-#include "domain/mesh/reachability/PunchLogic.h"
+#include "domain/mesh/reachability/punch/PunchLogic.h"
 
 #include "amp/link/AdpMultiaddr.h"
 #include "common/PbrCompat.h"

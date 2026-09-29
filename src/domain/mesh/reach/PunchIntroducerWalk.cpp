@@ -1,7 +1,7 @@
 #include "domain/mesh/reach/PunchIntroducerWalk.h"
 
-#include "domain/mesh/reachability/AmpPunchCoordinator.h"
-#include "domain/mesh/reachability/PunchLogic.h"
+#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "domain/mesh/reachability/punch/PunchLogic.h"
 
 #include <memory>
 #include <unordered_set>

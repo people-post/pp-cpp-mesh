@@ -8,7 +8,7 @@
 #include "domain/mesh/discovery/AmpDirectoryProtocol.h"
 #include "domain/mesh/reachability/dial_back/client/DialBackClient.h"
 #include "domain/mesh/reachability/dial_back/serve/DialBackServer.h"
-#include "domain/mesh/reachability/AmpPunchCoordinator.h"
+#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
 #include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
 #include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
 #include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"

@@ -3,8 +3,8 @@
 #include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
-#include "domain/mesh/reachability/AmpPunchCoordinator.h"
-#include "domain/mesh/reachability/PunchLogic.h"
+#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "domain/mesh/reachability/punch/PunchLogic.h"
 #include "domain/mesh/tests/support/mesh_triple_harness.h"
 
 #include <gtest/gtest.h>

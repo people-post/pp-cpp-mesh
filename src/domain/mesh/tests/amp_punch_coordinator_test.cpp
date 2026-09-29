@@ -1,6 +1,6 @@
-#include "domain/mesh/reachability/AmpPunchCoordinator.h"
-#include "domain/mesh/reachability/PunchLogic.h"
-#include "domain/mesh/reachability/PunchTypes.h"
+#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "domain/mesh/reachability/punch/PunchLogic.h"
+#include "domain/mesh/reachability/punch/PunchTypes.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/link/PeerLink.h"

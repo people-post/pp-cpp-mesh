@@ -1,4 +1,4 @@
-#include "domain/mesh/reachability/PunchBurst.h"
+#include "domain/mesh/reachability/punch/PunchBurst.h"
 
 namespace pbr {
 

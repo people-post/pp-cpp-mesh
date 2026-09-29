@@ -1,7 +1,7 @@
 #pragma once
 
 #include "amp/link/PeerLinkManager.h"
-#include "domain/mesh/reachability/PunchTypes.h"
+#include "domain/mesh/reachability/punch/PunchTypes.h"
 #include "common/ValueJson.h"
 
 #include <functional>

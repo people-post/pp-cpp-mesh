@@ -2,7 +2,7 @@
 
 #include "domain/mesh/l4/media_relay/client/AmpMediaRelayClient.h"
 #include "domain/mesh/reach/AmpCircuitHopReach.h"
-#include "domain/mesh/reachability/AmpPunchCoordinator.h"
+#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
 #include "domain/mesh/reachability/Reachability.h"
 #include "foundation/runtime/AppRuntime.h"
 

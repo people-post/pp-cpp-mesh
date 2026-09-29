@@ -4,7 +4,7 @@
 #include "domain/mesh/host/AmpLinkConfig.h"
 #include "domain/mesh/host/MeshLinkEventLog.h"
 #include "domain/mesh/reachability/dial_back/DialBackTypes.h"
-#include "domain/mesh/reachability/PunchTypes.h"
+#include "domain/mesh/reachability/punch/PunchTypes.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"

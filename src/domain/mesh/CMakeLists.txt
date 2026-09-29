@@ -46,9 +46,11 @@ set(_pp_mesh_reachability_sources
   reachability/dial_back/serve/DialBackServer.cpp
   reachability/dial_back/client/DialBackClient.cpp
   reachability/AmpObservedAddrs.cpp
-  reachability/PunchLogic.cpp
-  reachability/PunchBurst.cpp
-  reachability/AmpPunchCoordinator.cpp
+  reachability/punch/PunchLogic.cpp
+  reachability/punch/PunchBurst.cpp
+  reachability/punch/PunchLinkOps.cpp
+  reachability/punch/serve/PunchServer.cpp
+  reachability/punch/client/PunchClientCoordinator.cpp
   reachability/MobileEphemeralListenGate.cpp)
 if(WIN32)
   list(APPEND _pp_mesh_reachability_sources
