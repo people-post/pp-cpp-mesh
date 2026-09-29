@@ -1,7 +1,7 @@
 #pragma once
 
 #include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
-#include "domain/mesh/reachability/MeshReachPorts.h"
+#include "domain/mesh/reach/MeshReachPorts.h"
 
 #include "common/Module.h"
 

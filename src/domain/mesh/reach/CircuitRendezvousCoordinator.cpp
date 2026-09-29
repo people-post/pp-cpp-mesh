@@ -1,4 +1,4 @@
-#include "domain/mesh/reachability/CircuitRendezvousCoordinator.h"
+#include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
 
 #include "common/directory/MeshHopDial.h"
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"

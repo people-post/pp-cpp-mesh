@@ -3,6 +3,7 @@
 #include "foundation/data/Config.h"
 #include "common/directory/RelayScope.h"
 #include "common/Error.h"
+#include "domain/mesh/l4/shared/L4ProtocolIds.h"
 #include "common/PbrCompat.h"
 
 #include <cstdint>
@@ -12,8 +13,6 @@
 
 namespace pbr {
 
-inline constexpr const char* kDatagramRelayProtocolId = "/pp-browser/datagram-relay/1.0.0";
-inline constexpr const char* kMediaRelayProtocolId = kDatagramRelayProtocolId;
 
 /** V032 host load limits (also documented in HOST_RECEIVE_POLICY). */
 inline constexpr size_t kMediaRelayMaxHostSessions = 4;

@@ -1,7 +1,7 @@
 #include "domain/mesh/media_plane/MeshMediaPlane.h"
 
 #include "domain/mesh/l4/media_relay/client/AmpMediaRelayClient.h"
-#include "domain/mesh/reachability/AmpCircuitHopReach.h"
+#include "domain/mesh/reach/AmpCircuitHopReach.h"
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/reachability/Reachability.h"
 #include "foundation/runtime/AppRuntime.h"

@@ -5,10 +5,10 @@
 #include "common/directory/MeshHopTypes.h"
 #include "domain/mesh/host/MeshHost.h"
 #include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
-#include "domain/mesh/l4/media_relay/client/MediaRelayAttach.h"
-#include "domain/mesh/reachability/CircuitRendezvousCoordinator.h"
-#include "domain/mesh/reachability/MeshReachPorts.h"
-#include "domain/mesh/reachability/PunchIntroducerWalk.h"
+#include "domain/mesh/media_plane/MediaRelayAttach.h"
+#include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
+#include "domain/mesh/reach/MeshReachPorts.h"
+#include "domain/mesh/reach/PunchIntroducerWalk.h"
 #include "foundation/runtime/DeferredSelf.h"
 
 #include <atomic>

@@ -1,4 +1,4 @@
-#include "domain/mesh/reachability/PunchIntroducerWalk.h"
+#include "domain/mesh/reach/PunchIntroducerWalk.h"
 
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/reachability/PunchLogic.h"

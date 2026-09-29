@@ -2,7 +2,7 @@
 
 #include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
-#include "domain/mesh/reachability/MeshReachPorts.h"
+#include "domain/mesh/reach/MeshReachPorts.h"
 #include "foundation/runtime/DeferredSelf.h"
 
 #include "common/Error.h"

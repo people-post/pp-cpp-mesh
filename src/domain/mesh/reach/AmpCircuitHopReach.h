@@ -3,7 +3,7 @@
 #include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
 #include "domain/mesh/host/MeshPorts.h"
-#include "domain/mesh/reachability/MeshReachPorts.h"
+#include "domain/mesh/reach/MeshReachPorts.h"
 #include "foundation/runtime/DeferredSelf.h"
 
 #include <atomic>

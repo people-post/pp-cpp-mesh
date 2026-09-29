@@ -1,6 +1,6 @@
-#include "domain/mesh/reachability/PeerReachCoordinator.h"
+#include "domain/mesh/reach/PeerReachCoordinator.h"
 
-#include "domain/mesh/reachability/MeshReachPorts.h"
+#include "domain/mesh/reach/MeshReachPorts.h"
 #include "foundation/runtime/AppRuntime.h"
 
 #include <atomic>

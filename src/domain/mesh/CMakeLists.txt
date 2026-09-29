@@ -21,10 +21,10 @@ set(PP_DOMAIN_MESH_REACHABILITY_SOURCES
   reachability/PunchBurst.cpp
   reachability/AmpPunchCoordinator.cpp
   reachability/MobileEphemeralListenGate.cpp
-  reachability/AmpCircuitHopReach.cpp
-  reachability/PeerReachCoordinator.cpp
-  reachability/PunchIntroducerWalk.cpp
-  reachability/CircuitRendezvousCoordinator.cpp
+  reach/AmpCircuitHopReach.cpp
+  reach/PeerReachCoordinator.cpp
+  reach/PunchIntroducerWalk.cpp
+  reach/CircuitRendezvousCoordinator.cpp
 )
 
 set(PP_DOMAIN_MESH_DISCOVERY_SOURCES
@@ -49,6 +49,7 @@ set(PP_DOMAIN_MESH_L4_CIRCUIT_SOURCES
 
 # media_relay: shared wire / decisions at the root; serve/ = the hop side, client/ = the attaching side.
 set(PP_DOMAIN_MESH_L4_MEDIA_RELAY_SOURCES
+  l4/shared/MediaFrameBody.cpp
   l4/media_relay/MediaRelayFrames.cpp
   l4/media_relay/MediaRelayLogic.cpp
   l4/media_relay/MediaRelayBundleLogic.cpp
@@ -56,7 +57,6 @@ set(PP_DOMAIN_MESH_L4_MEDIA_RELAY_SOURCES
   l4/media_relay/serve/MediaRelayServer.cpp
   l4/media_relay/client/MediaRelayClientCoordinator.cpp
   l4/media_relay/client/AmpMediaRelayClient.cpp
-  l4/media_relay/client/MediaRelayAttach.cpp
   l4/media_relay/client/MediaRelayFrameCrypto.cpp
 )
 
@@ -70,6 +70,7 @@ set(PP_DOMAIN_MESH_L4_CALL_MEDIA_SOURCES
 
 set(PP_DOMAIN_MESH_MEDIA_PLANE_SOURCES
   media_plane/MeshMediaPlane.cpp
+  media_plane/MediaRelayAttach.cpp
 )
 
 if(WIN32)
