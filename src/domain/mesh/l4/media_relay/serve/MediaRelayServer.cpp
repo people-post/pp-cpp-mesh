@@ -648,7 +648,11 @@ bool MediaRelayServer::SendLocal(const MediaDataFrame& frame) {
     session = impl_->local_session_;
     from_peer = impl_->local_peer_id_;
   }
-  impl_->Fanout(session, from_peer, frame, EncodeMediaDataFrame(frame));
+  // The local participant's sender is the capture thread: enqueue onto the other participants'
+  // channels under the runtime io lock (io-affine sessions; see CallMediaLegCoordinator::SendMedia).
+  // Io lock → `mu` (Fanout locks it) is the io tick's order.
+  const std::vector<uint8_t> body = EncodeMediaDataFrame(frame);
+  runtime_.WithIoLock([&]() { impl_->Fanout(session, from_peer, frame, body); });
   return true;
 }
 
