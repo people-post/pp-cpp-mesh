@@ -310,6 +310,29 @@ TEST_F(PeerReachCoordinatorTest, ExcludeDirectForcesCircuit) {
   EXPECT_FALSE((*out->result)->reused_link);
 }
 
+// #235: the reacher's own circuit missed, then the peer's relay link landed. The reacher waits the
+// peer-dial overlap for it (as the awaiting side does) instead of failing on its spent dial budget.
+TEST_F(PeerReachCoordinatorTest, ReachWaitsForThePeersLinkAfterItsCircuitMisses) {
+  dial_->endpoints[kPeer] = kPublicMa;
+  circuit_->connects = false;
+  auto out = Run(Request(PeerReachMode::Reach));
+  std::thread peer([this, out] {
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (circuit_->calls.load() == 0 && std::chrono::steady_clock::now() < until) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    // Inside the fixture's shortened peer window (300 ms; production waits kPeerDialOverlapMs).
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    dial_->Connect(kPeer, /*carrier=*/true, /*hop=*/true);
+  });
+  const bool done = WaitDone(out, std::chrono::seconds(10));
+  peer.join();
+  ASSERT_TRUE(done);
+  ASSERT_TRUE(*out->result) << "gave up at the circuit miss: " << out->result->error().message;
+  EXPECT_EQ((*out->result)->kind, PeerLinkKind::Relayed);
+  EXPECT_EQ(circuit_->calls.load(), 1);
+}
+
 TEST_F(PeerReachCoordinatorTest, UnreachablePeerFailsWithLastError) {
   dial_->endpoints[kPeer] = kPublicMa;
   circuit_->connects = false;

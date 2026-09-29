@@ -1,6 +1,7 @@
 #include "domain/mesh/reachability/punch/PunchLogic.h"
 
 #include "amp/link/AdpMultiaddr.h"
+#include "domain/mesh/reachability/AmpObservedAddrs.h"
 #include "common/PbrCompat.h"
 
 #include <unordered_set>
@@ -133,7 +134,7 @@ std::optional<PunchSync> DecodePunchSync(const Object& root) {
   }
   PunchSync msg;
   msg.epoch_id = root.getString("epoch_id").value_or("");
-  msg.peer_addrs = SanitizePunchAddrs(ReadAddrs(root, "peer_addrs"));
+  msg.peer_addrs = DialablePunchAddrs(ReadAddrs(root, "peer_addrs"));  // burst + registered as endpoints
   msg.window_ms = static_cast<int>(root.getNonNegInt("window_ms").value_or(2000));
   if (msg.epoch_id.empty()) {
     return std::nullopt;
@@ -177,6 +178,19 @@ std::vector<std::string> SanitizePunchAddrs(const std::vector<std::string>& addr
   return out;
 }
 
+std::vector<std::string> DialablePunchAddrs(const std::vector<std::string>& addrs, const size_t max_addrs) {
+  // A stale USB-tether 169.254 address was burst-dialed and registered as a dial candidate (#235).
+  // Same rule as the listen addrs the product publishes.
+  std::vector<std::string> usable;
+  usable.reserve(addrs.size());
+  for (const std::string& ma : addrs) {
+    if (IsUsableAdpListen(ma)) {
+      usable.push_back(ma);
+    }
+  }
+  return SanitizePunchAddrs(usable, max_addrs);
+}
+
 std::vector<std::string> WithObservedPunchAddr(const std::optional<std::string>& observed,
                                                const std::vector<std::string>& addrs) {
   std::vector<std::string> merged;
@@ -185,7 +199,7 @@ std::vector<std::string> WithObservedPunchAddr(const std::optional<std::string>&
     merged.push_back(*observed);
   }
   merged.insert(merged.end(), addrs.begin(), addrs.end());
-  return SanitizePunchAddrs(merged);
+  return DialablePunchAddrs(merged);
 }
 
 bool PunchWindowOpen(int64_t start_ms, int window_ms, int64_t now_ms) {
