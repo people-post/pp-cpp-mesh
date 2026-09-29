@@ -89,7 +89,13 @@ TEST(AmpIpv6DialTest, EnsureAssociationOverMemoryIoIpv6) {
   bob.ml_dsa_secret_key = std::move(bob_keys->secret_key);
   bob.ml_dsa_public_key = std::move(bob_keys->public_key);
 
-  pp::amp::PeerLinkManager mgr_a(*ep_a, alice, "QmAlice6");
+  // pp-cpp-amp >= v2.8.0 fails an outbound dial whose authenticated identity is not the dialed
+  // PeerId; map the fixture's fixed label to bob's real key (same fix as amp's MeshLinkTest).
+  pp::amp::PeerLinkConfig config_a;
+  config_a.peer_id_from_identity = [bob_pub = bob.ml_dsa_public_key](const pp::ByteVector& pk) -> std::string {
+    return pk == bob_pub ? "QmBob6" : pp::amp::IdentityPublicKeyFingerprint(pk);
+  };
+  pp::amp::PeerLinkManager mgr_a(*ep_a, alice, "QmAlice6", config_a);
   pp::amp::PeerLinkManager mgr_b(*ep_b, bob, "QmBob6");
   pp::amp::MeshPump pump_a(*ep_a, mgr_a);
   pp::amp::MeshPump pump_b(*ep_b, mgr_b);

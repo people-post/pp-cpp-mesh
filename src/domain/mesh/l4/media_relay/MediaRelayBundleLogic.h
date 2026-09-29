@@ -3,8 +3,12 @@
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "common/directory/RelayScope.h"
 
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace pbr {
@@ -101,5 +105,43 @@ bool MediaRelayBundlePhaseIsActive(MediaRelayBundlePhase phase);
 /** Default volunteer quote (parity with MediaRelayRuntime::BuildQuote defaults). */
 MediaRelayQuote BuildDefaultMediaRelayQuote(const MediaRelayQuoteRequest& req, double rate = 0.0,
                                             const std::string& mode = "volunteer");
+
+/**
+ * Host: quotes issued and not yet accepted. The accept may arrive on another channel (a direct
+ * quote channel is one-shot), so a quote cannot die with its channel — it expires after `ttl`
+ * instead, and the book is capped. Without this a quote nobody accepted stayed until the service
+ * stopped (V050 invitees quote hops while ringing and never accept those quotes).
+ */
+class MediaRelayQuoteBook {
+public:
+  using Clock = std::chrono::steady_clock;
+  static constexpr std::chrono::seconds kDefaultTtl{60};
+  static constexpr size_t kDefaultCapacity = 4096;
+
+  struct Entry {
+    MediaRelayQuote quote;
+    std::string call_id;
+    Clock::time_point issued_at;
+  };
+
+  explicit MediaRelayQuoteBook(std::chrono::milliseconds ttl = kDefaultTtl, size_t capacity = kDefaultCapacity)
+      : ttl_(ttl), capacity_(capacity) {}
+
+  /** Record an issued quote (expired entries are dropped first). False when still full: refuse the quote. */
+  bool Add(const MediaRelayQuote& quote, const std::string& call_id, Clock::time_point now);
+  /** Remove and return the quote for an accept; nullopt when unknown or expired. */
+  std::optional<Entry> Take(const std::string& quote_id, Clock::time_point now);
+  /** Drop expired quotes (host tick). */
+  void Expire(Clock::time_point now);
+  void Clear() { entries_.clear(); }
+  size_t size() const { return entries_.size(); }
+
+private:
+  bool Expired(const Entry& entry, Clock::time_point now) const { return now - entry.issued_at >= ttl_; }
+
+  std::chrono::milliseconds ttl_;
+  size_t capacity_;
+  std::unordered_map<std::string, Entry> entries_;
+};
 
 } // namespace pbr

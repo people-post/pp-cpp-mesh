@@ -107,4 +107,33 @@ MediaRelayQuote BuildDefaultMediaRelayQuote(const MediaRelayQuoteRequest& req, c
   return q;
 }
 
+bool MediaRelayQuoteBook::Add(const MediaRelayQuote& quote, const std::string& call_id, Clock::time_point now) {
+  Expire(now);
+  if (entries_.size() >= capacity_) {
+    return false;
+  }
+  entries_[quote.quote_id] = Entry{quote, call_id, now};
+  return true;
+}
+
+std::optional<MediaRelayQuoteBook::Entry> MediaRelayQuoteBook::Take(const std::string& quote_id, Clock::time_point now) {
+  auto it = entries_.find(quote_id);
+  if (it == entries_.end()) {
+    return std::nullopt;
+  }
+  Entry entry = std::move(it->second);
+  entries_.erase(it);
+  if (Expired(entry, now)) {
+    return std::nullopt;
+  }
+  return entry;
+}
+
+void MediaRelayQuoteBook::Expire(Clock::time_point now) {
+  for (auto it = entries_.begin(); it != entries_.end();) {
+    it = Expired(it->second, now) ? entries_.erase(it) : std::next(it);
+  }
+}
+
 } // namespace pbr
+
