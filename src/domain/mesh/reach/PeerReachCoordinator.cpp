@@ -501,8 +501,12 @@ bool PeerReachCoordinator::MaybeParkBeforePrivateDial(const AttemptPtr& a) {
 }
 
 bool PeerReachCoordinator::MaybeStartAssociation(const AttemptPtr& a) {
-  const bool wait_for_circuit = a->req.exclude_direct && !a->circuit_started && !AnyCircuitHop(*a);
-  if (a->assoc_started || wait_for_circuit || !AnyDialable(*a)) {
+  // exclude_direct wants a relayed link: a direct dial can only land the link it excludes (it used
+  // to "succeed" on the call's own direct link once the circuit missed — hard-lab flip).
+  if (a->req.exclude_direct) {
+    return false;
+  }
+  if (a->assoc_started || !AnyDialable(*a)) {
     return false;
   }
   const bool circuit = circuit_.load(std::memory_order_acquire) != nullptr;
@@ -695,6 +699,11 @@ void PeerReachCoordinator::OnCircuitDone(const AttemptPtr& a, Roe<void> via, con
   a->last_error = via ? Error("peer not connected after circuit/punch") : via.error();
   log().info << "circuit/punch miss peer=" << a->Primary() << " err=" << a->last_error.message
              << " via_ok=" << (via ? 1 : 0);
+  // A relay-only reach (standby / TX-only escalation) is ours alone: nobody else builds that circuit.
+  if (a->req.exclude_direct) {
+    Finish(a, a->last_error);
+    return;
+  }
   // Our own circuit missed, but the peer reaches for us too (V049): its dial or circuit can still
   // land. Wait the peer-dial overlap for it, as the awaiting side does, instead of failing on the
   // spent dial budget (#235: the caller gave up at 15 s while the callee's relay link was coming
