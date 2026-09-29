@@ -338,7 +338,7 @@ struct MediaRelayServer::Impl {
     req.want_down_bps = root.getIf<int64_t>("want_down_bps").value_or(0);
     sm.call_id = req.session_id;
     auto q = BuildDefaultMediaRelayQuote(req);
-    if (!quotes.Add(q, req.session_id, Clock::now())) {
+    if (!quotes.Add(q, req.session_id, sm.remote, Clock::now())) {
       Reject(channel, sm, "media-relay busy", MediaRelayAttachEvent::AdmitFail);
       return false;
     }
@@ -368,11 +368,13 @@ struct MediaRelayServer::Impl {
       return false;
     }
     const std::string quote_id = root.getString("quote_id").value_or("");
-    auto pending = quotes.Take(quote_id, Clock::now());
+    const auto now = Clock::now();
+    const MediaRelayQuoteBook::Entry* pending = quotes.Find(quote_id, now);
     if (!pending) {
       Reject(channel, sm, "unknown quote", MediaRelayAttachEvent::AttachFail);
       return false;
     }
+    // Admit before consuming: a refused accept leaves the quote for a retry to be refused the same way.
     admit.call_id = pending->call_id;
     admit.session_exists_for_call = hosts_by_call.contains(admit.call_id);
     if (DecideMediaRelayOpAdmit(admit) != MediaRelayOpAdmitDecision::Allow) {
@@ -380,6 +382,7 @@ struct MediaRelayServer::Impl {
       return false;
     }
     sm.call_id = pending->call_id;
+    quotes.Take(quote_id, now);
     sm.accepted_quote_id = quote_id;
     sm.session_token = MakeSessionToken();
     Object accept_resp;
