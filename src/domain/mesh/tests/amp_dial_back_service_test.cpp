@@ -83,11 +83,14 @@ TEST(AmpDialBackProtocolTest, ProbeRejectsNonAdpTarget) {
   seed.Start();
   client.Start();
 
+  // ServeProbe filters to ADP targets on the requester's observed host before dialing anything
+  // (see ProbeFiltersToObservedHostBeforeCappingTargetCount), so a non-ADP target never reaches
+  // the dial walk at all; the filtered set is empty and the probe reports it as such.
   const std::string bad = "/ip4/203.0.113.1/tcp/39999/p2p/" + harness->peer_id_a;
   auto probed = client.Probe("seed", {bad}, 2000);
   ASSERT_TRUE(static_cast<bool>(probed)) << probed.error().message;
   EXPECT_FALSE(probed->ok);
-  EXPECT_NE(probed->error.find("ADP"), std::string::npos);
+  EXPECT_NE(probed->error.find("no target_multiaddrs"), std::string::npos) << probed->error;
 
   client.Stop();
   seed.Stop();
@@ -109,11 +112,46 @@ TEST(AmpDialBackProtocolTest, ProbeRejectsTargetNotMatchingObservedHost) {
 
   // A well-formed ADP target whose host is not the client's own observed connection: the seed
   // must not become an open "dial anywhere for anyone" relay for an arbitrary third party.
+  // ServeProbe drops it during host filtering (before it ever reaches the dial walk), so the
+  // filtered set is empty and the probe reports it as such (see ProbeFiltersToObservedHost...).
   const std::string third_party = "/ip4/203.0.113.9/udp/9999/adp/1.0.0/p2p/" + harness->peer_id_a;
   auto probed = client.Probe("seed", {third_party}, 2000);
   ASSERT_TRUE(static_cast<bool>(probed)) << probed.error().message;
   EXPECT_FALSE(probed->ok);
-  EXPECT_NE(probed->error.find("observed host"), std::string::npos) << probed->error;
+  EXPECT_NE(probed->error.find("no target_multiaddrs"), std::string::npos) << probed->error;
+
+  client.Stop();
+  seed.Stop();
+}
+
+TEST(AmpDialBackProtocolTest, ProbeFiltersToObservedHostBeforeCappingTargetCount) {
+  // Regression: targets must be filtered to the requester's observed host BEFORE capping to
+  // kMaxDialBackTargets (4). Capping first would let a requester pad the request with 4+
+  // non-matching decoys ahead of the one real (matching) target and have that legitimate
+  // target dropped before the host filter ever saw it.
+  auto created = pbr::test::AmpMeshHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("client", harness->ma_a)));
+
+  auto pump = [&]() { harness->PumpBoth(); };
+  AmpDialBackProtocol seed(*harness->runtime_b, pump);
+  AmpDialBackProtocol client(*harness->runtime_a, pump);
+  seed.Start();
+  client.Start();
+
+  std::vector<std::string> targets;
+  for (int i = 0; i < 4; ++i) {
+    targets.push_back("/ip4/203.0.113." + std::to_string(9 + i) + "/udp/9999/adp/1.0.0/p2p/" + harness->peer_id_a);
+  }
+  targets.push_back(harness->ma_a); // the one target that matches the client's observed host
+
+  auto probed = client.Probe("seed", targets, 8000);
+  ASSERT_TRUE(static_cast<bool>(probed)) << probed.error().message;
+  EXPECT_TRUE(probed->ok) << probed->error;
+  EXPECT_EQ(probed->dialed, harness->ma_a);
 
   client.Stop();
   seed.Stop();
