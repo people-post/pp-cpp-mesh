@@ -48,7 +48,7 @@ void PunchClientCoordinator::TrySignalingPunchBurstAsync(const std::vector<std::
     on_done(PunchRoe::error(Failure::Of(Err::NotStarted, "punch: not started")));
     return;
   }
-  const auto sanitized = SanitizePunchAddrs(peer_addrs);
+  const auto sanitized = DialablePunchAddrs(peer_addrs);
   if (sanitized.empty()) {
     on_done(PunchRoe::error(Failure::Of(Err::InvalidRequest, "punch: no peer candidates")));
     return;

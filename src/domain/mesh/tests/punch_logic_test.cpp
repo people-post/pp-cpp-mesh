@@ -44,18 +44,24 @@ TEST(PunchLogicTest, SanitizeDropsNonAdpAndCaps) {
 }
 
 // #235: a peer's link-local / loopback / unspecified candidates are never dialable from here.
-TEST(PunchLogicTest, SanitizeDropsUndialableHosts) {
+TEST(PunchLogicTest, DialableDropsUndialableHosts) {
   const std::string lan = "/ip4/192.168.1.20/udp/9/adp/1.0.0/p2p/12D3KooWA";
   const std::string global_v6 = "/ip6/2001:db8::20/udp/9/adp/1.0.0/p2p/12D3KooWA";
-  const auto out = SanitizePunchAddrs({
+  const std::string wildcard = "/ip4/0.0.0.0/udp/9/adp/1.0.0/p2p/12D3KooWA";
+  const std::vector<std::string> in = {
       "/ip4/169.254.132.227/udp/9/adp/1.0.0/p2p/12D3KooWA",
       "/ip6/fe80::1/udp/9/adp/1.0.0/p2p/12D3KooWA",
       "/ip4/127.0.0.1/udp/9/adp/1.0.0/p2p/12D3KooWA",
-      "/ip4/0.0.0.0/udp/9/adp/1.0.0/p2p/12D3KooWA",
+      wildcard,
       lan,
       global_v6,
-  });
-  EXPECT_EQ(out, (std::vector<std::string>{lan, global_v6}));
+  };
+  EXPECT_EQ(DialablePunchAddrs(in), (std::vector<std::string>{lan, global_v6}));
+  // The sync list the introducer builds leads with what it observes; a wildcard self-report is fine.
+  const std::string observed = "/ip4/198.51.100.7/udp/4242/adp/1.0.0/p2p/12D3KooWA";
+  EXPECT_EQ(WithObservedPunchAddr(observed, {wildcard}), (std::vector<std::string>{observed}));
+  // Wire hygiene alone keeps a wildcard self-report: the introducer supplies the real address.
+  EXPECT_EQ(SanitizePunchAddrs({wildcard}), (std::vector<std::string>{wildcard}));
 }
 
 TEST(PunchLogicTest, WindowOpenBounds) {

@@ -27,9 +27,15 @@ std::optional<PunchCandidates> DecodePunchCandidates(const Object& root);
 std::optional<PunchSync> DecodePunchSync(const Object& root);
 std::optional<PunchResult> DecodePunchResult(const Object& root);
 
-/** Keep only ADP multiaddrs; cap list length. */
-/** Parsed, dialable (see IsUsableAdpListen), de-duplicated and capped punch candidates. */
+/** Keep only ADP multiaddrs (de-duplicated); cap list length. */
 std::vector<std::string> SanitizePunchAddrs(const std::vector<std::string>& addrs, size_t max_addrs = 8);
+
+/**
+ * The candidates worth dialing: SanitizePunchAddrs minus hosts no peer can reach (IsUsableAdpListen —
+ * unspecified, loopback, link-local). For burst / endpoint lists only; a self-report may still carry
+ * a wildcard host, since the introducer leads the sync list with the address it observes (#235).
+ */
+std::vector<std::string> DialablePunchAddrs(const std::vector<std::string>& addrs, size_t max_addrs = 8);
 
 /**
  * Introducer side: a peer's candidates, led by the endpoint the introducer itself sees for it (its
