@@ -141,6 +141,7 @@ _pp_mesh_library(reach
     reach/AmpCircuitHopReach.cpp
     reach/PeerReachCoordinator.cpp
     reach/PunchIntroducerWalk.cpp
+    reach/SignalingPunchExchange.cpp
     reach/CircuitRendezvousCoordinator.cpp
   DEPS host reachability circuit shared)
 
