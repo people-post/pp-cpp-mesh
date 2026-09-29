@@ -82,6 +82,7 @@ void MeshMediaPlane::Wire() {
       // Exclusive Amp Drive: io_pump is empty; MeshPump (or a harness Tick loop) progresses Amp.
       io = chat->io;
     }
+    objects_.Invalidate();  // rewire replaces the objects earlier ports point at
     wired_ = true;
     RefreshHopPolicyOnOwner();
     ArmHopPolicyRefresh();
@@ -280,6 +281,8 @@ MediaRelayAttachPorts MeshMediaPlane::RelayAttachPorts() const {
   ports.relay = RelayClient();
   ports.dial = Dial();
   ports.service_reach = CircuitReach();
+  ports.objects_alive = objects_.token();
+  ports.objects_snap = objects_.Snapshot();
   return ports;
 }
 
@@ -295,17 +298,20 @@ void MeshMediaPlane::InvalidateAsyncOps() {
       amp->SetOnRelayChosen({});
     }
     deferred_.Invalidate();
+    objects_.Invalidate();  // mesh stop: in-flight attaches/probes must not reach the objects after reset
   });
 }
 
 void MeshMediaPlane::ResetRelayClient() {
   AppRuntime::RunAndWait(kOwner, [&]() {
+    objects_.Invalidate();
     media_relay_client_.reset();
   });
 }
 
 void MeshMediaPlane::ResetRelayClients() {
   AppRuntime::RunAndWait(kOwner, [&]() {
+    objects_.Invalidate();
     media_relay_client_.reset();
     dial_registry_.reset();
   });
@@ -313,6 +319,7 @@ void MeshMediaPlane::ResetRelayClients() {
 
 void MeshMediaPlane::ResetAfterMeshStop() {
   AppRuntime::RunAndWait(kOwner, [&]() {
+    objects_.Invalidate();
     media_relay_client_.reset();
     dial_registry_.reset();
     circuit_hop_reach_.reset();

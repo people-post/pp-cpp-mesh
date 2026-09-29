@@ -28,8 +28,16 @@ void PostOffIo(std::function<void()> task) {
   }
 }
 
+Error PortsGoneError() {
+  return Error("mesh media stopped");
+}
+
 void QuoteThenAttach(MediaRelayAttachPorts ports, MediaRelayAttachRequest request, MediaRelayAttachHooks hooks,
                      std::function<void(Roe<MediaRelayAttached>)> on_done) {
+  if (!ports.Live()) {
+    on_done(PortsGoneError());
+    return;
+  }
   if (!ports.dial->IsDialable(request.hop_peer_id)) {
     on_done(Error("hop not dialable"));
     return;
@@ -54,6 +62,10 @@ void QuoteThenAttach(MediaRelayAttachPorts ports, MediaRelayAttachRequest reques
         }
         if (hooks.still_wanted && !hooks.still_wanted()) {
           on_done(Error("attach aborted"));
+          return;
+        }
+        if (!ports.Live()) {
+          on_done(PortsGoneError());
           return;
         }
         MediaRelayAttached attached;
@@ -132,6 +144,10 @@ void QuoteMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRe
   }
   const MediaRelayAttachRequest reach_request = request;
   ReachHopService(ports, reach_request, [ports, request = std::move(request), on_done = std::move(on_done)]() mutable {
+    if (!ports.Live()) {
+      on_done(PortsGoneError());
+      return;
+    }
     if (!ports.dial->IsDialable(request.hop_peer_id)) {
       on_done(Error("hop not dialable"));
       return;

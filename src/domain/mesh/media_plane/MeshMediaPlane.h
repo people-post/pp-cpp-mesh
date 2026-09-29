@@ -196,6 +196,8 @@ private:
   PunchIntroducerWalk punch_;
   CircuitRendezvousCoordinator rendezvous_;
   DeferredSelf deferred_;
+  /** Liveness of relay client / dial / circuit reach handed out in `RelayAttachPorts` (bumped before any is freed). */
+  DeferredSelf objects_;
 };
 
 } // namespace pbr
