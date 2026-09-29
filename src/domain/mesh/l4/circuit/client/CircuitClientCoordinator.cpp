@@ -364,20 +364,29 @@ struct CircuitClientCoordinator::Impl {
             channel_id = *channel;
           }
           ScheduleWhenChannelOpen(relay_key, channel_id, deadline, [this, id, relay_key, channel_id, request_json](const bool open) {
-            std::lock_guard lock(mu);
-            auto* tunnel = Find(id);
-            if (!tunnel) {
-              return;
+            std::shared_ptr<pp::amp::ChannelSession> near;
+            {
+              std::lock_guard lock(mu);
+              auto* tunnel = Find(id);
+              if (!tunnel) {
+                return;
+              }
+              auto* link = open ? runtime->Links().FindLink(relay_key) : nullptr;
+              if (!link || !link->Mux()) {
+                TearDown(*tunnel, false, false, "amp circuit-relay: channel open failed");
+                return;
+              }
+              BindNear(*tunnel, *link, channel_id);
+              tunnel->phase = CircuitTunnelPhase::WaitAck;
+              near = tunnel->near_session;
             }
-            auto* link = open ? runtime->Links().FindLink(relay_key) : nullptr;
-            if (!link || !link->Mux()) {
-              TearDown(*tunnel, false, false, "amp circuit-relay: channel open failed");
-              return;
-            }
-            BindNear(*tunnel, *link, channel_id);
-            tunnel->phase = CircuitTunnelPhase::WaitAck;
-            if (!tunnel->near_session->EnqueueOutbound(JsonToBody(request_json))) {
-              TearDown(*tunnel, false, false, "failed to send circuit-relay bridge request");
+            // Not under mu: a write that fails at once closes the channel inline, and its closed
+            // callback (BindNear) takes mu — the I/O thread deadlocked on itself (hard-lab flip).
+            if (!near->EnqueueOutbound(JsonToBody(request_json))) {
+              std::lock_guard lock(mu);
+              if (auto* tunnel = Find(id)) {
+                TearDown(*tunnel, false, false, "failed to send circuit-relay bridge request");
+              }
             }
           });
         });
