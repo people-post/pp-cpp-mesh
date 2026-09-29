@@ -1,5 +1,9 @@
 #pragma once
 
+#include "amp/link/PeerLinkManager.h"
+#include "common/CodedFailure.h"
+
+#include <cstdint>
 #include <string>
 
 namespace pbr {
@@ -18,5 +22,23 @@ struct DialBackProbeResult {
   std::string observed;
   std::string error;
 };
+
+/** Errors follow docs/contracts/CODED_FAILURE.md — link failures are wrapped at this layer. */
+enum class DialBackErr : int32_t {
+  Ok = 0,
+  NotStarted,
+  EndpointNotRegistered,
+  InvalidRequest,
+  LinkFailed,
+  Timeout,
+  ChannelFailed,
+  ProtocolError,
+  Generic,
+};
+
+using DialBackFailure = CodedFailure<DialBackErr>;
+
+/** Map immediate link-manager failure → dial-back Err (never inspect ADP/PeerLink codes). */
+DialBackFailure WrapDialBackLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
 
 } // namespace pbr

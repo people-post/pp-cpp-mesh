@@ -16,12 +16,12 @@ class PeerLinkManager;
 
 namespace pbr {
 
-class AmpDialBackProtocol;
+class DialBackClient;
 
 /** Inputs for an Amp dial-back reachability probe (D8). */
 struct AmpReachabilityProbeDeps {
   pp::amp::PeerLinkManager* links = nullptr;
-  AmpDialBackProtocol* dial_back = nullptr;
+  DialBackClient* dial_back = nullptr;
   std::string amp_listen_multiaddr;
   std::string local_peer_id;
   /** ADP multiaddrs preferred; TCP bootstrap entries are skipped. */

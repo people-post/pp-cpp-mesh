@@ -1,7 +1,7 @@
 #include "domain/mesh/reachability/ReachabilityEngine.h"
 
 #include "amp/link/AdpMultiaddr.h"
-#include "domain/mesh/reachability/AmpDialBackProtocol.h"
+#include "domain/mesh/reachability/dial_back/client/DialBackClient.h"
 #include "domain/mesh/reachability/NatTraversal.h"
 #include "domain/mesh/reachability/ReachabilityNetIf.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
@@ -230,7 +230,7 @@ void ReachabilityEngine::ProbeSeed(AmpReachabilityProbeDeps deps, ReachabilitySn
             BuildAmpReachabilityProbeTargets(deps.amp_listen_multiaddr, deps.local_peer_id, upnp_ip);
         deps.dial_back->ProbeAsync(
             seed_key, targets,
-            [result = std::move(result), finish_once](AmpDialBackProtocol::ProbeRoe probed) mutable {
+            [result = std::move(result), finish_once](DialBackClient::ProbeRoe probed) mutable {
               if (probed) {
                 result.signals.dial_back_ok = probed->ok;
                 result.signals.dial_back_dialed = probed->dialed;

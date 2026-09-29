@@ -1,58 +1,43 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/reachability/DialBackTypes.h"
+#include "domain/mesh/reachability/dial_back/DialBackTypes.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
 #include "common/PbrCompat.h"
 
-#include <cstdint>
 #include <functional>
-#include <memory>
 #include <string>
 #include <vector>
 
 namespace pbr {
 
 /**
- * Amp L4 dial-back (`/pp-browser/reach/1.0.0`) for reachability chrome (D8).
- * Client asks a seed to dial advertised ADP listen multiaddrs; seed replies with ok/dialed/error.
- *
- * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
+ * Client side of Amp dial-back (`/pp-browser/reach/1.0.0`, D8): ask a seed to dial our advertised
+ * ADP listen multiaddrs, for reachability chrome.
  *
  * Prefer ProbeAsync (A022-style). Sync Probe parks until done; with MeshPump running leave IoPump
  * empty so waiters do not Tick. Channel-open / deadline polls use MeshRuntime::PostToIo / PostAfter.
  */
-class AmpDialBackProtocol {
+class DialBackClient {
 public:
-  enum class Err : int32_t {
-    Ok = 0,
-    NotStarted,
-    EndpointNotRegistered,
-    InvalidRequest,
-    LinkFailed,
-    Timeout,
-    ChannelFailed,
-    ProtocolError,
-    Generic,
-  };
-
-  using Failure = CodedFailure<Err>;
+  using Err = DialBackErr;
+  using Failure = DialBackFailure;
   using ProbeRoe = CodedRoe<DialBackProbeResult, Err>;
-
-  /** Map immediate link-manager failure → dial-back Err (never inspect ADP/PeerLink codes). */
-  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
-
   using IoPump = std::function<void()>;
 
-  explicit AmpDialBackProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump = {});
-  ~AmpDialBackProtocol();
+  /** Map immediate link-manager failure → dial-back Err (never inspect ADP/PeerLink codes). */
+  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child) {
+    return WrapDialBackLinkFailure(child);
+  }
 
-  AmpDialBackProtocol(const AmpDialBackProtocol&) = delete;
-  AmpDialBackProtocol& operator=(const AmpDialBackProtocol&) = delete;
+  explicit DialBackClient(pp::amp::MeshRuntime& runtime, IoPump io_pump = {});
 
-  void Start();
-  void Stop();
+  DialBackClient(const DialBackClient&) = delete;
+  DialBackClient& operator=(const DialBackClient&) = delete;
+
+  void Start() { started_ = true; }
+  void Stop() { started_ = false; }
   bool IsStarted() const { return started_; }
 
   /**
@@ -67,8 +52,6 @@ public:
                  int timeout_ms = 8000);
 
 private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
   pp::amp::MeshRuntime& runtime_;
   IoPump io_pump_;
   bool started_ = false;

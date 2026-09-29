@@ -3,7 +3,7 @@
 #include "domain/mesh/host/MeshHost.h"
 #include "domain/mesh/host/AmpLinkConfig.h"
 #include "domain/mesh/host/MeshLinkEventLog.h"
-#include "domain/mesh/reachability/DialBackTypes.h"
+#include "domain/mesh/reachability/dial_back/DialBackTypes.h"
 #include "domain/mesh/reachability/PunchTypes.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
@@ -224,8 +224,11 @@ void MeshHost::EnsureAmpL4Coordinators() {
   amp_media_relay_client_->SetCircuitHopRegistry(amp_circuit_hops_.get());
   auto io_pump = MakeL4IoPump();
   auto post_worker = MakeL4WorkerPost(WorkerLane::Normal);
+  if (!amp_dial_back_server_) {
+    amp_dial_back_server_ = std::make_unique<DialBackServer>(amp_->Runtime());
+  }
   if (!amp_dial_back_) {
-    amp_dial_back_ = std::make_unique<AmpDialBackProtocol>(amp_->Runtime(), io_pump);
+    amp_dial_back_ = std::make_unique<DialBackClient>(amp_->Runtime(), io_pump);
   }
   if (!amp_punch_) {
     amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Runtime(), io_pump);
@@ -259,6 +262,9 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media,
   }
   if (amp_media_relay_client_ && !amp_media_relay_client_->IsStarted()) {
     amp_media_relay_client_->Start();
+  }
+  if (amp_dial_back_server_ && !amp_dial_back_server_->IsStarted()) {
+    amp_dial_back_server_->Start();
   }
   if (amp_dial_back_ && !amp_dial_back_->IsStarted()) {
     amp_dial_back_->Start();
@@ -299,6 +305,9 @@ void MeshHost::StopAmp() {
   if (amp_dial_back_) {
     amp_dial_back_->Stop();
   }
+  if (amp_dial_back_server_) {
+    amp_dial_back_server_->Stop();
+  }
   if (amp_directory_) {
     amp_directory_->Stop();
   }
@@ -324,6 +333,7 @@ void MeshHost::StopAmp() {
   StopOwnedThreads();
   amp_punch_.reset();
   amp_dial_back_.reset();
+  amp_dial_back_server_.reset();
   amp_directory_.reset();
   amp_dht_.reset();
   amp_media_relay_client_.reset();
@@ -456,7 +466,7 @@ void MeshHost::RefreshAdvertisedListenAddrs() {
   }
 }
 
-AmpDialBackProtocol* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
+DialBackClient* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
 
 AmpPunchCoordinator* MeshHost::AmpPunch() { return amp_punch_.get(); }
 

@@ -42,7 +42,9 @@ set(_pp_mesh_reachability_sources
   reachability/ReachabilityEngine.cpp
   reachability/NatTraversal.cpp
   reachability/LanMdnsDiscovery.cpp
-  reachability/AmpDialBackProtocol.cpp
+  reachability/dial_back/DialBackTypes.cpp
+  reachability/dial_back/serve/DialBackServer.cpp
+  reachability/dial_back/client/DialBackClient.cpp
   reachability/AmpObservedAddrs.cpp
   reachability/PunchLogic.cpp
   reachability/PunchBurst.cpp

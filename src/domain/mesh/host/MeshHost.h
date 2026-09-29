@@ -6,7 +6,8 @@
 #include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "domain/mesh/dht/AmpDhtProtocol.h"
 #include "domain/mesh/discovery/AmpDirectoryProtocol.h"
-#include "domain/mesh/reachability/AmpDialBackProtocol.h"
+#include "domain/mesh/reachability/dial_back/client/DialBackClient.h"
+#include "domain/mesh/reachability/dial_back/serve/DialBackServer.h"
 #include "domain/mesh/reachability/AmpPunchCoordinator.h"
 #include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
 #include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
@@ -114,7 +115,7 @@ public:
   MediaRelayClientCoordinator* AmpMediaRelayClientCoord();
   AmpCircuitHopRegistry* AmpCircuitHops();
   /** Amp dial-back for reachability chrome (D8); null when Amp is down. */
-  AmpDialBackProtocol* AmpDialBack();
+  DialBackClient* AmpDialBack();
   /** Amp coordinated punch (H009 / L3.25a); null when Amp is down. */
   AmpPunchCoordinator* AmpPunch();
   /** Amp mesh DHT (n2); null when Amp is down. */
@@ -193,7 +194,8 @@ private:
   std::unique_ptr<MediaRelayServer> amp_media_relay_server_;
   /** Holds a pointer to the server (local hop): declared after it, so freed first. */
   std::unique_ptr<MediaRelayClientCoordinator> amp_media_relay_client_;
-  std::unique_ptr<AmpDialBackProtocol> amp_dial_back_;
+  std::unique_ptr<DialBackServer> amp_dial_back_server_;
+  std::unique_ptr<DialBackClient> amp_dial_back_;
   std::unique_ptr<AmpPunchCoordinator> amp_punch_;
   std::unique_ptr<AmpDhtProtocol> amp_dht_;
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;

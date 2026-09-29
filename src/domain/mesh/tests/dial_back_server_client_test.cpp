@@ -1,6 +1,7 @@
-#include "domain/mesh/reachability/AmpDialBackProtocol.h"
+#include "domain/mesh/reachability/dial_back/client/DialBackClient.h"
+#include "domain/mesh/reachability/dial_back/serve/DialBackServer.h"
 
-#include "domain/mesh/reachability/DialBackTypes.h"
+#include "domain/mesh/reachability/dial_back/DialBackTypes.h"
 #include "domain/mesh/tests/support/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
@@ -11,7 +12,7 @@
 namespace pbr {
 namespace {
 
-TEST(AmpDialBackProtocolTest, ProbeRoundTripOk) {
+TEST(DialBackServerClientTest, ProbeRoundTripOk) {
   auto created = pbr::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
@@ -20,8 +21,8 @@ TEST(AmpDialBackProtocolTest, ProbeRoundTripOk) {
   ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("client", harness->ma_a)));
 
   auto pump = [&]() { harness->PumpBoth(); };
-  AmpDialBackProtocol seed(*harness->runtime_b, pump);
-  AmpDialBackProtocol client(*harness->runtime_a, pump);
+  DialBackServer seed(*harness->runtime_b);
+  DialBackClient client(*harness->runtime_a, pump);
   seed.Start();
   client.Start();
 
@@ -35,42 +36,42 @@ TEST(AmpDialBackProtocolTest, ProbeRoundTripOk) {
   seed.Stop();
 }
 
-TEST(AmpDialBackProtocolTest, ProbeNotStartedReturnsCodedFailure) {
+TEST(DialBackServerClientTest, ProbeNotStartedReturnsCodedFailure) {
   auto created = pbr::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
-  AmpDialBackProtocol client(*harness->runtime_a);
+  DialBackClient client(*harness->runtime_a);
   auto probed = client.Probe("seed", {harness->ma_a}, 1000);
   ASSERT_FALSE(static_cast<bool>(probed));
-  EXPECT_EQ(probed.error().GetCode(), AmpDialBackProtocol::Err::NotStarted);
+  EXPECT_EQ(probed.error().GetCode(), DialBackClient::Err::NotStarted);
 }
 
-TEST(AmpDialBackProtocolTest, WrapLinkFailureMapsCodes) {
+TEST(DialBackServerClientTest, WrapLinkFailureMapsCodes) {
   using Mgr = pp::amp::PeerLinkManager;
   {
     const auto wrapped =
-        AmpDialBackProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::EndpointNotRegistered, "missing"));
-    EXPECT_EQ(wrapped.GetCode(), AmpDialBackProtocol::Err::EndpointNotRegistered);
+        DialBackClient::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::EndpointNotRegistered, "missing"));
+    EXPECT_EQ(wrapped.GetCode(), DialBackClient::Err::EndpointNotRegistered);
     EXPECT_NE(wrapped.message.find("[link:"), std::string::npos);
   }
   {
-    const auto wrapped = AmpDialBackProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::DialTimeout, "slow"));
-    EXPECT_EQ(wrapped.GetCode(), AmpDialBackProtocol::Err::Timeout);
+    const auto wrapped = DialBackClient::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::DialTimeout, "slow"));
+    EXPECT_EQ(wrapped.GetCode(), DialBackClient::Err::Timeout);
   }
   {
     const auto wrapped =
-        AmpDialBackProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux"));
-    EXPECT_EQ(wrapped.GetCode(), AmpDialBackProtocol::Err::ChannelFailed);
+        DialBackClient::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux"));
+    EXPECT_EQ(wrapped.GetCode(), DialBackClient::Err::ChannelFailed);
   }
   {
     const auto wrapped =
-        AmpDialBackProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::AssociationNotReady, "not ready"));
-    EXPECT_EQ(wrapped.GetCode(), AmpDialBackProtocol::Err::LinkFailed);
+        DialBackClient::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::AssociationNotReady, "not ready"));
+    EXPECT_EQ(wrapped.GetCode(), DialBackClient::Err::LinkFailed);
   }
 }
 
-TEST(AmpDialBackProtocolTest, ProbeRejectsNonAdpTarget) {
+TEST(DialBackServerClientTest, ProbeRejectsNonAdpTarget) {
   auto created = pbr::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
@@ -78,8 +79,8 @@ TEST(AmpDialBackProtocolTest, ProbeRejectsNonAdpTarget) {
   ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
 
   auto pump = [&]() { harness->PumpBoth(); };
-  AmpDialBackProtocol seed(*harness->runtime_b, pump);
-  AmpDialBackProtocol client(*harness->runtime_a, pump);
+  DialBackServer seed(*harness->runtime_b);
+  DialBackClient client(*harness->runtime_a, pump);
   seed.Start();
   client.Start();
 
