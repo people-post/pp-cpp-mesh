@@ -79,6 +79,8 @@ _pp_mesh_library(dht
     dht/DhtRecordStore.cpp
     dht/DhtRateLimiter.cpp
     dht/AmpDhtProtocol.cpp
+    dht/serve/DhtServer.cpp
+    dht/client/DhtClient.cpp
   DEPS shared)
 
 _pp_mesh_library(discovery
