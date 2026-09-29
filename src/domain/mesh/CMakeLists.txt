@@ -87,6 +87,8 @@ _pp_mesh_library(discovery
     discovery/NameDirectory.cpp
     discovery/MeshNodeHitCodec.cpp
     discovery/AmpDirectoryProtocol.cpp
+    discovery/serve/DirectoryServer.cpp
+    discovery/client/DirectoryClient.cpp
   DEPS dht shared)
 
 # circuit: shared wire / policy at the root; serve/ = the relay side, client/ = bridges and reserves.
