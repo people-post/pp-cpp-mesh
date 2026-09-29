@@ -43,6 +43,21 @@ TEST(PunchLogicTest, SanitizeDropsNonAdpAndCaps) {
   }
 }
 
+// #235: a peer's link-local / loopback / unspecified candidates are never dialable from here.
+TEST(PunchLogicTest, SanitizeDropsUndialableHosts) {
+  const std::string lan = "/ip4/192.168.1.20/udp/9/adp/1.0.0/p2p/12D3KooWA";
+  const std::string global_v6 = "/ip6/2001:db8::20/udp/9/adp/1.0.0/p2p/12D3KooWA";
+  const auto out = SanitizePunchAddrs({
+      "/ip4/169.254.132.227/udp/9/adp/1.0.0/p2p/12D3KooWA",
+      "/ip6/fe80::1/udp/9/adp/1.0.0/p2p/12D3KooWA",
+      "/ip4/127.0.0.1/udp/9/adp/1.0.0/p2p/12D3KooWA",
+      "/ip4/0.0.0.0/udp/9/adp/1.0.0/p2p/12D3KooWA",
+      lan,
+      global_v6,
+  });
+  EXPECT_EQ(out, (std::vector<std::string>{lan, global_v6}));
+}
+
 TEST(PunchLogicTest, WindowOpenBounds) {
   EXPECT_TRUE(PunchWindowOpen(1000, 500, 1200));
   EXPECT_FALSE(PunchWindowOpen(1000, 500, 1600));

@@ -28,6 +28,7 @@ std::optional<PunchSync> DecodePunchSync(const Object& root);
 std::optional<PunchResult> DecodePunchResult(const Object& root);
 
 /** Keep only ADP multiaddrs; cap list length. */
+/** Parsed, dialable (see IsUsableAdpListen), de-duplicated and capped punch candidates. */
 std::vector<std::string> SanitizePunchAddrs(const std::vector<std::string>& addrs, size_t max_addrs = 8);
 
 /**

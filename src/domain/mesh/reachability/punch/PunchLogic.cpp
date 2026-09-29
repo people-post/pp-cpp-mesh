@@ -1,6 +1,7 @@
 #include "domain/mesh/reachability/punch/PunchLogic.h"
 
 #include "amp/link/AdpMultiaddr.h"
+#include "domain/mesh/reachability/AmpObservedAddrs.h"
 #include "common/PbrCompat.h"
 
 #include <unordered_set>
@@ -160,7 +161,10 @@ std::vector<std::string> SanitizePunchAddrs(const std::vector<std::string>& addr
     if (out.size() >= max_addrs) {
       break;
     }
-    if (ma.empty() || !pp::amp::ParseAdpMultiaddr(ma)) {
+    // Parse + drop what a peer can never dial: unspecified / loopback / link-local (169.254,
+    // fe80) — a stale USB-tether 169.254 address was burst-dialed and became a dial candidate
+    // (#235). Same rule as the listen addrs the product publishes and registers.
+    if (!IsUsableAdpListen(ma)) {
       continue;
     }
     bool dup = false;

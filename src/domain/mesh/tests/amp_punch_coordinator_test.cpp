@@ -38,8 +38,8 @@ struct PunchExpiryStageFixture {
         !out->harness->mgr_r().RegisterEndpoint(out->harness->peer_id_b, out->harness->ma_b)) {
       return testing::AssertionFailure() << "RegisterEndpoint failed";
     }
-    out->blackhole_a = "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + out->harness->peer_id_a;
-    out->blackhole_b = "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + out->harness->peer_id_b;
+    out->blackhole_a = "/ip4/192.0.2.1/udp/1/adp/1.0.0/p2p/" + out->harness->peer_id_a;
+    out->blackhole_b = "/ip4/192.0.2.1/udp/1/adp/1.0.0/p2p/" + out->harness->peer_id_b;
     return testing::AssertionSuccess();
   }
 
@@ -520,8 +520,8 @@ BlackholePunchOutcome RunBlackholeCandidatePunch(const bool a_b_reachable) {
   EXPECT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("introducer", harness->ma_r)));
   EXPECT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_a, harness->ma_a)));
   EXPECT_TRUE(static_cast<bool>(harness->mgr_r().RegisterEndpoint(harness->peer_id_b, harness->ma_b)));
-  const std::string blackhole_a = "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + harness->peer_id_a;
-  const std::string blackhole_b = "/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/" + harness->peer_id_b;
+  const std::string blackhole_a = "/ip4/192.0.2.1/udp/1/adp/1.0.0/p2p/" + harness->peer_id_a;
+  const std::string blackhole_b = "/ip4/192.0.2.1/udp/1/adp/1.0.0/p2p/" + harness->peer_id_b;
 
   std::function<void()> shared_pump;
   auto pump_bridge = [&]() {

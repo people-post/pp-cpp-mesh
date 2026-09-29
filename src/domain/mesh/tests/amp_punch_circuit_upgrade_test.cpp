@@ -209,7 +209,7 @@ TEST_F(AmpPunchCircuitUpgradeTest, UpgradeViaRelayIntroducerThenDemoteCircuit) {
 TEST_F(AmpPunchCircuitUpgradeTest, UpgradePunchUsesUpgradeReason) {
   PunchConnectRequest req;
   req.target_peer_id = "12D3KooWTarget";
-  req.addrs = {"/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/12D3KooWSelf"};
+  req.addrs = {"/ip4/192.0.2.1/udp/1/adp/1.0.0/p2p/12D3KooWSelf"};
   req.window_ms = 1500;
   req.reason = "upgrade";
   const std::string json = EncodePunchConnect(req);
