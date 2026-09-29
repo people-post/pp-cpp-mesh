@@ -1,9 +1,10 @@
 #include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
 #include "amp/link/Types.h"
-#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
-#include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
-#include "domain/mesh/reachability/AmpPunchCoordinator.h"
-#include "domain/mesh/reachability/PunchLogic.h"
+#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "domain/mesh/reachability/punch/PunchLogic.h"
 #include "domain/mesh/tests/support/mesh_triple_harness.h"
 
 #include <gtest/gtest.h>
@@ -43,12 +44,11 @@ protected:
     harness_->mgr_b().EnableNestedCarrierAccept(true);
 
     hops_ = std::make_unique<AmpCircuitHopRegistry>();
-    circuit_r_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_r);
-    circuit_a_ = std::make_unique<CircuitTunnelCoordinator>(*harness_->runtime_a);
+    circuit_r_ = std::make_unique<CircuitRelayServer>(*harness_->runtime_r);
+    circuit_a_ = std::make_unique<CircuitClientCoordinator>(*harness_->runtime_a);
     circuit_r_->Start();
     circuit_r_->SetServeInbound(true);
     circuit_a_->Start();
-    circuit_a_->SetServeInbound(false);
 
     // Exclusive Drive: AmpParkUntil calls PumpAll only (no nested Tick from punch SM).
     auto pump = [this]() { harness_->PumpAll(); };
@@ -150,8 +150,8 @@ protected:
 
   std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness_;
   std::unique_ptr<AmpCircuitHopRegistry> hops_;
-  std::unique_ptr<CircuitTunnelCoordinator> circuit_a_;
-  std::unique_ptr<CircuitTunnelCoordinator> circuit_r_;
+  std::unique_ptr<CircuitClientCoordinator> circuit_a_;
+  std::unique_ptr<CircuitRelayServer> circuit_r_;
   std::unique_ptr<AmpPunchCoordinator> punch_a_;
   std::unique_ptr<AmpPunchCoordinator> punch_r_;
   std::unique_ptr<AmpPunchCoordinator> punch_b_;

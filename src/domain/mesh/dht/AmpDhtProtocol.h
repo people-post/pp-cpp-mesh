@@ -1,58 +1,40 @@
 #pragma once
 
-#include "domain/mesh/dht/DhtRateLimiter.h"
 #include "domain/mesh/dht/DhtRecordStore.h"
 #include "domain/mesh/dht/DhtTypes.h"
+#include "domain/mesh/dht/client/DhtClient.h"
+#include "domain/mesh/dht/serve/DhtServer.h"
 
 #include "amp/link/MeshRuntime.h"
-#include "common/CodedFailure.h"
-#include "common/Error.h"
-
-#include <atomic>
-#include <chrono>
-#include <functional>
-#include <memory>
-#include <mutex>
-#include <string>
-#include <unordered_map>
-#include <vector>
 #include "common/PbrCompat.h"
+
+#include <functional>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace pbr {
 
 /**
- * Amp L4 mesh DHT (`/pp-mesh/dht/1.0.0`) — FIND_PEER + self STORE.
- * Thin bootstrap fan-out with n2-hard rate limits + soft reputation.
- *
- * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
+ * Amp L4 mesh DHT (`/pp-mesh/dht/1.0.0`) — FIND_PEER + self STORE. Owns the record store both
+ * ends share: `serve/DhtServer` answers find_peer / store from it, `client/DhtClient` looks peers
+ * up (caching what it finds) and publishes the self record while participating. MeshHost owns one
+ * when Amp is up.
  */
 class AmpDhtProtocol {
 public:
-  enum class Err : int32_t {
-    Ok = 0,
-    NotStarted,
-    EndpointNotRegistered,
-    InvalidRequest,
-    LinkFailed,
-    Timeout,
-    ChannelFailed,
-    ProtocolError,
-    ConcurrencyLimit,
-    NotFound,
-    Generic,
-  };
-
-  using Failure = CodedFailure<Err>;
-  using FindPeerRoe = CodedRoe<DhtFindPeerResult, Err>;
-  using RpcRoe = CodedRoe<Object, Err>;
+  using Err = DhtClient::Err;
+  using Failure = DhtClient::Failure;
+  using FindPeerRoe = DhtClient::FindPeerRoe;
+  using RpcRoe = DhtClient::RpcRoe;
+  using WorkerPost = DhtServer::WorkerPost;
 
   /** Map immediate link-manager failure → DHT Err (never inspect ADP/PeerLink codes). */
-  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
-
-  using WorkerPost = std::function<void(std::function<void()>)>;
+  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child) {
+    return DhtClient::WrapLinkFailure(child);
+  }
 
   AmpDhtProtocol(pp::amp::MeshRuntime& runtime, WorkerPost post_worker = {});
-  ~AmpDhtProtocol();
 
   AmpDhtProtocol(const AmpDhtProtocol&) = delete;
   AmpDhtProtocol& operator=(const AmpDhtProtocol&) = delete;
@@ -60,53 +42,25 @@ public:
   void Configure(AmpDhtProtocolConfig config);
   void Start();
   void Stop();
-  bool IsStarted() const { return started_.load(std::memory_order_acquire); }
+  bool IsStarted() const { return client_.IsStarted(); }
 
   /** Periodic: refresh self record + push to bootstrap peers. */
-  void Tick();
+  void Tick() { client_.PublishSelfIfDue(); }
 
-  void FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done);
+  void FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done) {
+    client_.FindPeer(target_peer_id, std::move(on_done));
+  }
 
-  std::optional<PeerRoutingRecord> LocalRecord(const std::string& peer_id) const;
-  std::vector<PeerRoutingRecord> SnapshotRecords() const;
+  std::optional<PeerRoutingRecord> LocalRecord(const std::string& peer_id) const { return store_.Get(peer_id); }
+  std::vector<PeerRoutingRecord> SnapshotRecords() const { return store_.Snapshot(); }
   DhtOpsStats Stats() const;
   std::string FormatOpsStatusJson() const;
 
 private:
-  friend struct Impl;
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
-  pp::amp::MeshRuntime& runtime_;
-  WorkerPost post_worker_;
   DhtRecordStore store_;
-  DhtRateLimiter inbound_limiter_;
   AmpDhtProtocolConfig config_;
-  /** Written by Start / Stop, read by Tick on MeshPump. */
-  std::atomic<bool> started_{false};
-  int64_t self_seq_ = 0;
-  std::chrono::steady_clock::time_point next_self_publish_{};
-
-  mutable std::mutex stats_mutex_;
-  uint64_t inbound_find_peer_ = 0;
-  uint64_t inbound_store_ = 0;
-  uint64_t inbound_rate_limited_ = 0;
-  uint64_t store_rejected_ = 0;
-  uint64_t find_peer_issued_ = 0;
-  uint64_t soft_reputation_skips_ = 0;
-
-  mutable std::mutex reputation_mutex_;
-  struct SoftRep {
-    int bad_count = 0;
-    std::chrono::steady_clock::time_point cooldown_until{};
-  };
-  std::unordered_map<std::string, SoftRep> soft_reputation_;
-
-  std::atomic<int> inflight_lookups_{0};
-
-  bool AllowInbound(const std::string& remote_peer);
-  void NoteSoftReputationBad(const std::string& peer_key);
-  bool SoftReputationAllows(const std::string& peer_key) const;
-  std::vector<std::string> FilteredQueryPeerKeys();
+  DhtServer server_;
+  DhtClient client_;
 };
 
 } // namespace pbr

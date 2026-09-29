@@ -5,7 +5,6 @@
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/MeshPump.h"
 #include "amp/link/PeerLinkManager.h"
-#include "amp/link/Types.h"
 #include "crypto/MlDsa.h"
 #include "domain/mesh/reachability/Reachability.h"
 
@@ -90,9 +89,10 @@ TEST(AmpIpv6DialTest, EnsureAssociationOverMemoryIoIpv6) {
   bob.ml_dsa_secret_key = std::move(bob_keys->secret_key);
   bob.ml_dsa_public_key = std::move(bob_keys->public_key);
 
-  // Outbound dials must authenticate as the multiaddr's /p2p/ PeerId: map bob's key to the fixed label.
+  // pp-cpp-amp >= v2.8.0 fails an outbound dial whose authenticated identity is not the dialed
+  // PeerId; map the fixture's fixed label to bob's real key (same fix as amp's MeshLinkTest).
   pp::amp::PeerLinkConfig config_a;
-  config_a.peer_id_from_identity = [bob_pub = bob.ml_dsa_public_key](const pp::amp::ByteVector& pk) -> std::string {
+  config_a.peer_id_from_identity = [bob_pub = bob.ml_dsa_public_key](const pp::ByteVector& pk) -> std::string {
     return pk == bob_pub ? "QmBob6" : pp::amp::IdentityPublicKeyFingerprint(pk);
   };
   pp::amp::PeerLinkManager mgr_a(*ep_a, alice, "QmAlice6", config_a);

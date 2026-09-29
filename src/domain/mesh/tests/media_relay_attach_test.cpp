@@ -1,7 +1,8 @@
-#include "domain/mesh/l4/media_relay/MediaRelayAttach.h"
+#include "domain/mesh/media_plane/MediaRelayAttach.h"
 
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -42,6 +43,9 @@ public:
   explicit FakeServiceReach(FakeDial& dial) : dial_(dial) {}
   Roe<void> TryEnsureHopReachable(const std::string& hop) override {
     ++calls;
+    if (during_reach) {
+      during_reach();
+    }
     if (lands) {
       dial_.relay_routes.insert(hop);
       return {};
@@ -52,6 +56,8 @@ public:
 
   bool lands = true;
   int calls = 0;
+  /** Runs while the reach is outstanding (e.g. the mesh stops). */
+  std::function<void()> during_reach;
 
 private:
   FakeDial& dial_;
@@ -212,6 +218,35 @@ TEST_F(MediaRelayAttachTest, RelayRefusalsSurface) {
   ASSERT_TRUE(attached);
   ASSERT_FALSE(*attached);
   EXPECT_EQ(attached->error().message, "attach refused");
+}
+
+// PR #233 review: the mesh may stop (and free relay / dial) while service reach is outstanding —
+// the continuation must fail on the owner's liveness, not touch the freed objects.
+TEST_F(MediaRelayAttachTest, MeshStopDuringServiceReachFailsWithoutTouchingPorts) {
+  DeferredSelf objects;
+  MediaRelayAttachPorts ports = Ports();
+  ports.objects_alive = objects.token();
+  ports.objects_snap = objects.Snapshot();
+  reach_.during_reach = [&objects]() { objects.Invalidate(); };
+
+  std::optional<Roe<MediaRelayAttached>> attached;
+  AttachToMediaRelayAsync(ports, Request(), {}, [&attached](Roe<MediaRelayAttached> r) { attached = std::move(r); });
+  ASSERT_TRUE(attached);
+  ASSERT_FALSE(*attached);
+  EXPECT_EQ(attached->error().message, "mesh media stopped");
+
+  dial_.relay_routes.clear();  // the first reach landed; the quote must go through reach again
+  objects = DeferredSelf();
+  ports.objects_alive = objects.token();
+  ports.objects_snap = objects.Snapshot();
+  reach_.during_reach = [&objects]() { objects.Invalidate(); };
+  std::optional<Roe<MediaRelayQuote>> quoted;
+  QuoteMediaRelayAsync(ports, Request(), [&quoted](Roe<MediaRelayQuote> r) { quoted = std::move(r); });
+  ASSERT_TRUE(quoted);
+  ASSERT_FALSE(*quoted);
+  EXPECT_EQ(quoted->error().message, "mesh media stopped");
+  EXPECT_EQ(relay_.quotes, 0);
+  EXPECT_EQ(relay_.attaches, 0);
 }
 
 TEST_F(MediaRelayAttachTest, MissingPortsFail) {

@@ -4,11 +4,11 @@
 #include "common/Module.h"
 #include "common/directory/MeshHopTypes.h"
 #include "domain/mesh/host/MeshHost.h"
-#include "domain/mesh/l4/media_relay/IMediaRelayClient.h"
-#include "domain/mesh/l4/media_relay/MediaRelayAttach.h"
-#include "domain/mesh/reachability/CircuitRendezvousCoordinator.h"
-#include "domain/mesh/reachability/MeshReachPorts.h"
-#include "domain/mesh/reachability/PunchIntroducerWalk.h"
+#include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
+#include "domain/mesh/media_plane/MediaRelayAttach.h"
+#include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
+#include "domain/mesh/reach/MeshReachPorts.h"
+#include "domain/mesh/reach/PunchIntroducerWalk.h"
 #include "foundation/runtime/DeferredSelf.h"
 
 #include <atomic>
@@ -117,8 +117,11 @@ public:
 
   /** (Re)create relay client, dial registry and circuit reach from the running mesh; arm re-park. */
   void Wire();
-  /** Tests / harness without MeshHost objects: use these instead (not owned). */
-  void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach);
+  /**
+   * Tests / harness without MeshHost objects: use these instead (not owned). `relay` stands in for
+   * the Amp media_relay client (group-call compose); null keeps the wired one.
+   */
+  void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach, IMediaRelayClient* relay = nullptr);
   /** Drop async callbacks, relay-chosen notices and the re-park listener (mesh stop / teardown). */
   void InvalidateAsyncOps();
   void ResetRelayClient();
@@ -129,7 +132,7 @@ public:
   /** Everything, including the listen book (owner teardown). */
   void Clear();
 
-  IMediaRelayClient* RelayClient() const { return media_relay_client_.get(); }
+  IMediaRelayClient* RelayClient() const { return test_relay_ ? test_relay_ : media_relay_client_.get(); }
   IDialRegistry* Dial() const;
   ICircuitHopReach* CircuitReach() const;
   /** media_relay client + dial + service reach, for `AttachToMediaRelayAsync` users. */
@@ -155,7 +158,6 @@ public:
   Roe<void> TryEnsureCircuitHopReachable(const std::string& hop_peer_id);
   Roe<void> TryEnsurePeerReachable(const std::string& peer_key);
   void TryEnsurePeerReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done);
-  Roe<void> TryUpgradeToDirect(const std::string& peer_key);
 
   /** Rendezvous relays: dial surface for reach, parking so this node is reachable (stable object). */
   CircuitRendezvousCoordinator& Rendezvous() { return rendezvous_; }
@@ -190,9 +192,12 @@ private:
   std::unique_ptr<ICircuitHopReach> circuit_hop_reach_;
   IDialRegistry* test_dial_ = nullptr;
   ICircuitHopReach* test_circuit_reach_ = nullptr;
+  IMediaRelayClient* test_relay_ = nullptr;
   PunchIntroducerWalk punch_;
   CircuitRendezvousCoordinator rendezvous_;
   DeferredSelf deferred_;
+  /** Liveness of relay client / dial / circuit reach handed out in `RelayAttachPorts` (bumped before any is freed). */
+  DeferredSelf objects_;
 };
 
 } // namespace pbr

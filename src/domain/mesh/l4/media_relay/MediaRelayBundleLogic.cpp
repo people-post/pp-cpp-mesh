@@ -107,4 +107,59 @@ MediaRelayQuote BuildDefaultMediaRelayQuote(const MediaRelayQuoteRequest& req, c
   return q;
 }
 
+bool MediaRelayQuoteBook::Add(const MediaRelayQuote& quote, const std::string& call_id, const std::string& requester,
+                              Clock::time_point now) {
+  Expire(now);
+  if (entries_.size() >= capacity_) {
+    return false;
+  }
+  if (auto held = per_requester_.find(requester);
+      held != per_requester_.end() && held->second >= per_peer_capacity_) {
+    return false;
+  }
+  if (auto existing = entries_.find(quote.quote_id); existing != entries_.end()) {
+    Erase(existing);
+  }
+  ++per_requester_[requester];
+  entries_[quote.quote_id] = Entry{quote, call_id, requester, now};
+  return true;
+}
+
+const MediaRelayQuoteBook::Entry* MediaRelayQuoteBook::Find(const std::string& quote_id, Clock::time_point now) const {
+  auto it = entries_.find(quote_id);
+  if (it == entries_.end() || Expired(it->second, now)) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+std::optional<MediaRelayQuoteBook::Entry> MediaRelayQuoteBook::Take(const std::string& quote_id, Clock::time_point now) {
+  auto it = entries_.find(quote_id);
+  if (it == entries_.end()) {
+    return std::nullopt;
+  }
+  Entry entry = it->second;
+  Erase(it);
+  if (Expired(entry, now)) {
+    return std::nullopt;
+  }
+  return entry;
+}
+
+void MediaRelayQuoteBook::Expire(Clock::time_point now) {
+  for (auto it = entries_.begin(); it != entries_.end();) {
+    it = Expired(it->second, now) ? Erase(it) : std::next(it);
+  }
+}
+
+MediaRelayQuoteBook::Entries::iterator MediaRelayQuoteBook::Erase(Entries::iterator it) {
+  if (auto held = per_requester_.find(it->second.requester); held != per_requester_.end()) {
+    if (--held->second == 0) {
+      per_requester_.erase(held);
+    }
+  }
+  return entries_.erase(it);
+}
+
 } // namespace pbr
+

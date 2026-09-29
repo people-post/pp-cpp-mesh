@@ -4,8 +4,8 @@
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/LinkIdentity.h"
 #include "domain/mesh/l4/call_media/ICallMediaTransport.h"
-#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
-#include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
 #include "common/PbrCompat.h"
@@ -141,6 +141,11 @@ public:
 
   virtual MeshPeerLinkSnapshot GetLinkSnapshot(const std::string& peer_key) const = 0;
   virtual pp::amp::LinkSnapshotEx SnapshotByPeerId(const std::string& peer_id) const = 0;
+  /** A relay-carrier (nested) link to the peer is Connected — beside any direct one (A024). */
+  virtual bool IsConnectedRelayed(const std::string& peer_id) const {
+    (void)peer_id;
+    return false;
+  }
   virtual bool IsConnected(const std::string& peer_key) const = 0;
   virtual bool IsReachable(const std::string& peer_id) const = 0;
 
@@ -179,7 +184,7 @@ struct MeshChatDeps {
 };
 
 struct MeshCircuitDeps {
-  CircuitTunnelCoordinator& tunnel;
+  CircuitClientCoordinator& tunnel;
   AmpCircuitHopRegistry& hops;
   IChatPeerLinks& links;
 };

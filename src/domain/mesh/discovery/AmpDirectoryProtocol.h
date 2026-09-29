@@ -1,87 +1,55 @@
 #pragma once
 
-#include "domain/mesh/dht/DhtRateLimiter.h"
 #include "domain/mesh/discovery/DirectoryTypes.h"
+#include "domain/mesh/discovery/client/DirectoryClient.h"
+#include "domain/mesh/discovery/serve/DirectoryServer.h"
 #include "common/directory/IDirectoryClient.h"
 #include "amp/link/MeshRuntime.h"
-#include "common/CodedFailure.h"
-#include "common/Error.h"
+#include "common/PbrCompat.h"
 
-#include <atomic>
 #include <functional>
-#include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
 
 namespace pbr {
 
 /**
- * Amp L4 directory twin (`/pp-mesh/directory/1.0.0`) — list_mesh_nodes.
- * Server answers from an injected snapshot; client fans out to query_peer_keys.
- *
- * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
+ * Amp L4 directory twin (`/pp-mesh/directory/1.0.0`) — list_mesh_nodes. One config drives both
+ * ends: `serve/DirectoryServer` answers from an injected snapshot, `client/DirectoryClient` fans
+ * out to query_peer_keys. MeshHost owns one when Amp is up.
  */
 class AmpDirectoryProtocol {
 public:
-  enum class Err : int32_t {
-    Ok = 0,
-    NotStarted,
-    EndpointNotRegistered,
-    InvalidRequest,
-    LinkFailed,
-    Timeout,
-    ChannelFailed,
-    ProtocolError,
-    NotFound,
-    Generic,
-  };
+  using Err = DirectoryClient::Err;
+  using Failure = DirectoryClient::Failure;
+  using ListRoe = DirectoryClient::ListRoe;
+  using IoPump = DirectoryClient::IoPump;
+  using WorkerPost = DirectoryServer::WorkerPost;
 
-  using Failure = CodedFailure<Err>;
-  using ListRoe = CodedRoe<std::vector<MeshNodeHit>, Err>;
-  using RpcRoe = CodedRoe<Object, Err>;
-
-  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
-
-  using IoPump = std::function<void()>;
-  using WorkerPost = std::function<void(std::function<void()>)>;
+  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child) {
+    return DirectoryClient::WrapLinkFailure(child);
+  }
 
   AmpDirectoryProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump = {}, WorkerPost post_worker = {});
-  ~AmpDirectoryProtocol();
 
   AmpDirectoryProtocol(const AmpDirectoryProtocol&) = delete;
   AmpDirectoryProtocol& operator=(const AmpDirectoryProtocol&) = delete;
 
   void Configure(AmpDirectoryProtocolConfig config);
-  void SetNodesProvider(AmpDirectoryNodesProvider provider);
-  void SetNodesSnapshot(std::vector<MeshNodeHit> nodes);
+  void SetNodesProvider(AmpDirectoryNodesProvider provider) { server_.SetNodesProvider(std::move(provider)); }
+  void SetNodesSnapshot(std::vector<MeshNodeHit> nodes) { server_.SetNodesSnapshot(std::move(nodes)); }
 
   void Start();
   void Stop();
-  bool IsStarted() const { return started_; }
+  bool IsStarted() const { return server_.IsStarted(); }
 
   /** Blocking list against configured query_peer_keys (first success wins). */
-  ListRoe ListMeshNodes();
-
-  void ListMeshNodesAsync(std::function<void(ListRoe)> on_done);
+  ListRoe ListMeshNodes() { return client_.ListMeshNodes(); }
+  void ListMeshNodesAsync(std::function<void(ListRoe)> on_done) { client_.ListMeshNodesAsync(std::move(on_done)); }
 
 private:
-  friend struct Impl;
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
-  pp::amp::MeshRuntime& runtime_;
-  IoPump io_pump_;
-  WorkerPost post_worker_;
-  AmpDirectoryProtocolConfig config_;
-  AmpDirectoryNodesProvider nodes_provider_;
-  std::vector<MeshNodeHit> nodes_snapshot_;
-  mutable std::mutex nodes_mutex_;
-  DhtRateLimiter inbound_limiter_;
-  bool started_ = false;
-
-  std::vector<MeshNodeHit> LocalNodes() const;
-  bool AllowInbound(const std::string& remote_peer);
+  DirectoryServer server_;
+  DirectoryClient client_;
 };
 
 /**

@@ -1,5 +1,5 @@
-#include "domain/mesh/reachability/CircuitRendezvousCoordinator.h"
-#include "domain/mesh/reachability/PunchIntroducerWalk.h"
+#include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
+#include "domain/mesh/reach/PunchIntroducerWalk.h"
 
 #include <gtest/gtest.h>
 #include <optional>

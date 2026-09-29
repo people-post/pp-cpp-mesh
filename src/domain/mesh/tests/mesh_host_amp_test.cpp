@@ -1,11 +1,16 @@
 #include "amp/L1/Clock.h"
+#include "amp/L1/LossyDatagramIo.h"
 #include "amp/L1/MemoryDatagramIo.h"
+#include "amp/link/LinkEvents.h"
 #include "foundation/crypto/MlDsa.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/AmpStack.h"
 #include "domain/mesh/tests/support/mesh_harness_support.h"
-#include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
-#include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "domain/mesh/host/LocalNetworkChange.h"
 #include "domain/mesh/host/MeshHost.h"
 #include "foundation/identity/PeerIdUtil.h"
 
@@ -63,17 +68,23 @@ TEST(MeshHostAmpTest, AttachAmpStackParallelNoMeshHost) {
   EXPECT_TRUE(host.Amp()->IsStarted());
   EXPECT_EQ(host.AmpListenMultiaddr(), *ma);
   EXPECT_EQ(host.Amp()->Links().LocalCapability().listen_multiaddrs, std::vector<std::string>{*ma});
-  ASSERT_NE(host.AmpCircuitTunnel(), nullptr);
-  ASSERT_NE(host.AmpMediaRelayCoord(), nullptr);
-  EXPECT_TRUE(host.AmpCircuitTunnel()->IsStarted());
-  EXPECT_TRUE(host.AmpMediaRelayCoord()->IsStarted());
+  ASSERT_NE(host.AmpCircuitClient(), nullptr);
+  ASSERT_NE(host.AmpCircuitServer(), nullptr);
+  ASSERT_NE(host.AmpMediaRelayServer(), nullptr);
+  ASSERT_NE(host.AmpMediaRelayClientCoord(), nullptr);
+  EXPECT_TRUE(host.AmpCircuitClient()->IsStarted());
+  EXPECT_TRUE(host.AmpCircuitServer()->IsStarted());
+  EXPECT_TRUE(host.AmpMediaRelayServer()->IsStarted());
+  EXPECT_TRUE(host.AmpMediaRelayClientCoord()->IsStarted());
   ASSERT_NE(host.AmpCircuitHops(), nullptr);
 
   host.Tick();
   host.Stop();
   EXPECT_EQ(host.Amp(), nullptr);
-  EXPECT_EQ(host.AmpCircuitTunnel(), nullptr);
-  EXPECT_EQ(host.AmpMediaRelayCoord(), nullptr);
+  EXPECT_EQ(host.AmpCircuitClient(), nullptr);
+  EXPECT_EQ(host.AmpCircuitServer(), nullptr);
+  EXPECT_EQ(host.AmpMediaRelayServer(), nullptr);
+  EXPECT_EQ(host.AmpMediaRelayClientCoord(), nullptr);
   EXPECT_EQ(host.AmpCircuitHops(), nullptr);
   EXPECT_TRUE(host.AmpListenMultiaddr().empty());
 }
@@ -94,25 +105,120 @@ TEST(MeshHostAmpTest, AmpL4CoordinatorsShareIoTickWithoutOverwrite) {
 
   MeshHost host;
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
-  ASSERT_NE(host.AmpCircuitTunnel(), nullptr);
-  ASSERT_NE(host.AmpMediaRelayCoord(), nullptr);
+  ASSERT_NE(host.AmpCircuitClient(), nullptr);
+  ASSERT_NE(host.AmpMediaRelayServer(), nullptr);
 
-  host.AmpCircuitTunnel()->Start();
-  host.AmpMediaRelayCoord()->Start();
-  EXPECT_TRUE(host.AmpCircuitTunnel()->IsStarted());
-  EXPECT_TRUE(host.AmpMediaRelayCoord()->IsStarted());
+  host.AmpCircuitClient()->Start();
+  host.AmpMediaRelayServer()->Start();
+  EXPECT_TRUE(host.AmpCircuitClient()->IsStarted());
+  EXPECT_TRUE(host.AmpMediaRelayServer()->IsStarted());
 
   // Both deadline ticks must remain registered (AddIoTick multiplex).
   host.Tick();
-  EXPECT_TRUE(host.AmpCircuitTunnel()->IsStarted());
-  EXPECT_TRUE(host.AmpMediaRelayCoord()->IsStarted());
+  EXPECT_TRUE(host.AmpCircuitClient()->IsStarted());
+  EXPECT_TRUE(host.AmpMediaRelayServer()->IsStarted());
 
-  host.AmpCircuitTunnel()->Stop();
+  host.AmpCircuitClient()->Stop();
   host.Tick();
-  EXPECT_FALSE(host.AmpCircuitTunnel()->IsStarted());
-  EXPECT_TRUE(host.AmpMediaRelayCoord()->IsStarted());
+  EXPECT_FALSE(host.AmpCircuitClient()->IsStarted());
+  EXPECT_TRUE(host.AmpMediaRelayServer()->IsStarted());
 
   host.Stop();
+}
+
+// Host A with a hot link to B; B then goes silent (its sends are dropped).
+struct SilentPeerFixture {
+  std::shared_ptr<pp::adp::VirtualClock> clock = std::make_shared<pp::adp::VirtualClock>(1'000'000);
+  std::shared_ptr<pp::adp::MemoryDatagramHub> hub = pp::adp::MemoryDatagramIo::MakeHub();
+  std::shared_ptr<pp::adp::LossyDatagramIo> io_b;
+  std::unique_ptr<pp::amp::AmpStack> stack_b;
+  MeshHost host;
+  std::vector<pp::amp::LinkEvent> events;
+
+  void SetUp() {
+    const auto addr_a = pp::adp::IpEndpoint::V4(10, 0, 1, 1, 1000);
+    const auto addr_b = pp::adp::IpEndpoint::V4(10, 0, 1, 2, 2000);
+    io_b = std::make_shared<pp::adp::LossyDatagramIo>(std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr_b));
+    std::string peer_a;
+    std::string peer_b;
+    auto stack_a = MakeTestAmpStack(clock, std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr_a), &peer_a);
+    stack_b = MakeTestAmpStack(clock, io_b, &peer_b);
+    ASSERT_TRUE(stack_a && stack_b);
+    stack_b->GetEndpoint().SetAcceptEnabled(true);
+    stack_b->Start();
+    auto ma_a = pp::amp::FormatAdpMultiaddr(addr_a, peer_a);
+    auto ma_b = pp::amp::FormatAdpMultiaddr(addr_b, peer_b);
+    ASSERT_TRUE(ma_a && ma_b);
+    ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack_a), *ma_a)));
+    auto& links = host.Amp()->Links();
+    links.AddLinkEventListener([this](const pp::amp::LinkEvent& event) { events.push_back(event); });
+    ASSERT_TRUE(static_cast<bool>(links.RegisterEndpoint("b", *ma_b)));
+    bool connected = false;
+    links.EnsureAssociation("b", [&](pp::amp::PeerLinkManager::LinkRoe r) { connected = static_cast<bool>(r); });
+    Run(200, 10);
+    ASSERT_TRUE(connected);
+    links.MarkHot("b");  // hot: its liveness window is far longer than the test
+    Run(10, 100);
+    io_b->SetDropRate(1.0);
+  }
+
+  void Run(const int rounds, const int64_t step_ms) {
+    for (int i = 0; i < rounds; ++i) {
+      clock->Advance(step_ms);
+      host.Tick();
+      stack_b->Runtime().Drive();
+    }
+  }
+
+  bool Dropped(const pp::amp::LinkDropReason reason) const {
+    for (const auto& event : events) {
+      if (event.kind == pp::amp::LinkEvent::Kind::Dropped && event.reason == reason) {
+        return true;
+      }
+    }
+    return false;
+  }
+};
+
+// k5: after a network change the host's link to a peer that no longer answers is gone within
+// Amp's 2 s grace — not after the hot link's liveness window.
+TEST(MeshHostAmpTest, NetworkChangeEvictsADeadLinkFast) {
+  ASSERT_GE(sodium_init(), 0);
+  SilentPeerFixture f;
+  f.SetUp();
+  if (::testing::Test::HasFatalFailure()) {
+    return;
+  }
+  f.host.OnLocalNetworkChanged(LocalNetworkChange{true, true, true});
+  f.Run(30, 100);  // 3 s
+  EXPECT_TRUE(f.Dropped(pp::amp::LinkDropReason::NetworkChanged));
+  EXPECT_EQ(f.host.Amp()->Links().FindLink("b"), nullptr);
+  f.host.Stop();
+}
+
+// Going offline probes nothing: links ride out a short outage (a later online change probes them).
+TEST(MeshHostAmpTest, GoingOfflineLeavesLinksAlone) {
+  ASSERT_GE(sodium_init(), 0);
+  SilentPeerFixture f;
+  f.SetUp();
+  if (::testing::Test::HasFatalFailure()) {
+    return;
+  }
+  f.host.OnLocalNetworkChanged(LocalNetworkChange{true, false, true});
+  f.Run(30, 100);
+  EXPECT_FALSE(f.Dropped(pp::amp::LinkDropReason::NetworkChanged));
+  EXPECT_NE(f.host.Amp()->Links().FindLink("b"), nullptr);
+  f.host.Stop();
+}
+
+TEST(LocalNetworkReactionTest, OnlyAMoveOnlineProbes) {
+  // {was_online, online, attachment_changed}
+  EXPECT_TRUE(DecideLocalNetworkReaction({true, true, true}).probe_links) << "new attachment";
+  EXPECT_TRUE(DecideLocalNetworkReaction({false, true, false}).probe_links) << "back online";
+  EXPECT_TRUE(DecideLocalNetworkReaction({false, true, false}).reprobe_reachability);
+  EXPECT_FALSE(DecideLocalNetworkReaction({true, false, true}).probe_links) << "offline: nothing to probe through";
+  EXPECT_FALSE(DecideLocalNetworkReaction({true, true, false}).probe_links) << "cost / label only";
+  EXPECT_FALSE(DecideLocalNetworkReaction({true, true, false}).reprobe_reachability);
 }
 
 } // namespace

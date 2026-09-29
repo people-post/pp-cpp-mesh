@@ -1,8 +1,8 @@
 #include "domain/mesh/media_plane/MeshMediaPlane.h"
 
-#include "domain/mesh/l4/media_relay/AmpMediaRelayClient.h"
-#include "domain/mesh/reachability/AmpCircuitHopReach.h"
-#include "domain/mesh/reachability/AmpPunchCoordinator.h"
+#include "domain/mesh/l4/media_relay/client/AmpMediaRelayClient.h"
+#include "domain/mesh/reach/AmpCircuitHopReach.h"
+#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
 #include "domain/mesh/reachability/Reachability.h"
 #include "foundation/runtime/AppRuntime.h"
 
@@ -82,6 +82,7 @@ void MeshMediaPlane::Wire() {
       // Exclusive Amp Drive: io_pump is empty; MeshPump (or a harness Tick loop) progresses Amp.
       io = chat->io;
     }
+    objects_.Invalidate();  // rewire replaces the objects earlier ports point at
     wired_ = true;
     RefreshHopPolicyOnOwner();
     ArmHopPolicyRefresh();
@@ -158,7 +159,7 @@ void MeshMediaPlane::RefreshHopPolicyOnOwner() {
     view.local_peer_id = m->Amp()->LocalPeerId();
     view.amp_listen_multiaddr = m->AmpListenMultiaddr();
     view.advertised_listen_multiaddrs = m->AdvertisedListenMultiaddrs();
-    view.media_relay_started = m->AmpMediaRelayCoord() && m->AmpMediaRelayCoord()->IsStarted();
+    view.media_relay_started = m->AmpMediaRelayServer() && m->AmpMediaRelayServer()->IsStarted();
     if (AmpPunchCoordinator* punch = m->AmpPunch()) {
       view.punch_started = punch->IsStarted();
       view.punch_candidate_addrs = punch->LocalCandidateAddrs();
@@ -193,7 +194,7 @@ void MeshMediaPlane::ArmHopPolicyRefresh() {
 
 bool MeshMediaPlane::AmpRelayAvailable() const {
   MeshHost* m = mesh();
-  return m && m->Amp() && m->AmpMediaRelayCoord() && m->AmpMediaRelayCoord()->IsStarted();
+  return m && m->Amp() && m->AmpMediaRelayClientCoord() && m->AmpMediaRelayClientCoord()->IsStarted();
 }
 
 void MeshMediaPlane::WireMediaRelayClient(MeshHost* m, const MeshIoContext& io) {
@@ -202,7 +203,7 @@ void MeshMediaPlane::WireMediaRelayClient(MeshHost* m, const MeshIoContext& io) 
     log().warning << "media-relay transport unavailable (Amp required)";
     return;
   }
-  media_relay_client_ = std::make_unique<AmpMediaRelayClient>(*m->AmpMediaRelayCoord(), io.io_pump,
+  media_relay_client_ = std::make_unique<AmpMediaRelayClient>(*m->AmpMediaRelayClientCoord(), io.io_pump,
                                                               m->Amp()->LocalPeerId(), io.post_io, io.post_after);
   log().info << "media-relay transport=amp";
 }
@@ -220,7 +221,7 @@ void MeshMediaPlane::WireDialRegistry(MeshHost* m, const MeshIoContext& io) {
 }
 
 void MeshMediaPlane::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io) {
-  const bool use_amp_circuit = AmpRelayAvailable() && m->AmpCircuitTunnel() && m->AmpCircuitTunnel()->IsStarted() &&
+  const bool use_amp_circuit = AmpRelayAvailable() && m->AmpCircuitClient() && m->AmpCircuitClient()->IsStarted() &&
                                m->AmpCircuitHops();
   auto circuit = use_amp_circuit ? m->CircuitDeps() : std::nullopt;
   if (!circuit) {
@@ -259,10 +260,11 @@ void MeshMediaPlane::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io) {
   log().info << "circuit-hop reach=amp";
 }
 
-void MeshMediaPlane::BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach) {
+void MeshMediaPlane::BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach, IMediaRelayClient* relay) {
   AppRuntime::RunAndWait(kOwner, [&]() {
     test_dial_ = dial;
     test_circuit_reach_ = circuit_reach;
+    test_relay_ = relay;
   });
 }
 
@@ -276,9 +278,11 @@ ICircuitHopReach* MeshMediaPlane::CircuitReach() const {
 
 MediaRelayAttachPorts MeshMediaPlane::RelayAttachPorts() const {
   MediaRelayAttachPorts ports;
-  ports.relay = media_relay_client_.get();
+  ports.relay = RelayClient();
   ports.dial = Dial();
   ports.service_reach = CircuitReach();
+  ports.objects_alive = objects_.token();
+  ports.objects_snap = objects_.Snapshot();
   return ports;
 }
 
@@ -294,17 +298,20 @@ void MeshMediaPlane::InvalidateAsyncOps() {
       amp->SetOnRelayChosen({});
     }
     deferred_.Invalidate();
+    objects_.Invalidate();  // mesh stop: in-flight attaches/probes must not reach the objects after reset
   });
 }
 
 void MeshMediaPlane::ResetRelayClient() {
   AppRuntime::RunAndWait(kOwner, [&]() {
+    objects_.Invalidate();
     media_relay_client_.reset();
   });
 }
 
 void MeshMediaPlane::ResetRelayClients() {
   AppRuntime::RunAndWait(kOwner, [&]() {
+    objects_.Invalidate();
     media_relay_client_.reset();
     dial_registry_.reset();
   });
@@ -312,6 +319,7 @@ void MeshMediaPlane::ResetRelayClients() {
 
 void MeshMediaPlane::ResetAfterMeshStop() {
   AppRuntime::RunAndWait(kOwner, [&]() {
+    objects_.Invalidate();
     media_relay_client_.reset();
     dial_registry_.reset();
     circuit_hop_reach_.reset();
@@ -326,6 +334,7 @@ void MeshMediaPlane::Clear() {
     circuit_hop_reach_.reset();
     test_dial_ = nullptr;
     test_circuit_reach_ = nullptr;
+    test_relay_ = nullptr;
     rendezvous_.Clear();
     peer_listen_mas_.clear();
     PublishListenBook();
@@ -459,16 +468,6 @@ void MeshMediaPlane::TryEnsurePeerReachableAsync(const std::string& peer_key, st
   } else {
     circuit_hop_reach_->TryEnsurePeerReachableAsync(peer_key, std::move(on_done));
   }
-}
-
-Roe<void> MeshMediaPlane::TryUpgradeToDirect(const std::string& peer_key) {
-  if (!circuit_hop_reach_) {
-    return Error("amp circuit reach required");
-  }
-  if (peer_key.empty()) {
-    return Error("missing peer");
-  }
-  return circuit_hop_reach_->TryUpgradeToDirect(peer_key);
 }
 
 } // namespace pbr

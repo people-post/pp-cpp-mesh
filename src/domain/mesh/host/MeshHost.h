@@ -2,13 +2,17 @@
 
 #include "foundation/data/Config.h"
 #include "amp/link/AmpStack.h"
-#include "domain/mesh/l4/circuit/AmpCircuitHopRegistry.h"
+#include "domain/mesh/host/LocalNetworkChange.h"
+#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "domain/mesh/dht/AmpDhtProtocol.h"
 #include "domain/mesh/discovery/AmpDirectoryProtocol.h"
-#include "domain/mesh/reachability/AmpDialBackProtocol.h"
-#include "domain/mesh/reachability/AmpPunchCoordinator.h"
-#include "domain/mesh/l4/media_relay/AmpMediaRelayCoordinator.h"
-#include "domain/mesh/l4/circuit/CircuitTunnelCoordinator.h"
+#include "domain/mesh/reachability/dial_back/client/DialBackClient.h"
+#include "domain/mesh/reachability/dial_back/serve/DialBackServer.h"
+#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
 #include "domain/mesh/host/MeshIdentityConfig.h"
 #include "domain/mesh/host/MeshPorts.h"
 #include "foundation/runtime/AppRuntime.h"
@@ -101,11 +105,17 @@ public:
   /** Set when Amp was requested but failed (Start returns error; for diagnostics). */
   const std::string& AmpLastError() const { return amp_last_error_; }
 
-  CircuitTunnelCoordinator* AmpCircuitTunnel();
-  AmpMediaRelayCoordinator* AmpMediaRelayCoord();
+  /** circuit serving side (bridge / reserve for others); gated by host_circuit_relay. */
+  CircuitRelayServer* AmpCircuitServer();
+  /** circuit client side (our bridges and reservations on relays). */
+  CircuitClientCoordinator* AmpCircuitClient();
+  /** media_relay serving side (inbound quote / attach, hosted sessions); gated by host_media_relay. */
+  MediaRelayServer* AmpMediaRelayServer();
+  /** media_relay client side (outbound quote / attach, the attached session). */
+  MediaRelayClientCoordinator* AmpMediaRelayClientCoord();
   AmpCircuitHopRegistry* AmpCircuitHops();
   /** Amp dial-back for reachability chrome (D8); null when Amp is down. */
-  AmpDialBackProtocol* AmpDialBack();
+  DialBackClient* AmpDialBack();
   /** Amp coordinated punch (H009 / L3.25a); null when Amp is down. */
   AmpPunchCoordinator* AmpPunch();
   /** Amp mesh DHT (n2); null when Amp is down. */
@@ -137,6 +147,12 @@ public:
 
   /** Build deps and run Amp reachability probe (async). */
   void StartReachabilityProbe(bool try_upnp_first = false);
+  /**
+   * k5: the device's network changed (any thread). Per `DecideLocalNetworkReaction`: Amp probes
+   * every direct link and evicts the silent ones fast; reachability is probed again once that
+   * settled, refreshing advertised and punch addresses. A newer change supersedes a pending re-probe.
+   */
+  void OnLocalNetworkChanged(const LocalNetworkChange& change);
   void RunReachabilityProbeBlocking(bool try_upnp_first = false);
 
 private:
@@ -168,11 +184,18 @@ private:
   MeshPumpThread pump_;
   /** Set while MeshPump drives: L4 work goes to AppRuntime workers (MakeL4WorkerPost). */
   std::atomic<bool> l4_on_workers_{false};
+  /** k5: the latest network change; a delayed re-probe for an older one stands down. */
+  std::atomic<uint64_t> network_change_gen_{0};
+  void ReprobeAfterNetworkChange(uint64_t gen, int attempts_left);
   std::unique_ptr<pp::amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
-  std::unique_ptr<CircuitTunnelCoordinator> amp_circuit_;
-  std::unique_ptr<AmpMediaRelayCoordinator> amp_media_relay_;
-  std::unique_ptr<AmpDialBackProtocol> amp_dial_back_;
+  std::unique_ptr<CircuitRelayServer> amp_circuit_server_;
+  std::unique_ptr<CircuitClientCoordinator> amp_circuit_client_;
+  std::unique_ptr<MediaRelayServer> amp_media_relay_server_;
+  /** Holds a pointer to the server (local hop): declared after it, so freed first. */
+  std::unique_ptr<MediaRelayClientCoordinator> amp_media_relay_client_;
+  std::unique_ptr<DialBackServer> amp_dial_back_server_;
+  std::unique_ptr<DialBackClient> amp_dial_back_;
   std::unique_ptr<AmpPunchCoordinator> amp_punch_;
   std::unique_ptr<AmpDhtProtocol> amp_dht_;
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;

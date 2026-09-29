@@ -1,4 +1,4 @@
-#include "domain/mesh/reachability/PunchLogic.h"
+#include "domain/mesh/reachability/punch/PunchLogic.h"
 
 #include <gtest/gtest.h>
 
@@ -125,6 +125,18 @@ TEST(PunchLogicTest, PickPunchIntroducerSkipsAlsoExclude) {
                                     std::unordered_set<std::string>{"contact-a"});
   ASSERT_TRUE(picked.has_value());
   EXPECT_EQ(*picked, "contact-b");
+}
+
+// k7: the introducer leads each side's candidates with the endpoint it observes for the peer (its
+// NAT mapping) — a peer behind NAT rarely knows that address itself.
+TEST(PunchLogicTest, ObservedEndpointLeadsTheCandidates) {
+  const std::string priv = "/ip4/10.0.1.5/udp/4001/adp/1.0.0/p2p/QmA";
+  const std::string observed = "/ip4/203.0.113.9/udp/4001/adp/1.0.0/p2p/QmA";
+  EXPECT_EQ(WithObservedPunchAddr(observed, {priv}), (std::vector<std::string>{observed, priv}));
+  EXPECT_EQ(WithObservedPunchAddr(observed, {observed, priv}), (std::vector<std::string>{observed, priv}))
+      << "no duplicate when the peer already knew it";
+  EXPECT_EQ(WithObservedPunchAddr(std::nullopt, {priv}), (std::vector<std::string>{priv}));
+  EXPECT_EQ(WithObservedPunchAddr(std::string("not a multiaddr"), {priv}), (std::vector<std::string>{priv}));
 }
 
 } // namespace
