@@ -24,7 +24,7 @@ struct Side {
   std::map<std::string, std::vector<std::string>> registered;
   SignalingPunchExchange::DoneFn pending_burst;
   bool carrier_up = true;
-  std::function<bool(const std::string& peer_id, const std::string& sender_key)> may_answer;
+  std::function<bool(const std::string& sender_key)> may_answer;
 
   void Bind() {
     SignalingPunchExchange::Ports ports;
@@ -94,9 +94,7 @@ TEST(SignalingPunchExchangeTest, DeclinedPeerGetsNoAnswerAndNoBurst) {
   a.peer_id = "12D3a";
   b.peer_id = "12D3b";
   b.candidates = {"/ip4/2.2.2.2/tcp/2"};
-  b.may_answer = [](const std::string& peer_id, const std::string& sender_key) {
-    return peer_id == "12D3friend" || sender_key == "account:friend";
-  };
+  b.may_answer = [](const std::string& sender_key) { return sender_key == "account:friend"; };
   a.Bind();
   b.Bind();
 
@@ -109,6 +107,26 @@ TEST(SignalingPunchExchangeTest, DeclinedPeerGetsNoAnswerAndNoBurst) {
 
   EXPECT_TRUE(b.exchange.OnOffer(*a.sent_offer, "account:friend"));
   EXPECT_TRUE(b.sent_answer);
+}
+
+// PR 249 review: the offer's peer_id is self-declared. A stranger naming a contact's PeerId gets no
+// answer, no burst, and does not overwrite that contact's listen addresses.
+TEST(SignalingPunchExchangeTest, AClaimedPeerIdDoesNotGetAStrangerAnAnswer) {
+  Side stranger;
+  Side b;
+  stranger.peer_id = "12D3friend";  // the contact's PeerId, claimed
+  b.peer_id = "12D3b";
+  b.candidates = {"/ip4/2.2.2.2/tcp/2"};
+  b.may_answer = [](const std::string& sender_key) { return sender_key == "account:friend"; };
+  stranger.Bind();
+  b.Bind();
+
+  stranger.exchange.Request("12D3b", {"/ip4/6.6.6.6/tcp/6"}, [](Roe<void>) {});
+  ASSERT_TRUE(stranger.sent_offer);
+  EXPECT_FALSE(b.exchange.OnOffer(*stranger.sent_offer, "account:stranger"));
+  EXPECT_FALSE(b.sent_answer);
+  EXPECT_TRUE(b.bursts.empty());
+  EXPECT_TRUE(b.registered.empty()) << "the contact's listen addresses were overwritten";
 }
 
 TEST(SignalingPunchExchangeTest, NewRequestSupersedesAndStaleAnswersAreIgnored) {
