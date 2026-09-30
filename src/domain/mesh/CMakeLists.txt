@@ -8,7 +8,8 @@
 #   reachability   dht <- discovery   circuit <- media_relay   call_media
 #   host           (MeshHost: composes the services above)
 #   reach          (reach / rendezvous / punch walk over MeshHost)
-#   media_plane    (MeshMediaPlane, MediaRelayAttach)
+#   connectivity   (MeshConnectivity: dial registry, listen book, circuit reach, rendezvous, punch walk)
+#   media_plane    (MeshMediaRelay, MediaRelayAttach)
 #
 # `pp_domain_mesh` aggregates them for consumers outside the peer.
 
@@ -110,6 +111,7 @@ _pp_mesh_library(media_relay
     l4/media_relay/MediaRelayFrames.cpp
     l4/media_relay/MediaRelayLogic.cpp
     l4/media_relay/MediaRelayBundleLogic.cpp
+    l4/media_relay/MediaRelayVideoLevels.cpp
     l4/media_relay/serve/MediaRelayAttachSm.cpp
     l4/media_relay/serve/MediaRelayServer.cpp
     l4/media_relay/client/MediaRelayClientCoordinator.cpp
@@ -145,15 +147,21 @@ _pp_mesh_library(reach
     reach/CircuitRendezvousCoordinator.cpp
   DEPS host reachability circuit shared)
 
+_pp_mesh_library(connectivity
+  SOURCES
+    connectivity/MeshConnectivity.cpp
+  DEPS reach host reachability)
+
 _pp_mesh_library(media_plane
   SOURCES
-    media_plane/MeshMediaPlane.cpp
+    media_plane/MeshMediaRelay.cpp
     media_plane/MediaRelayAttach.cpp
-  DEPS reach host reachability media_relay)
+  DEPS connectivity reach host reachability media_relay)
 
 add_library(pp_domain_mesh INTERFACE)
 target_link_libraries(pp_domain_mesh INTERFACE
   pp_domain_mesh_media_plane
+  pp_domain_mesh_connectivity
   pp_domain_mesh_reach
   pp_domain_mesh_host
   pp_domain_mesh_call_media

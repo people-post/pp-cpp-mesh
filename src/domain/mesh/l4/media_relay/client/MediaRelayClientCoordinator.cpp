@@ -1,4 +1,5 @@
 #include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "domain/mesh/l4/media_relay/MediaRelayVideoLevels.h"
 
 #include "domain/mesh/l4/shared/ChannelSessionSlot.h"
 #include "domain/mesh/l4/shared/ProductChannelPolicies.h"
@@ -45,6 +46,7 @@ MediaRelayQuote ParseQuoteResponse(const Object& root) {
   q.rate = root.getIf<double>("rate").value_or(0.0);
   q.ceiling_bytes = root.getIf<int64_t>("ceiling_bytes").value_or(0);
   q.ceiling_amount = root.getIf<double>("ceiling_amount").value_or(0.0);
+  q.video_levels = VideoLevelsFromJson(root, "video_levels");
   return q;
 }
 
@@ -539,6 +541,8 @@ struct MediaRelayClientCoordinator::Impl {
     req.set("participants", int64_t{request.participants});
     req.set("want_up_bps", request.want_up_bps);
     req.set("want_down_bps", request.want_down_bps);
+    req.set("video_levels", VideoLevelsToJson(request.video_levels));
+    req.set("video_parallel", int64_t{request.video_parallel});
     const std::string json = DumpJson(req);
     if (TryBeginOnCircuitHop(session, json, MediaRelayBundlePhase::WaitQuote)) {
       return;
@@ -880,7 +884,27 @@ double MediaRelayClientCoordinator::PathPressure() const { return HealthSnapshot
 
 CallHopHealth MediaRelayClientCoordinator::HealthSnapshot() const {
   CallHopHealth health;
-  health.attached = IsAttached();
+  std::string relay_key;
+  {
+    std::lock_guard lock(impl_->mu);
+    health.attached = impl_->client_.channel != nullptr || (impl_->local_server && impl_->local_server->IsLocalAttached());
+    if (impl_->client_.channel) {
+      relay_key = impl_->client_.hop_peer_key;
+    }
+  }
+  if (relay_key.empty()) {
+    return health;  // detached, or on this device's own hop: no link to a relay
+  }
+  // Under the link strand only (IO callbacks take `mu` inside it).
+  pp::amp::LinkHandle link{};
+  runtime_.Links().WithLiveLinkByDialKey(relay_key, [&](pp::amp::PeerLink& live) { link = live.Handle(); });
+  if (const auto stats = runtime_.Links().LinkConnectionStats(link)) {
+    health.link = CallLinkCounters{.available = true,
+                                   .link_id = link.id.value,
+                                   .reliable_sent = stats->reliable_sent,
+                                   .retransmits = stats->retransmits,
+                                   .srtt_ms = stats->srtt_ms};
+  }
   return health;
 }
 

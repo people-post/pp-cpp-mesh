@@ -4,18 +4,16 @@
 #include "common/Module.h"
 #include "common/directory/MeshHopTypes.h"
 #include "domain/mesh/host/MeshHost.h"
-#include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
-#include "domain/mesh/media_plane/MediaRelayAttach.h"
 #include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
 #include "domain/mesh/reach/MeshReachPorts.h"
 #include "domain/mesh/reach/PunchIntroducerWalk.h"
 #include "foundation/runtime/DeferredSelf.h"
 
 #include <atomic>
-#include <mutex>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -24,12 +22,12 @@
 namespace pbr {
 
 /**
- * What the plane needs from the product. Hop candidates are policy (contacts, directory, DHT,
+ * What connectivity needs from the product. Hop candidates are policy (contacts, directory, DHT,
  * seeds) the wiring feature computes — `domain/mesh` does not read contacts. The three policy
  * providers are evaluated on the Connectivity owner (at Wire, every few seconds, and on
  * `RefreshHopPolicy`); the Amp IO side only reads the resulting `MeshHopPolicy` snapshot.
  */
-struct MeshMediaPlaneDeps {
+struct MeshConnectivityDeps {
   std::function<MeshHost*()> mesh;
   /** Rendezvous surface (contacts ∪ directory ∪ DHT ∪ seeds); self / target are filtered here. */
   std::function<std::vector<MeshHopCandidate>()> rendezvous_candidates;
@@ -42,26 +40,6 @@ struct MeshMediaPlaneDeps {
   std::function<void(const std::string& key, const std::string& multiaddr)> register_direct_endpoint;
 };
 
-/**
- * Owner of the neutral mesh media objects shared by calls and broadcast (media-client-layers
- * L015): the media_relay client, dial registry + peer listen book, circuit / service reach, and the
- * reach pieces it is built from — `PunchIntroducerWalk` (punch step) and
- * `CircuitRendezvousCoordinator` (relay surface for dialing and parking). Composition and lifecycle
- * only: reach mechanics live in `domain/mesh/reachability`.
- *
- * The owner sequences rewires: dependents holding `RelayClient()` / `Dial()` / `CircuitReach()`
- * must be detached before `Wire`, `ResetRelayClients`, `ResetRelayClient` or teardown replace them.
- *
- * Threading (thread-ownership t3-2): the plane lives on the Connectivity owner (`pp-connectivity`).
- * Lifecycle edges (deps, hooks, Wire / Reset / Clear, test path) run there and the caller waits
- * (`AppRuntime::RunAndWait` — callers are UI or the media-sessions owner, never below it). Listen
- * registrations post there; the listen book is read as a published snapshot. Circuit reach's
- * relay-chosen notice hops from Amp IO to the owner, and the consumer hook runs there — consumers
- * hop to their own owner. The object accessors (`RelayClient` / `Dial` / `CircuitReach`) are read by
- * consumers at their bind points, between the owner's rewire edges (L015 sequencing). Async
- * callbacks that capture `this` (and the rendezvous coordinator's) are dropped after
- * `InvalidateAsyncOps`.
- */
 /** Candidate policy as of the owner's last refresh (read on the Amp IO strand). */
 struct MeshHopPolicy {
   std::vector<MeshHopCandidate> rendezvous_candidates;
@@ -70,9 +48,9 @@ struct MeshHopPolicy {
 };
 
 /**
- * This node's mesh, as the media consumers need it (local PeerId, listen / advertise addrs, relay
- * and punch availability) — published by the owner while wired, empty otherwise, so consumers on
- * other owners never read the MeshHost the product hub may be tearing down.
+ * This node's mesh, as its consumers need it (local PeerId, listen / advertise addrs, relay and
+ * punch availability) — published by the owner while wired, empty otherwise, so consumers on other
+ * owners never read the MeshHost the product hub may be tearing down.
  */
 struct MeshLocalView {
   bool amp_up = false;
@@ -84,16 +62,36 @@ struct MeshLocalView {
   std::vector<std::string> punch_candidate_addrs;
 };
 
-class MeshMediaPlane : public Module {
+/**
+ * Reaching peers over the mesh, for every product consumer (calls, broadcast, and messaging in
+ * time): the dial registry + peer listen book, circuit / service reach, and the reach pieces it is
+ * built from — `PunchIntroducerWalk` (punch step) and `CircuitRendezvousCoordinator` (relay surface
+ * for dialing, and parking so this node is reachable). Composition and lifecycle only: reach
+ * mechanics live in `domain/mesh/reach` and `domain/mesh/reachability`. Media is not here — the
+ * media_relay client lives in `MeshMediaRelay`, which builds on this.
+ *
+ * The owner sequences rewires: dependents holding `Dial()` / `CircuitReach()` must be detached
+ * before `Wire`, `ResetDialRegistry`, `ResetAfterMeshStop` or teardown replace them.
+ *
+ * Threading (thread-ownership t3-2): lives on the Connectivity owner (`pp-connectivity`).
+ * Lifecycle edges (deps, hooks, Wire / Reset / Clear, test path) run there and the caller waits
+ * (`AppRuntime::RunAndWait` — callers are UI or the media-sessions owner, never below it). Listen
+ * registrations post there; the listen book is read as a published snapshot. Circuit reach's
+ * relay-chosen notice hops from Amp IO to the owner, and the consumer hook runs there — consumers
+ * hop to their own owner. The object accessors (`Dial` / `CircuitReach`) are read by consumers at
+ * their bind points, between the owner's rewire edges (L015 sequencing). Async callbacks that
+ * capture `this` (and the rendezvous coordinator's) are dropped after `InvalidateAsyncOps`.
+ */
+class MeshConnectivity : public Module {
 public:
   using SignalingPunchFn = PunchIntroducerWalk::SignalingPunchFn;
 
-  MeshMediaPlane();
-  ~MeshMediaPlane() override;
-  MeshMediaPlane(const MeshMediaPlane&) = delete;
-  MeshMediaPlane& operator=(const MeshMediaPlane&) = delete;
+  MeshConnectivity();
+  ~MeshConnectivity() override;
+  MeshConnectivity(const MeshConnectivity&) = delete;
+  MeshConnectivity& operator=(const MeshConnectivity&) = delete;
 
-  void SetDeps(MeshMediaPlaneDeps deps);
+  void SetDeps(MeshConnectivityDeps deps);
   /** Last-resort punch through a consumer's own signaling when Amp introducers are exhausted (H012). */
   void SetSignalingPunch(SignalingPunchFn punch);
   /**
@@ -111,34 +109,35 @@ public:
    */
   void SignalingPunchBurstAsync(std::vector<std::string> peer_addrs, int window_ms,
                                 std::function<void(Roe<void>)> on_done);
-
   /** Circuit reach chose a rendezvous relay (H011: calls announce it to the call peer). */
   void SetOnRelayChosen(std::function<void(const std::string& relay_peer_id)> callback);
 
-  /** (Re)create relay client, dial registry and circuit reach from the running mesh; arm re-park. */
+  /** (Re)create the dial registry and circuit reach from the running mesh; arm re-park. */
   void Wire();
-  /**
-   * Tests / harness without MeshHost objects: use these instead (not owned). `relay` stands in for
-   * the Amp media_relay client (group-call compose); null keeps the wired one.
-   */
-  void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach, IMediaRelayClient* relay = nullptr);
+  /** Tests / harness without MeshHost objects: use these instead (not owned). */
+  void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach);
   /** Drop async callbacks, relay-chosen notices and the re-park listener (mesh stop / teardown). */
   void InvalidateAsyncOps();
-  void ResetRelayClient();
-  /** Relay client + dial registry (capability refresh). */
-  void ResetRelayClients();
+  /** Dial registry (capability refresh); Wire makes a new one. */
+  void ResetDialRegistry();
   /** After the mesh stopped: dial registry and circuit reach (they referenced its links / tunnel). */
   void ResetAfterMeshStop();
   /** Everything, including the listen book (owner teardown). */
   void Clear();
 
-  IMediaRelayClient* RelayClient() const { return test_relay_ ? test_relay_ : media_relay_client_.get(); }
   IDialRegistry* Dial() const;
   ICircuitHopReach* CircuitReach() const;
-  /** media_relay client + dial + service reach, for `AttachToMediaRelayAsync` users. */
-  MediaRelayAttachPorts RelayAttachPorts() const;
-  /** True when the mesh runs a started Amp media_relay coordinator. */
-  bool AmpRelayAvailable() const;
+  /** The mesh it wires from (null when none); for objects built on this (`MeshMediaRelay`). */
+  MeshHost* Mesh() const { return mesh(); }
+
+  /**
+   * Liveness of the objects handed out to consumers' async work (dial registry, circuit reach, and
+   * `MeshMediaRelay`'s relay client): bumped on the owner before any of them is replaced or freed.
+   */
+  DeferredSelf::Token ObjectsToken() const { return objects_.token(); }
+  uint64_t ObjectsSnapshot() const { return objects_.Snapshot(); }
+  /** Owner: one of the handed-out objects is about to be replaced (`MeshMediaRelay`'s relay client). */
+  void InvalidateObjects() { objects_.Invalidate(); }
 
   // --- peer listen book ---------------------------------------------------------------------
   /**
@@ -158,7 +157,6 @@ public:
   Roe<void> TryEnsureCircuitHopReachable(const std::string& hop_peer_id);
   Roe<void> TryEnsurePeerReachable(const std::string& peer_key);
   void TryEnsurePeerReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done);
-
   /** Rendezvous relays: dial surface for reach, parking so this node is reachable (stable object). */
   CircuitRendezvousCoordinator& Rendezvous() { return rendezvous_; }
 
@@ -170,11 +168,10 @@ private:
   /** Re-evaluate the policy periodically while wired (the inputs change without notice). */
   void ArmHopPolicyRefresh();
   void PublishListenBook();
-  void WireMediaRelayClient(MeshHost* m, const MeshIoContext& io);
   void WireDialRegistry(MeshHost* m, const MeshIoContext& io);
   void WireCircuitHopReach(MeshHost* m, const MeshIoContext& io);
 
-  MeshMediaPlaneDeps deps_;
+  MeshConnectivityDeps deps_;
   std::function<void(const std::string&)> on_relay_chosen_;
   ListenBook peer_listen_mas_;  // owner
   mutable std::mutex listen_book_mu_;
@@ -186,17 +183,13 @@ private:
   bool wired_ = false;             // owner: between Wire and InvalidateAsyncOps
   mutable std::mutex local_view_mu_;
   std::shared_ptr<const MeshLocalView> local_view_ = std::make_shared<const MeshLocalView>();
-
-  std::unique_ptr<IMediaRelayClient> media_relay_client_;
   std::unique_ptr<PeerSessionDialRegistry> dial_registry_;
   std::unique_ptr<ICircuitHopReach> circuit_hop_reach_;
   IDialRegistry* test_dial_ = nullptr;
   ICircuitHopReach* test_circuit_reach_ = nullptr;
-  IMediaRelayClient* test_relay_ = nullptr;
   PunchIntroducerWalk punch_;
   CircuitRendezvousCoordinator rendezvous_;
   DeferredSelf deferred_;
-  /** Liveness of relay client / dial / circuit reach handed out in `RelayAttachPorts` (bumped before any is freed). */
   DeferredSelf objects_;
 };
 

@@ -549,6 +549,11 @@ bool CircuitClientCoordinator::IsTunnelActive(const CircuitTunnelId id) const {
   return CircuitTunnelPhaseIsActive(Phase(id));
 }
 
+size_t CircuitClientCoordinator::ParkedRelayCount() const {
+  std::lock_guard lock(impl_->mu);
+  return impl_->reserved_relays.size();
+}
+
 std::shared_ptr<pp::amp::ChannelSession> CircuitClientCoordinator::Session(const CircuitTunnelId id) const {
   std::lock_guard lock(impl_->mu);
   if (const auto* tunnel = impl_->Find(id)) {

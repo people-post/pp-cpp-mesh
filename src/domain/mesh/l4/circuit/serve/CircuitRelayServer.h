@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/mesh/l4/shared/RelayRuntimeStats.h"
 #include "amp/link/MeshRuntime.h"
 #include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
 
@@ -35,6 +36,8 @@ public:
   bool ServeInbound() const;
   /** K003 standby circuits served at once: relay-wide and per dialer PeerId (0 keeps the default). */
   void SetStandbyLimits(size_t max_standby, size_t max_per_dialer);
+  /** Tunnels bridged / still in setup, and parked reservations (aggregates only). Any thread. */
+  CircuitRelayRuntimeStats RuntimeStats() const;
 
   /** Close every served tunnel and parked reservation. */
   void AbortInflight();

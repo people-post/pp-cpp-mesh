@@ -16,8 +16,8 @@ namespace pbr {
 
 /**
  * Mesh ports an attach runs over. `service_reach` may be null (no circuit / punch fallback).
- * `objects_alive` / `objects_snap`: the owner's liveness for these raw pointers (`MeshMediaPlane`
- * invalidates it before it frees them). Service reach can take seconds; the continuation after it
+ * `objects_alive` / `objects_snap`: the owner's liveness for these raw pointers (`MeshConnectivity` and
+ * `MeshMediaRelay` invalidate it before freeing them). Service reach can take seconds; the continuation after it
  * (and before AcceptAndAttach) fails instead of dereferencing freed objects. Null = ungated (tests).
  */
 struct MediaRelayAttachPorts {
@@ -55,6 +55,8 @@ struct MediaRelayAttached {
   std::string quote_id;
   /** Granted uplink from the quote (feeds the caller's adaptation). */
   int64_t a_up_bps = 0;
+  /** B009: the video levels the relay carries for this participant (publish exactly these). */
+  std::vector<uint8_t> video_levels;
 };
 
 /**

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/metrics/MetricsRegistry.h"
 #include "amp/link/MeshRuntime.h"
 #include "domain/mesh/reachability/punch/PunchLinkOps.h"
 #include "domain/mesh/reachability/punch/PunchTypes.h"
@@ -32,7 +33,9 @@ public:
   }
 
   explicit AmpPunchCoordinator(pp::amp::MeshRuntime& runtime, IoPump io_pump = {})
-      : server_(runtime, io_pump), client_(runtime, io_pump) {}
+      : server_(runtime, io_pump), client_(runtime, io_pump) {
+    RegisterPunchMetrics();
+  }
 
   AmpPunchCoordinator(const AmpPunchCoordinator&) = delete;
   AmpPunchCoordinator& operator=(const AmpPunchCoordinator&) = delete;
@@ -55,27 +58,63 @@ public:
   void TryColdPunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id,
                          const std::vector<std::string>& my_addrs, std::function<void(PunchRoe)> on_done,
                          int window_ms = 2000) {
-    client_.TryColdPunchAsync(introducer_peer_key, target_peer_id, my_addrs, std::move(on_done), window_ms);
+    client_.TryColdPunchAsync(introducer_peer_key, target_peer_id, my_addrs, Counted("cold", std::move(on_done)),
+                              window_ms);
   }
   void TryUpgradePunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id,
                             const std::vector<std::string>& my_addrs, std::function<void(PunchRoe)> on_done,
                             int window_ms = 2000) {
-    client_.TryUpgradePunchAsync(introducer_peer_key, target_peer_id, my_addrs, std::move(on_done), window_ms);
+    client_.TryUpgradePunchAsync(introducer_peer_key, target_peer_id, my_addrs,
+                                 Counted("upgrade", std::move(on_done)), window_ms);
   }
   void TrySignalingPunchBurstAsync(const std::vector<std::string>& peer_addrs, std::function<void(PunchRoe)> on_done,
                                    int window_ms = 2000) {
-    client_.TrySignalingPunchBurstAsync(peer_addrs, std::move(on_done), window_ms);
+    client_.TrySignalingPunchBurstAsync(peer_addrs, Counted("signaling", std::move(on_done)), window_ms);
   }
   PunchRoe TryColdPunch(const std::string& introducer_peer_key, const std::string& target_peer_id,
                         const std::vector<std::string>& my_addrs, int window_ms = 2000) {
-    return client_.TryColdPunch(introducer_peer_key, target_peer_id, my_addrs, window_ms);
+    PunchRoe result = client_.TryColdPunch(introducer_peer_key, target_peer_id, my_addrs, window_ms);
+    CountPunch("cold", result);
+    return result;
   }
   PunchRoe TryUpgradePunch(const std::string& introducer_peer_key, const std::string& target_peer_id,
                            const std::vector<std::string>& my_addrs, int window_ms = 2000) {
-    return client_.TryUpgradePunch(introducer_peer_key, target_peer_id, my_addrs, window_ms);
+    PunchRoe result = client_.TryUpgradePunch(introducer_peer_key, target_peer_id, my_addrs, window_ms);
+    CountPunch("upgrade", result);
+    return result;
   }
 
 private:
+  /** Every punch series exists (at 0) from the start. */
+  static void RegisterPunchMetrics() {
+    MetricsRegistry& r = MetricsRegistry::Global();
+    for (const char* kind : {"cold", "upgrade", "signaling"}) {
+      for (const char* result : {"ok", "failed"}) {
+        (void)r.Counter("pp_punch_attempts_total", "Hole punches this node started, by kind and result.",
+                        {{"kind", kind}, {"result", result}});
+      }
+    }
+    for (const char* role : {"introducer", "target"}) {
+      (void)r.Counter("pp_punch_served_total", "Punch requests this node served, by role.", {{"role", role}});
+    }
+  }
+  /** pp_punch_attempts_total{kind, result} (docs/contracts/NODE_METRICS.md § Reachability). */
+  static void CountPunch(const char* kind, PunchRoe& result) {
+    const bool ok = result && result->ok;
+    MetricsRegistry::Global()
+        .Counter("pp_punch_attempts_total", "Hole punches this node started, by kind and result.",
+                 {{"kind", kind}, {"result", ok ? "ok" : "failed"}})
+        .Inc();
+  }
+  static std::function<void(PunchRoe)> Counted(const char* kind, std::function<void(PunchRoe)> on_done) {
+    return [kind, on_done = std::move(on_done)](PunchRoe result) {
+      CountPunch(kind, result);
+      if (on_done) {
+        on_done(std::move(result));
+      }
+    };
+  }
+
   PunchServer server_;
   PunchClientCoordinator client_;
 };

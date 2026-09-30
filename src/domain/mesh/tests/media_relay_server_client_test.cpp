@@ -106,6 +106,11 @@ TEST_F(MediaRelayServerClientTest, AcceptAndAttachRoundTrip) {
   EXPECT_TRUE(attach_wait.result->ok);
   EXPECT_FALSE(attach_wait.result->session_token.empty());
   EXPECT_TRUE(client_->IsAttached());
+  // Call details on a hop: the figures of the association to the relay.
+  const CallHopHealth health = client_->HealthSnapshot();
+  EXPECT_TRUE(health.attached);
+  EXPECT_TRUE(health.link.available);
+  EXPECT_GT(health.link.reliable_sent, 0u);
 }
 
 TEST_F(MediaRelayServerClientTest, AdmitRefusesStrangerOnQuote) {
@@ -175,9 +180,86 @@ TEST_F(MediaRelayServerClientTest, LocalHopFanoutRoundTrip) {
 
   harness_->PumpUntil([&] { return local_frames.load() >= 1; }, 800);
   EXPECT_GE(local_frames.load(), 1);
+  // This node's own media, out to the guest and in from it, is not relaying for others.
+  EXPECT_EQ(hop_->RuntimeStats().bytes_relayed, 0u);
 
   client_->Detach();
   hop_client_->Detach();
+}
+
+// B009: the relay answers the publisher's offer with the levels it carries, and drops that
+// publisher's video of any other level — and any reserved channel — at ingest.
+TEST_F(MediaRelayServerClientTest, RelayCarriesOnlyTheVideoLevelsItAnswered) {
+  hop_->SetVideoPolicy(MediaRelayVideoPolicy{{2}, /*carry_levels=*/1, /*strict=*/false});
+  const std::string session = "show-levels";
+  MediaRelayQuoteRequest req;
+  req.session_id = session;
+  req.video_levels = {1, 2};
+  req.video_parallel = 2;
+
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result && quote_wait.result->ok);
+  EXPECT_EQ(quote_wait.result->video_levels, std::vector<uint8_t>{2}) << "the relay's level, one of them";
+
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach("hop", quote_wait.result->quote_id, session, session, {}, attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result && attach_wait.result->ok);
+
+  constexpr uint16_t kReservedChannel = 0x21;
+  std::atomic<int> low{0};
+  std::atomic<int> high{0};
+  std::atomic<int> reserved{0};
+  ASSERT_TRUE(hop_client_->AttachAsLocalHop(session, [&](MediaDataFrame frame) {
+    if (frame.channel_id == kReservedChannel) {
+      reserved.fetch_add(1);
+      return;
+    }
+    (frame.channel_id == VideoChannel(1) ? low : high).fetch_add(1);
+  }));
+  ASSERT_TRUE(hop_client_->Subscribe(7, VideoChannel(1)));
+  ASSERT_TRUE(hop_client_->Subscribe(7, VideoChannel(2)));
+  ASSERT_TRUE(hop_client_->Subscribe(7, kReservedChannel));
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
+
+  MediaDataFrame frame;
+  frame.stream_id = 7;
+  frame.channel_type = MediaChannelType::LatestLossy;
+  frame.mark = 1;
+  frame.payload = {1, 2, 3};
+  frame.channel_id = VideoChannel(1);
+  ASSERT_TRUE(client_->SendFrame(frame));
+  frame.channel_id = kReservedChannel;
+  frame.seq = 1;
+  ASSERT_TRUE(client_->SendFrame(frame));
+  frame.channel_id = VideoChannel(2);
+  frame.seq = 2;
+  ASSERT_TRUE(client_->SendFrame(frame));
+  harness_->PumpUntil([&] { return high.load() >= 1; }, 800);
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
+  EXPECT_EQ(high.load(), 1);
+  EXPECT_EQ(low.load(), 0) << "a level the relay did not agree to carry was fanned out";
+  EXPECT_EQ(reserved.load(), 0) << "a reserved channel was fanned out";
+  client_->Detach();
+  hop_client_->Detach();
+}
+
+TEST_F(MediaRelayServerClientTest, StrictRelayRefusesAPublisherWithoutItsLevel) {
+  hop_->SetVideoPolicy(MediaRelayVideoPolicy{{2}, 1, /*strict=*/true});
+  MediaRelayQuoteRequest req;
+  req.session_id = "show-strict";
+  req.video_levels = {1};
+  Wait<MediaRelayQuote> wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, wait.Fn(), 5000));
+  wait.PumpUntilDone(*harness_);
+  ASSERT_FALSE(wait.result);
+  EXPECT_NE(wait.result.error().message.find("video level"), std::string::npos);
 }
 
 } // namespace

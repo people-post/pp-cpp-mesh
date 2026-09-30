@@ -1,6 +1,7 @@
 #include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
 
 #include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
+#include "common/metrics/MetricsRegistry.h"
 #include "domain/mesh/l4/circuit/CircuitBundleLogic.h"
 #include "domain/mesh/l4/circuit/CircuitChannelPolicy.h"
 #include "domain/mesh/l4/circuit/CircuitServeDialPolicy.h"
@@ -83,6 +84,43 @@ int64_t SteadyMs(const Clock::time_point t) {
 
 } // namespace
 
+namespace {
+
+/** Operator metrics (docs/contracts/NODE_METRICS.md § Circuit relay). */
+struct CircuitRelayMetrics {
+  MetricCounter& bridge_accepted;
+  MetricCounter& bridge_refused_admission;
+  MetricCounter& bridge_refused_standby_full;
+  MetricCounter& reserve_accepted;
+  MetricCounter& reserve_refused;
+  MetricCounter& tunnels_bridged;
+  MetricCounter& tunnels_failed;
+  MetricHistogram& setup_seconds;
+
+  static CircuitRelayMetrics& Get() {
+    static CircuitRelayMetrics metrics = [] {
+      MetricsRegistry& r = MetricsRegistry::Global();
+      const char* requests = "Circuit relay requests, by op and result.";
+      const char* tunnels = "Circuit relay tunnels ended setup, by result.";
+      return CircuitRelayMetrics{
+          r.Counter("pp_circuit_relay_requests_total", requests, {{"op", "bridge"}, {"result", "accepted"}}),
+          r.Counter("pp_circuit_relay_requests_total", requests, {{"op", "bridge"}, {"result", "refused_admission"}}),
+          r.Counter("pp_circuit_relay_requests_total", requests,
+                    {{"op", "bridge"}, {"result", "refused_standby_full"}}),
+          r.Counter("pp_circuit_relay_requests_total", requests, {{"op", "reserve"}, {"result", "accepted"}}),
+          r.Counter("pp_circuit_relay_requests_total", requests, {{"op", "reserve"}, {"result", "refused"}}),
+          r.Counter("pp_circuit_relay_tunnels_total", tunnels, {{"result", "bridged"}}),
+          r.Counter("pp_circuit_relay_tunnels_total", tunnels, {{"result", "failed"}}),
+          r.Histogram("pp_circuit_relay_setup_seconds", "Circuit relay request to bridged.",
+                      {0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}),
+      };
+    }();
+    return metrics;
+  }
+};
+
+} // namespace
+
 struct CircuitRelayServer::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
   std::mutex mu;
@@ -103,6 +141,9 @@ struct CircuitRelayServer::Impl {
     CircuitTunnelId id;
     CircuitTunnelPhase phase = CircuitTunnelPhase::Idle;
     Clock::time_point deadline{};
+    /** Request received (setup latency); set once bridged. */
+    Clock::time_point created = Clock::now();
+    bool bridged = false;
     CircuitBridgeTarget target;
     std::string dialer_peer_id;
     std::string resolved_multiaddr;
@@ -121,6 +162,8 @@ struct CircuitRelayServer::Impl {
   };
 
   std::unordered_map<uint64_t, std::unique_ptr<Tunnel>> tunnels;
+  /** Bytes spliced by bridges already torn down (under `mu`). */
+  uint64_t closed_bridge_bytes = 0;
   size_t max_standby = kCircuitDefaultMaxStandby;
   size_t max_standby_per_dialer = kCircuitDefaultMaxStandbyPerDialer;
   /** PeerId → parked inbound circuit channel from an answerer (op=reserve). */
@@ -288,12 +331,16 @@ struct CircuitRelayServer::Impl {
 
   /** Requires `mu`. */
   void TearDown(Tunnel& tunnel, const bool local_cancel, const std::string& /*error*/) {
+    if (!tunnel.finished && !tunnel.bridged) {
+      CircuitRelayMetrics::Get().tunnels_failed.Inc();
+    }
     ClearFarLegWait(tunnel);
     tunnel.local_cancel = local_cancel || tunnel.local_cancel;
     tunnel.phase = CircuitTunnelPhase::Closing;
     tunnel.finished = true;
     if (tunnel.bridge) {
       auto bridge = std::move(tunnel.bridge);
+      closed_bridge_bytes += bridge->ForwardedBytes();
       bridge->Stop();
     }
     if (tunnel.near_session) {
@@ -389,6 +436,10 @@ struct CircuitRelayServer::Impl {
       return;
     }
     tunnel.phase = CircuitTunnelPhase::Bridging;
+    tunnel.bridged = true;
+    CircuitRelayMetrics& metrics = CircuitRelayMetrics::Get();
+    metrics.tunnels_bridged.Inc();
+    metrics.setup_seconds.Observe(std::chrono::duration<double>(Clock::now() - tunnel.created).count());
     tunnel.bridge = std::make_shared<pp::amp::ChannelBridge>();
     const CircuitTunnelId id = tunnel.id;
     tunnel.bridge->Attach(tunnel.near_session, tunnel.far_session, {}, [this, id]() {
@@ -611,7 +662,9 @@ struct CircuitRelayServer::Impl {
       near_session->EnqueueOutbound(ErrorBody(message));
       near_session->Close();
     };
+    CircuitRelayMetrics& metrics = CircuitRelayMetrics::Get();
     if (decision == CircuitAdmitDecision::RefuseStandbyFull) {
+      metrics.bridge_refused_standby_full.Inc();
       CircuitTunnelLog().info << "circuit standby refused dialer=" << remote
                               << " priority=" << CircuitStandbyPriorityWire(admit.standby_priority)
                               << " standby=" << admit.standby_total;
@@ -619,6 +672,7 @@ struct CircuitRelayServer::Impl {
       return;
     }
     if (decision != CircuitAdmitDecision::Allow) {
+      (op == "reserve" ? metrics.reserve_refused : metrics.bridge_refused_admission).Inc();
       refuse(decision == CircuitAdmitDecision::RefuseStranger
                  ? "relay scope: stranger refused"
                  : (decision == CircuitAdmitDecision::RefuseBadOp ? "unsupported op" : "circuit-relay service not ready"));
@@ -628,6 +682,7 @@ struct CircuitRelayServer::Impl {
       HandleReserve(near_session, remote, root, refuse);
       return;
     }
+    metrics.bridge_accepted.Inc();
     CircuitTunnelId id{};
     {
       std::lock_guard lock(mu);
@@ -665,6 +720,7 @@ struct CircuitRelayServer::Impl {
   void HandleReserve(const std::shared_ptr<pp::amp::ChannelSession>& near_session, const std::string& remote,
                      const Object& root, Refuse& refuse) {
     if (remote.empty()) {
+      CircuitRelayMetrics::Get().reserve_refused.Inc();
       CircuitTunnelLog().warning << "circuit reserve refused: remote peer id unknown";
       refuse("circuit reserve: remote peer id unknown");
       return;
@@ -677,6 +733,7 @@ struct CircuitRelayServer::Impl {
       res.deadline = Clock::now() + std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 30000);
       reservations[remote] = std::move(res);
     }
+    CircuitRelayMetrics::Get().reserve_accepted.Inc();
     CircuitTunnelLog().info << "circuit reserve key=" << remote << " timeout_ms=" << timeout_ms;
     Object ack;
     ack.set("v", int64_t{1});
@@ -720,6 +777,7 @@ struct CircuitRelayServer::Impl {
 
 CircuitRelayServer::CircuitRelayServer(pp::amp::MeshRuntime& runtime)
     : impl_(std::make_unique<Impl>()), runtime_(runtime) {
+  (void)CircuitRelayMetrics::Get();  // its series exist (at 0) from the start
   impl_->runtime = &runtime_;
 }
 
@@ -779,6 +837,27 @@ void CircuitRelayServer::SetServeInbound(const bool serve) {
 
 bool CircuitRelayServer::ServeInbound() const {
   return impl_->serve_inbound.load(std::memory_order_acquire);
+}
+
+CircuitRelayRuntimeStats CircuitRelayServer::RuntimeStats() const {
+  CircuitRelayRuntimeStats stats;
+  std::lock_guard lock(impl_->mu);
+  for (const auto& [id, tunnel] : impl_->tunnels) {
+    if (!tunnel || tunnel->finished) {
+      continue;
+    }
+    if (tunnel->bridge) {
+      stats.bytes_relayed += tunnel->bridge->ForwardedBytes();
+    }
+    if (tunnel->phase == CircuitTunnelPhase::Bridging) {
+      ++stats.active_bridges;
+    } else {
+      ++stats.pending_tunnels;
+    }
+  }
+  stats.reservations = impl_->reservations.size();
+  stats.bytes_relayed += impl_->closed_bridge_bytes;
+  return stats;
 }
 
 void CircuitRelayServer::SetStandbyLimits(const size_t max_standby, const size_t max_per_dialer) {

@@ -6,6 +6,7 @@
 #include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
 #include "domain/mesh/reachability/punch/PunchLogic.h"
 #include "domain/mesh/tests/support/mesh_triple_harness.h"
+#include "common/metrics/MetricsRegistry.h"
 
 #include <gtest/gtest.h>
 
@@ -158,6 +159,17 @@ protected:
 };
 
 TEST_F(AmpPunchCircuitUpgradeTest, UpgradeViaRelayIntroducerThenDemoteCircuit) {
+  // node-monitoring M2: the relay's bridge and both punch roles show in the operator counters.
+  MetricsRegistry& metrics = MetricsRegistry::Global();
+  const char* tunnels = "Circuit relay tunnels ended setup, by result.";
+  auto& bridged = metrics.Counter("pp_circuit_relay_tunnels_total", tunnels, {{"result", "bridged"}});
+  auto& upgrades_ok = metrics.Counter("pp_punch_attempts_total", "Hole punches this node started, by kind and result.",
+                                      {{"kind", "upgrade"}, {"result", "ok"}});
+  auto& introduced = metrics.Counter("pp_punch_served_total", "Punch requests this node served, by role.",
+                                     {{"role", "introducer"}});
+  const uint64_t bridged_before = bridged.Value();
+  const uint64_t upgrades_before = upgrades_ok.Value();
+  const uint64_t introduced_before = introduced.Value();
   bool a_ready = false;
   bool b_ready = false;
   harness_->mgr_a().EnsureAssociation("relay", [&](pp::amp::PeerLinkManager::LinkRoe r) {
@@ -183,6 +195,10 @@ TEST_F(AmpPunchCircuitUpgradeTest, UpgradeViaRelayIntroducerThenDemoteCircuit) {
   ASSERT_TRUE(static_cast<bool>(punched)) << punched.error().message;
   EXPECT_TRUE(punched->ok) << punched->error;
   EXPECT_FALSE(punched->winner_multiaddr.empty());
+  EXPECT_GE(bridged.Value(), bridged_before + 1) << "the relay bridged the circuit";
+  EXPECT_EQ(upgrades_ok.Value(), upgrades_before + 1);
+  EXPECT_GE(introduced.Value(), introduced_before + 1) << "the relay introduced the punch";
+  EXPECT_GT(circuit_r_->RuntimeStats().bytes_relayed, 0u) << "the tunnel carried the nested link's traffic";
 
   harness_->PumpUntil(
       [&] {

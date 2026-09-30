@@ -6,6 +6,10 @@
 
 namespace pbr {
 
+MediaChannelType MediaChannelTypeFor(const uint16_t channel_id) {
+  return IsAudioChannel(channel_id) ? MediaChannelType::ReliableOrdered : MediaChannelType::LatestLossy;
+}
+
 std::vector<uint8_t> EncodeMediaDataFrame(const MediaDataFrame& frame) {
   std::vector<uint8_t> body(kMediaDataHeaderBytes + frame.payload.size());
   size_t i = 0;

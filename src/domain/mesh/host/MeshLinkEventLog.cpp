@@ -1,6 +1,7 @@
 #include "domain/mesh/host/MeshLinkEventLog.h"
 
 #include "common/Logger.h"
+#include "common/metrics/MetricsRegistry.h"
 #include "common/PbrCompat.h"
 
 #include <cstdio>
@@ -25,6 +26,27 @@ const char* PathKindName(const pp::amp::LinkPathKind kind) {
     break;
   }
   return "direct";
+}
+
+/** Operator metrics (docs/contracts/NODE_METRICS.md § Links): lifecycle counts, no peer identities. */
+void CountLinkEvent(const pp::amp::LinkEvent& event) {
+  MetricsRegistry& r = MetricsRegistry::Global();
+  switch (event.kind) {
+  case pp::amp::LinkEvent::Kind::Connected:
+    r.Counter("pp_link_connects_total", "Amp links connected, by path and direction.",
+              {{"path", PathKindName(event.path_kind)}, {"direction", event.outbound ? "outbound" : "inbound"}})
+        .Inc();
+    break;
+  case pp::amp::LinkEvent::Kind::Dropped:
+    r.Counter("pp_link_drops_total", "Amp links dropped, by reason; stage=attempt never connected.",
+              {{"reason", pp::amp::LinkDropReasonName(event.reason)},
+               {"stage", event.was_connected ? "connected" : "attempt"}})
+        .Inc();
+    break;
+  case pp::amp::LinkEvent::Kind::PathChanged:
+    r.Counter("pp_link_path_changes_total", "Amp link remote endpoint migrations.").Inc();
+    break;
+  }
 }
 
 } // namespace
@@ -79,6 +101,17 @@ void InstallMeshLinkEventLog(pp::amp::MeshRuntime& runtime) {
     } else {
       MeshLinkLog().debug << line;
     }
+  });
+}
+
+void InstallMeshLinkMetrics(pp::amp::MeshRuntime& runtime) {
+  (void)runtime.AddLinkEventListener([](const pp::amp::LinkEvent& event) { CountLinkEvent(event); });
+  // Round trips (acks of first sends) into one histogram; the observer runs on the io strand.
+  MetricHistogram& rtt = MetricsRegistry::Global().Histogram(
+      "pp_amp_rtt_seconds", "Amp round trips (acks of never-retransmitted reliable packets).",
+      {0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5});
+  runtime.WithIoLock([&]() {
+    runtime.GetEndpoint().SetRttObserver([&rtt](int64_t rtt_ms) { rtt.Observe(static_cast<double>(rtt_ms) / 1000.0); });
   });
 }
 
