@@ -198,6 +198,7 @@ TEST_F(AmpPunchCircuitUpgradeTest, UpgradeViaRelayIntroducerThenDemoteCircuit) {
   EXPECT_GE(bridged.Value(), bridged_before + 1) << "the relay bridged the circuit";
   EXPECT_EQ(upgrades_ok.Value(), upgrades_before + 1);
   EXPECT_GE(introduced.Value(), introduced_before + 1) << "the relay introduced the punch";
+  EXPECT_GT(circuit_r_->RuntimeStats().bytes_relayed, 0u) << "the tunnel carried the nested link's traffic";
 
   harness_->PumpUntil(
       [&] {

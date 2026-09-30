@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 namespace pbr {
 
@@ -12,6 +13,8 @@ struct CircuitRelayRuntimeStats {
   size_t pending_tunnels = 0;
   /** Answerers parked here (op=reserve). */
   size_t reservations = 0;
+  /** Bytes spliced through bridges since start (closed ones and the open ones so far). */
+  uint64_t bytes_relayed = 0;
 };
 
 struct MediaRelayRuntimeStats {

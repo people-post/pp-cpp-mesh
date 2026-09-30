@@ -106,6 +106,13 @@ void InstallMeshLinkEventLog(pp::amp::MeshRuntime& runtime) {
 
 void InstallMeshLinkMetrics(pp::amp::MeshRuntime& runtime) {
   (void)runtime.AddLinkEventListener([](const pp::amp::LinkEvent& event) { CountLinkEvent(event); });
+  // Round trips (acks of first sends) into one histogram; the observer runs on the io strand.
+  MetricHistogram& rtt = MetricsRegistry::Global().Histogram(
+      "pp_amp_rtt_seconds", "Amp round trips (acks of never-retransmitted reliable packets).",
+      {0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5});
+  runtime.WithIoLock([&]() {
+    runtime.GetEndpoint().SetRttObserver([&rtt](int64_t rtt_ms) { rtt.Observe(static_cast<double>(rtt_ms) / 1000.0); });
+  });
 }
 
 } // namespace pbr

@@ -162,6 +162,8 @@ struct CircuitRelayServer::Impl {
   };
 
   std::unordered_map<uint64_t, std::unique_ptr<Tunnel>> tunnels;
+  /** Bytes spliced by bridges already torn down (under `mu`). */
+  uint64_t closed_bridge_bytes = 0;
   size_t max_standby = kCircuitDefaultMaxStandby;
   size_t max_standby_per_dialer = kCircuitDefaultMaxStandbyPerDialer;
   /** PeerId → parked inbound circuit channel from an answerer (op=reserve). */
@@ -338,6 +340,7 @@ struct CircuitRelayServer::Impl {
     tunnel.finished = true;
     if (tunnel.bridge) {
       auto bridge = std::move(tunnel.bridge);
+      closed_bridge_bytes += bridge->ForwardedBytes();
       bridge->Stop();
     }
     if (tunnel.near_session) {
@@ -843,6 +846,9 @@ CircuitRelayRuntimeStats CircuitRelayServer::RuntimeStats() const {
     if (!tunnel || tunnel->finished) {
       continue;
     }
+    if (tunnel->bridge) {
+      stats.bytes_relayed += tunnel->bridge->ForwardedBytes();
+    }
     if (tunnel->phase == CircuitTunnelPhase::Bridging) {
       ++stats.active_bridges;
     } else {
@@ -850,6 +856,7 @@ CircuitRelayRuntimeStats CircuitRelayServer::RuntimeStats() const {
     }
   }
   stats.reservations = impl_->reservations.size();
+  stats.bytes_relayed += impl_->closed_bridge_bytes;
   return stats;
 }
 

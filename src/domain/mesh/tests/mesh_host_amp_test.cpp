@@ -245,6 +245,13 @@ TEST(MeshHostAmpTest, NetworkChangeEvictsADeadLinkFast) {
   EXPECT_TRUE(f.Dropped(pp::amp::LinkDropReason::NetworkChanged));
   EXPECT_EQ(f.host.Amp()->Links().FindLink("b"), nullptr);
   EXPECT_EQ(drops.Value(), drops_before + 1);
+  // The link's reliable handshake was acked: round trips reached the histogram (M2 amp stats).
+  const auto rtt = MetricsRegistry::Global()
+                       .Histogram("pp_amp_rtt_seconds", "Amp round trips (acks of never-retransmitted reliable packets).",
+                                  {0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5})
+                       .Read();
+  EXPECT_GT(rtt.count, 0u);
+  EXPECT_GT(f.host.Amp()->Runtime().GetEndpoint().Stats().tx_datagrams, 0u);
   f.host.Stop();
 }
 

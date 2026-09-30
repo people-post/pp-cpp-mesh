@@ -22,7 +22,8 @@ void InstallMeshLinkEventLog(pp::amp::MeshRuntime& runtime);
 
 /**
  * Count every Amp link event in the operator metrics (docs/contracts/NODE_METRICS.md § Links:
- * connects, drops by reason / stage, path changes). Listener lives as long as `runtime`.
+ * connects, drops by reason / stage, path changes) and feed its round trips into the RTT
+ * histogram. Listeners live as long as `runtime`.
  */
 void InstallMeshLinkMetrics(pp::amp::MeshRuntime& runtime);
 
