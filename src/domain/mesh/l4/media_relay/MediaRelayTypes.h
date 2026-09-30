@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/media/MediaChannel.h"
+
 #include "foundation/data/Config.h"
 #include "common/directory/RelayScope.h"
 #include "common/Error.h"
@@ -111,6 +113,9 @@ struct MediaRelayAdmissionPolicy {
   RelayScopeMask serve_scope_mask = kRelayScopeVolunteerServe;
   std::unordered_set<std::string> contact_peer_ids;
 };
+
+/** The relay QoS class for a media channel: audio in order, video latest-wins (MEDIA_CHANNELS.md). */
+MediaChannelType MediaChannelTypeFor(uint16_t channel_id);
 
 struct MediaDataFrame {
   uint32_t stream_id = 0;
