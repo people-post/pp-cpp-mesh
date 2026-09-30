@@ -1,6 +1,7 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
+#include "common/privacy/AddressDisclosure.h"
 #include "domain/mesh/reachability/punch/PunchLinkOps.h"
 #include "domain/mesh/reachability/punch/PunchTypes.h"
 #include "common/PbrCompat.h"
@@ -40,6 +41,11 @@ public:
   /** Candidates this node offers as a punch target (sanitized). */
   void SetLocalCandidateAddrs(std::vector<std::string> addrs);
   const std::vector<std::string>& LocalCandidateAddrs() const { return local_addrs_; }
+  /**
+   * projects/privacy T1: as the target, answer only initiators this gate allows — answering sends
+   * them our addresses and bursts from our IP. Null = answer everyone. Not owned; outlives this.
+   */
+  void SetAddressDisclosure(const AddressDisclosureGate* gate);
 
 private:
   struct Impl;

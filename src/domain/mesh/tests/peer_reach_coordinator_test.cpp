@@ -261,6 +261,33 @@ TEST_F(PeerReachCoordinatorTest, MissAfterTheBudgetStillPivotsToCircuit) {
   EXPECT_EQ(circuit_->calls.load(), 1);
 }
 
+// H010 (the hard lab's COLD-DIRTY reach, promoted down): once the seed park lands, the reacher
+// skips the private Preferred dial — it would share the UDP the park needs — and goes to the circuit.
+TEST_F(PeerReachCoordinatorTest, ReachSkipsPrivateDialAfterASuccessfulSeedPark) {
+  std::atomic<int> parks{0};
+  reach_->SetSeedParkAwait([&parks](std::function<void(bool)> done, int /*timeout_ms*/) {
+    parks.fetch_add(1);
+    done(true);
+  });
+  dial_->endpoints[kPeer] = kPrivateMa;
+  auto out = Run(Request(PeerReachMode::Reach));
+  ASSERT_TRUE(WaitDone(out, std::chrono::seconds(10)));
+  ASSERT_TRUE(*out->result) << out->result->error().message;
+  EXPECT_GE(parks.load(), 1) << "park before the private dial (and again before the circuit)";
+  EXPECT_EQ(dial_->ensure_calls.load(), 0) << "the private Preferred was dialed after the park";
+  EXPECT_TRUE(circuit_->last_allow_circuit.load());
+  EXPECT_EQ((*out->result)->kind, PeerLinkKind::Relayed);
+}
+
+// A park that times out does not count as parked (88e16f5c): the reacher still tries the dial.
+TEST_F(PeerReachCoordinatorTest, ReachStillDialsPrivateWhenTheSeedParkFails) {
+  reach_->SetSeedParkAwait([](std::function<void(bool)> done, int /*timeout_ms*/) { done(false); });
+  dial_->endpoints[kPeer] = kPrivateMa;
+  auto out = Run(Request(PeerReachMode::Reach));
+  ASSERT_TRUE(WaitDone(out, std::chrono::seconds(10)));
+  EXPECT_GE(dial_->ensure_calls.load(), 1);
+}
+
 // Dogfood ae4900eb / 39412f / 072a7425: the awaiting side never dials a private Preferred and
 // never builds its own circuit — it punches and waits for the reacher.
 TEST_F(PeerReachCoordinatorTest, AwaitSkipsPrivateDialAndPunchesOnly) {

@@ -43,6 +43,8 @@ public:
     /** Our candidates for an answer (punch candidates, else listen addrs). */
     std::function<std::vector<std::string>()> local_candidates;
     std::function<std::string()> local_peer_id;
+    /** Answering sends our candidates and bursts from our IP: only to peers this allows (unset = all). */
+    std::function<bool(const std::string& peer_id, const std::string& sender_key)> may_answer;
   };
 
   SignalingPunchExchange();

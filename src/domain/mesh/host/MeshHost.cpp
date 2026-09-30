@@ -132,6 +132,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   // at once instead of waiting out its request timeout.
   (*stack)->Runtime().SetRefuseUnhandledOpens(true);
   amp_ = std::move(*stack);
+  ApplyAddressDisclosureToAmp();
   InstallMeshLinkEventLog(amp_->Runtime());
   InstallMeshLinkMetrics(amp_->Runtime());
   chat_links_ = NewAmpChatPeerLinks(amp_->Runtime());
@@ -236,6 +237,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
   }
   if (!amp_punch_) {
     amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Runtime(), io_pump);
+    amp_punch_->SetAddressDisclosure(address_disclosure_);
   }
   if (!amp_dht_) {
     amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Runtime(), post_worker);
@@ -348,6 +350,7 @@ void MeshHost::StopAmp() {
   if (amp_) {
     amp_->Stop();
     amp_.reset();
+    blocked_listener_amp_ = nullptr;  // its listener went with it
   }
   chat_links_.reset();
   amp_clock_.reset();
@@ -364,6 +367,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   // Set before EnsureAmpL4Coordinators: L4 captures MakeL4IoPump (empty under MeshPump).
   prefer_mesh_pump_ = drive == AttachDrive::MeshPump;
   amp_ = std::move(stack);
+  ApplyAddressDisclosureToAmp();
   amp_->Start();
   amp_listen_multiaddr_ = std::move(listen_multiaddr);
   if (!amp_listen_multiaddr_.empty()) {
@@ -474,6 +478,39 @@ void MeshHost::RefreshAdvertisedListenAddrs() {
 DialBackClient* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
 
 AmpPunchCoordinator* MeshHost::AmpPunch() { return amp_punch_.get(); }
+
+void MeshHost::SetAddressDisclosure(const AddressDisclosureGate* gate) {
+  address_disclosure_ = gate;
+  if (amp_punch_) {
+    amp_punch_->SetAddressDisclosure(gate);
+  }
+  ApplyAddressDisclosureToAmp();
+}
+
+void MeshHost::ApplyAddressDisclosureToAmp() {
+  if (!amp_) {
+    return;
+  }
+  // ch0 capability: our listen multiaddrs go only to peers that may learn our address (privacy Y2).
+  pp::amp::PeerLinkManager::ListenAddrDisclosure disclosure;
+  if (const AddressDisclosureGate* gate = address_disclosure_) {
+    disclosure = [gate](const std::string& remote_peer_id) { return gate->AllowsDirect(remote_peer_id); };
+  }
+  amp_->Links().SetListenAddrDisclosure(std::move(disclosure));
+  if (blocked_listener_amp_ != amp_.get()) {
+    blocked_listener_amp_ = amp_.get();
+    // projects/privacy T3: a Blocked peer's link is dropped as soon as it connects (either direction).
+    // The drop is scheduled (never inline on the event stack); the listener dies with this Amp stack.
+    auto& runtime = amp_->Runtime();
+    (void)runtime.AddLinkEventListener([this, &runtime](const pp::amp::LinkEvent& event) {
+      const AddressDisclosureGate* gate = address_disclosure_;
+      if (event.kind == pp::amp::LinkEvent::Kind::Connected && gate && gate->IsBlocked(event.peer_id)) {
+        MeshHostLog().info << "dropping a Blocked peer's link peer=" << event.peer_id;
+        (void)runtime.RequestDropLink(event.peer_id);
+      }
+    });
+  }
+}
 
 AmpDhtProtocol* MeshHost::AmpDht() { return amp_dht_.get(); }
 
