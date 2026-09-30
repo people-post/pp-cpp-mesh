@@ -648,6 +648,7 @@ bool MediaRelayServer::ServeInbound() const {
 
 MediaRelayRuntimeStats MediaRelayServer::RuntimeStats() const {
   MediaRelayRuntimeStats stats;
+  stats.bytes_forwarded = MediaRelayMetrics::Get().bytes_forwarded.Value();
   std::lock_guard lock(impl_->mu);
   for (const auto& [call_id, host] : impl_->hosts_by_call) {
     if (host && !host->participants.empty()) {

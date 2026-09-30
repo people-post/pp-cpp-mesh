@@ -22,6 +22,8 @@ struct MediaRelayRuntimeStats {
   size_t active_sessions = 0;
   /** Sum of participants across those sessions (aggregates only — no PeerIds). */
   size_t active_participants = 0;
+  /** Frame bytes forwarded to participants since start. */
+  uint64_t bytes_forwarded = 0;
 };
 
 struct RelayRuntimeStats {
