@@ -90,4 +90,14 @@ std::vector<uint8_t> VideoLevelsFromJson(const Object& json, const char* key) {
   return out;
 }
 
+uint8_t PublishVideoLevel(const std::vector<uint8_t>& offered, const std::vector<uint8_t>& carried) {
+  uint8_t level = 0;
+  for (const uint8_t candidate : carried) {
+    if (candidate > level && std::find(offered.begin(), offered.end(), candidate) != offered.end()) {
+      level = candidate;
+    }
+  }
+  return level;
+}
+
 } // namespace pbr

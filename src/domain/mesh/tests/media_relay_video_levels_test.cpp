@@ -54,5 +54,13 @@ TEST(MediaRelayVideoLevelsTest, InvalidAndDuplicateLevelsAreIgnored) {
   EXPECT_TRUE(Carry({0, 16}, 1, Serves({1})).empty());
 }
 
+TEST(MediaRelayVideoLevelsTest, PublishLevelIsTheHighestOfferedAndCarried) {
+  EXPECT_EQ(PublishVideoLevel({1, 2}, {1, 2}), 2);
+  EXPECT_EQ(PublishVideoLevel({1, 2}, {2, 1}), 2) << "the answer's order is not trusted";
+  EXPECT_EQ(PublishVideoLevel({1, 2}, {15, 1}), 1) << "a level never offered is not sent";
+  EXPECT_EQ(PublishVideoLevel({1, 2}, {}), 0);
+  EXPECT_EQ(PublishVideoLevel({}, {1}), 0);
+}
+
 } // namespace
 } // namespace pbr

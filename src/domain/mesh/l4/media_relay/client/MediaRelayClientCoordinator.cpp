@@ -900,6 +900,7 @@ CallHopHealth MediaRelayClientCoordinator::HealthSnapshot() const {
   runtime_.Links().WithLiveLinkByDialKey(relay_key, [&](pp::amp::PeerLink& live) { link = live.Handle(); });
   if (const auto stats = runtime_.Links().LinkConnectionStats(link)) {
     health.link = CallLinkCounters{.available = true,
+                                   .link_id = link.id.value,
                                    .reliable_sent = stats->reliable_sent,
                                    .retransmits = stats->retransmits,
                                    .srtt_ms = stats->srtt_ms};

@@ -22,8 +22,11 @@ struct MediaRelayRuntimeStats {
   size_t active_sessions = 0;
   /** Sum of participants across those sessions (aggregates only — no PeerIds). */
   size_t active_participants = 0;
-  /** Frame bytes forwarded to participants since start. */
-  uint64_t bytes_forwarded = 0;
+  /**
+   * Frame bytes this server relayed for others since start: from a remote participant to a remote
+   * participant (not this node's own media in or out; the `pp_media_relay_*` counters count all).
+   */
+  uint64_t bytes_relayed = 0;
 };
 
 struct RelayRuntimeStats {

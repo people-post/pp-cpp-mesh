@@ -55,7 +55,7 @@ struct MediaRelayMetrics {
   MetricCounter& frames_forwarded;
   MetricCounter& bytes_forwarded;
   MetricCounter& dropped_stale;
-  MetricCounter& dropped_video_level;
+  MetricCounter& dropped_not_carried;
   MetricCounter& quotes_issued;
   MetricCounter& quotes_refused_admission;
   MetricCounter& quotes_refused_video_level;
@@ -77,7 +77,7 @@ struct MediaRelayMetrics {
           r.Counter("pp_media_relay_frames_total", frames, {{"direction", "forwarded"}}),
           r.Counter("pp_media_relay_bytes_total", bytes, {{"direction", "forwarded"}}),
           r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "stale"}}),
-          r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "video_level"}}),
+          r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "not_carried"}}),
           r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "issued"}}),
           r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "refused_admission"}}),
           r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "refused_video_level"}}),
@@ -129,6 +129,8 @@ struct MediaRelayServer::Impl {
   std::shared_ptr<HostParticipant> local_part_;
   std::shared_ptr<HostSession> local_session_;
   std::string local_peer_id_;
+  /** Bytes relayed for others: from a remote participant to a remote participant (this server). */
+  std::atomic<uint64_t> relayed_bytes{0};
 
   void PostIo(std::function<void()> task) {
     if (!runtime || !task) {
@@ -174,7 +176,8 @@ struct MediaRelayServer::Impl {
    * Fan-out must not run while `mu` is held across callbacks / EnqueueOutbound.
    * Snapshot participants under lock (same pattern as MediaRelayRuntime::Fanout).
    */
-  void Fanout(const std::shared_ptr<HostSession>& session, const std::string& from_peer,
+  /** `from_remote`: the frame came from a remote participant (not this node's own media). */
+  void Fanout(const std::shared_ptr<HostSession>& session, const std::string& from_peer, const bool from_remote,
               const MediaDataFrame& frame, const std::vector<uint8_t>& body) {
     if (!session) {
       return;
@@ -221,6 +224,9 @@ struct MediaRelayServer::Impl {
       }
       if (channel) {
         (void)channel->EnqueueOutbound(body);
+        if (from_remote) {
+          relayed_bytes.fetch_add(body.size(), std::memory_order_relaxed);
+        }
       }
     }
   }
@@ -285,11 +291,11 @@ struct MediaRelayServer::Impl {
     MediaRelayMetrics& metrics = MediaRelayMetrics::Get();
     metrics.frames_received.Inc();
     metrics.bytes_received.Inc(body.size());
-    if (!CarriesVideoOf(*part, frame->channel_id)) {
-      metrics.dropped_video_level.Inc();
-      return true;  // a level this relay did not agree to carry for this participant (B009)
+    if (!CarriesChannelOf(*part, frame->channel_id)) {
+      metrics.dropped_not_carried.Inc();
+      return true;  // a channel this relay did not agree to carry for this participant (B009)
     }
-    Fanout(session, part->peer_id, *frame, body);
+    Fanout(session, part->peer_id, /*from_remote=*/true, *frame, body);
     return true;
   }
 
@@ -383,15 +389,27 @@ struct MediaRelayServer::Impl {
     return true;
   }
 
-  /** Requires `mu`. */
-  static bool CarriesVideoOf(const HostParticipant& part, const uint16_t channel_id) {
-    if (!part.video_levels || !IsVideoChannel(channel_id)) {
+  /**
+   * B009: a participant that negotiated levels sends audio and video of those levels only — any
+   * other channel (another level, a reserved kind) is dropped at ingest. Without a negotiation (a
+   * call's hop) every channel passes. Reads the attach-time levels, fixed before the participant is
+   * published (no `mu`).
+   */
+  static bool CarriesChannelOf(const HostParticipant& part, const uint16_t channel_id) {
+    if (!part.video_levels) {
       return true;
+    }
+    if (IsAudioChannel(channel_id)) {
+      return true;
+    }
+    if (!IsVideoChannel(channel_id)) {
+      return false;
     }
     const uint8_t level = VideoLevelOf(channel_id);
     return std::find(part.video_levels->begin(), part.video_levels->end(), level) != part.video_levels->end();
   }
 
+  /** Requires `mu`. */
   bool HandleQuote(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const Object& root,
                    const MediaRelayOpAdmitContext& admit) {
     const auto decision = DecideMediaRelayOpAdmit(admit);
@@ -648,7 +666,7 @@ bool MediaRelayServer::ServeInbound() const {
 
 MediaRelayRuntimeStats MediaRelayServer::RuntimeStats() const {
   MediaRelayRuntimeStats stats;
-  stats.bytes_forwarded = MediaRelayMetrics::Get().bytes_forwarded.Value();
+  stats.bytes_relayed = impl_->relayed_bytes.load(std::memory_order_relaxed);
   std::lock_guard lock(impl_->mu);
   for (const auto& [call_id, host] : impl_->hosts_by_call) {
     if (host && !host->participants.empty()) {
@@ -768,7 +786,7 @@ bool MediaRelayServer::SendLocal(const MediaDataFrame& frame) {
   MediaRelayMetrics& metrics = MediaRelayMetrics::Get();
   metrics.frames_received.Inc();
   metrics.bytes_received.Inc(body.size());
-  runtime_.WithIoLock([&]() { impl_->Fanout(session, from_peer, frame, body); });
+  runtime_.WithIoLock([&]() { impl_->Fanout(session, from_peer, /*from_remote=*/false, frame, body); });
   return true;
 }
 

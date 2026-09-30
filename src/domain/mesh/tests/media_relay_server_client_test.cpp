@@ -180,13 +180,15 @@ TEST_F(MediaRelayServerClientTest, LocalHopFanoutRoundTrip) {
 
   harness_->PumpUntil([&] { return local_frames.load() >= 1; }, 800);
   EXPECT_GE(local_frames.load(), 1);
+  // This node's own media, out to the guest and in from it, is not relaying for others.
+  EXPECT_EQ(hop_->RuntimeStats().bytes_relayed, 0u);
 
   client_->Detach();
   hop_client_->Detach();
 }
 
 // B009: the relay answers the publisher's offer with the levels it carries, and drops that
-// publisher's video of any other level at ingest.
+// publisher's video of any other level — and any reserved channel — at ingest.
 TEST_F(MediaRelayServerClientTest, RelayCarriesOnlyTheVideoLevelsItAnswered) {
   hop_->SetVideoPolicy(MediaRelayVideoPolicy{{2}, /*carry_levels=*/1, /*strict=*/false});
   const std::string session = "show-levels";
@@ -206,13 +208,20 @@ TEST_F(MediaRelayServerClientTest, RelayCarriesOnlyTheVideoLevelsItAnswered) {
   attach_wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(attach_wait.result && attach_wait.result->ok);
 
+  constexpr uint16_t kReservedChannel = 0x21;
   std::atomic<int> low{0};
   std::atomic<int> high{0};
+  std::atomic<int> reserved{0};
   ASSERT_TRUE(hop_client_->AttachAsLocalHop(session, [&](MediaDataFrame frame) {
+    if (frame.channel_id == kReservedChannel) {
+      reserved.fetch_add(1);
+      return;
+    }
     (frame.channel_id == VideoChannel(1) ? low : high).fetch_add(1);
   }));
   ASSERT_TRUE(hop_client_->Subscribe(7, VideoChannel(1)));
   ASSERT_TRUE(hop_client_->Subscribe(7, VideoChannel(2)));
+  ASSERT_TRUE(hop_client_->Subscribe(7, kReservedChannel));
   for (int i = 0; i < 40; ++i) {
     harness_->PumpBoth();
   }
@@ -224,8 +233,11 @@ TEST_F(MediaRelayServerClientTest, RelayCarriesOnlyTheVideoLevelsItAnswered) {
   frame.payload = {1, 2, 3};
   frame.channel_id = VideoChannel(1);
   ASSERT_TRUE(client_->SendFrame(frame));
-  frame.channel_id = VideoChannel(2);
+  frame.channel_id = kReservedChannel;
   frame.seq = 1;
+  ASSERT_TRUE(client_->SendFrame(frame));
+  frame.channel_id = VideoChannel(2);
+  frame.seq = 2;
   ASSERT_TRUE(client_->SendFrame(frame));
   harness_->PumpUntil([&] { return high.load() >= 1; }, 800);
   for (int i = 0; i < 40; ++i) {
@@ -233,6 +245,7 @@ TEST_F(MediaRelayServerClientTest, RelayCarriesOnlyTheVideoLevelsItAnswered) {
   }
   EXPECT_EQ(high.load(), 1);
   EXPECT_EQ(low.load(), 0) << "a level the relay did not agree to carry was fanned out";
+  EXPECT_EQ(reserved.load(), 0) << "a reserved channel was fanned out";
   client_->Detach();
   hop_client_->Detach();
 }

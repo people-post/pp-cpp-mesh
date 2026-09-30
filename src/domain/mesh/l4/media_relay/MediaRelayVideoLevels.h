@@ -37,6 +37,12 @@ struct MediaRelayVideoOffer {
 Roe<std::vector<uint8_t>> ChooseCarriedVideoLevels(const MediaRelayVideoOffer& offer,
                                                    const MediaRelayVideoPolicy& policy);
 
+/**
+ * The level a one-encoder publisher sends: the highest level both offered and carried by the relay
+ * (the answer is not trusted to be ordered or a subset of the offer); 0 when there is none.
+ */
+uint8_t PublishVideoLevel(const std::vector<uint8_t>& offered, const std::vector<uint8_t>& carried);
+
 /** Levels as a JSON array of integers (quote offer / answer). */
 Value VideoLevelsToJson(const std::vector<uint8_t>& levels);
 /** Valid levels in `key`'s array (others skipped); empty when absent. */
