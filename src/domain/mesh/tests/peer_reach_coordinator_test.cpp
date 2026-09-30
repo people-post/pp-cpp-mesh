@@ -333,6 +333,22 @@ TEST_F(PeerReachCoordinatorTest, ReachWaitsForThePeersLinkAfterItsCircuitMisses)
   EXPECT_EQ(circuit_->calls.load(), 1);
 }
 
+// A relay standby (exclude_direct) whose circuit misses must fail — never "succeed" by dialing the
+// peer directly: that only reaches the direct link the call is already on (hard-lab flip).
+TEST_F(PeerReachCoordinatorTest, ExcludeDirectNeverSettlesOnADirectDial) {
+  dial_->Connect(kPeer);  // the call's direct link
+  dial_->endpoints[kPeer] = kPublicMa;
+  dial_->ensure_connects = true;
+  circuit_->connects = false;
+  auto req = Request(PeerReachMode::Reach);
+  req.exclude_direct = true;
+  auto out = Run(req);
+  ASSERT_TRUE(WaitDone(out, std::chrono::seconds(10)));
+  ASSERT_FALSE(*out->result) << "settled as " << PeerLinkKindName((*out->result)->kind);
+  EXPECT_EQ(dial_->ensure_calls.load(), 0) << "no direct dial for a relay-only reach";
+  EXPECT_EQ(circuit_->calls.load(), 1);
+}
+
 TEST_F(PeerReachCoordinatorTest, UnreachablePeerFailsWithLastError) {
   dial_->endpoints[kPeer] = kPublicMa;
   circuit_->connects = false;
