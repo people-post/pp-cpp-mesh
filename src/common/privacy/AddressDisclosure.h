@@ -21,6 +21,16 @@ const char* DirectAudienceName(DirectAudience audience);
 std::optional<DirectAudience> DirectAudienceFromName(std::string_view name);
 
 /**
+ * Who may reach us with an inbound request (projects/privacy T3) — a call today. Stored as the same
+ * words the group-invite policy uses: everyone | contacts_only | nobody. Blocked is never allowed.
+ */
+enum class InboundAudience { Everyone, ContactsOnly, Nobody };
+
+const char* InboundAudienceName(InboundAudience audience);
+/** Unknown words read as `fallback`. */
+InboundAudience InboundAudienceFromName(std::string_view name, InboundAudience fallback);
+
+/**
  * Whether our addresses may go into records anyone can read (the org directory): only when the
  * audience is everyone — any narrower audience would be undone by a public lookup (privacy Y2).
  */

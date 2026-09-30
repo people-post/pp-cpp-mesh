@@ -34,6 +34,31 @@ std::optional<DirectAudience> DirectAudienceFromName(const std::string_view name
   return std::nullopt;
 }
 
+const char* InboundAudienceName(const InboundAudience audience) {
+  switch (audience) {
+  case InboundAudience::Everyone:
+    return "everyone";
+  case InboundAudience::ContactsOnly:
+    return "contacts_only";
+  case InboundAudience::Nobody:
+    return "nobody";
+  }
+  return "everyone";
+}
+
+InboundAudience InboundAudienceFromName(const std::string_view name, const InboundAudience fallback) {
+  if (name == "everyone") {
+    return InboundAudience::Everyone;
+  }
+  if (name == "contacts_only") {
+    return InboundAudience::ContactsOnly;
+  }
+  if (name == "nobody") {
+    return InboundAudience::Nobody;
+  }
+  return fallback;
+}
+
 bool AddressDisclosurePolicy::AllowsDirect(const std::string& peer_key) const {
   if (peer_key.empty() || blocked.contains(peer_key)) {
     return false;
