@@ -134,6 +134,7 @@ _pp_mesh_library(host
     host/LocalNetworkChange.cpp
     host/MeshHost.cpp
     host/MeshLinkEventLog.cpp
+    host/DisclosureGatedPeerLinks.cpp
     host/MeshPorts.cpp
     host/MeshPumpThread.cpp
   DEPS reachability dht discovery circuit media_relay call_media shared)
