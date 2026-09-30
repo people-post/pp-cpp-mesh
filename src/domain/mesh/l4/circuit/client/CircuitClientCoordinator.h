@@ -69,6 +69,9 @@ public:
   CircuitTunnelPhase Phase(CircuitTunnelId id) const;
   bool IsTunnelActive(CircuitTunnelId id) const;
 
+  /** Relays holding a reservation for us now (parked: they can bridge dialers to this node). Any thread. */
+  size_t ParkedRelayCount() const;
+
   /** Bridging session (null if not ready). */
   std::shared_ptr<pp::amp::ChannelSession> Session(CircuitTunnelId id) const;
 
