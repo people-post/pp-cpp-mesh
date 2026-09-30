@@ -205,6 +205,8 @@ private:
   std::unique_ptr<DialBackClient> amp_dial_back_;
   std::unique_ptr<AmpPunchCoordinator> amp_punch_;
   const AddressDisclosureGate* address_disclosure_ = nullptr;
+  /** The Amp stack the Blocked-peer link listener is installed on (one listener per stack). */
+  const void* blocked_listener_amp_ = nullptr;
   /** Apply the gate to Amp's ch0 capability (listen multiaddrs per peer); after every Amp (re)build. */
   void ApplyAddressDisclosureToAmp();
   std::unique_ptr<AmpDhtProtocol> amp_dht_;

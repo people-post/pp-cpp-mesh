@@ -301,6 +301,53 @@ TEST(MeshHostAmpTest, Ch0CapabilityKeepsOurAddressesFromAPeerOutsideTheAudience)
   host.Stop();
 }
 
+// projects/privacy T3: a Blocked peer's link does not stay up — dropped as soon as it connects.
+TEST(MeshHostAmpTest, ABlockedPeersLinkIsDroppedOnConnect) {
+  ASSERT_GE(sodium_init(), 0);
+  auto clock = std::make_shared<pp::adp::VirtualClock>(1'000'000);
+  auto hub = pp::adp::MemoryDatagramIo::MakeHub();
+  const auto addr_a = pp::adp::IpEndpoint::V4(10, 0, 3, 1, 1000);
+  const auto addr_b = pp::adp::IpEndpoint::V4(10, 0, 3, 2, 2000);
+  std::string peer_a;
+  std::string peer_b;
+  auto stack_a = MakeTestAmpStack(clock, std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr_a), &peer_a);
+  auto stack_b = MakeTestAmpStack(clock, std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr_b), &peer_b);
+  ASSERT_TRUE(stack_a && stack_b);
+  stack_b->GetEndpoint().SetAcceptEnabled(true);
+  stack_b->Start();
+  auto ma_a = pp::amp::FormatAdpMultiaddr(addr_a, peer_a);
+  auto ma_b = pp::amp::FormatAdpMultiaddr(addr_b, peer_b);
+  ASSERT_TRUE(ma_a && ma_b);
+
+  AddressDisclosureGate gate;
+  AddressDisclosurePolicy policy;
+  policy.audience = DirectAudience::Everyone;
+  policy.blocked.insert(peer_b);
+  gate.Publish(policy);
+  MeshHost host;
+  host.SetAddressDisclosure(&gate);
+  ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack_a), *ma_a)));
+  auto& links = host.Amp()->Links();
+  std::vector<pp::amp::LinkEvent> events;
+  links.AddLinkEventListener([&events](const pp::amp::LinkEvent& event) { events.push_back(event); });
+  ASSERT_TRUE(static_cast<bool>(links.RegisterEndpoint("b", *ma_b)));
+  bool connected = false;
+  links.EnsureAssociation("b", [&](pp::amp::PeerLinkManager::LinkRoe r) { connected = static_cast<bool>(r); });
+  for (int i = 0; i < 300; ++i) {
+    clock->Advance(10);
+    host.Tick();
+    stack_b->Runtime().Drive();
+  }
+  ASSERT_TRUE(connected) << "the handshake still completes (the peer is identified by it)";
+  EXPECT_EQ(links.FindLinkByPeerId(peer_b), nullptr) << "the Blocked peer's link stayed up";
+  bool requested = false;
+  for (const auto& event : events) {
+    requested |= event.kind == pp::amp::LinkEvent::Kind::Dropped && event.reason == pp::amp::LinkDropReason::Requested;
+  }
+  EXPECT_TRUE(requested);
+  host.Stop();
+}
+
 // Going offline probes nothing: links ride out a short outage (a later online change probes them).
 TEST(MeshHostAmpTest, GoingOfflineLeavesLinksAlone) {
   ASSERT_GE(sodium_init(), 0);

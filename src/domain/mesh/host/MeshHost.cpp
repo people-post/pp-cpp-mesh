@@ -350,6 +350,7 @@ void MeshHost::StopAmp() {
   if (amp_) {
     amp_->Stop();
     amp_.reset();
+    blocked_listener_amp_ = nullptr;  // its listener went with it
   }
   chat_links_.reset();
   amp_clock_.reset();
@@ -496,6 +497,19 @@ void MeshHost::ApplyAddressDisclosureToAmp() {
     disclosure = [gate](const std::string& remote_peer_id) { return gate->AllowsDirect(remote_peer_id); };
   }
   amp_->Links().SetListenAddrDisclosure(std::move(disclosure));
+  if (blocked_listener_amp_ != amp_.get()) {
+    blocked_listener_amp_ = amp_.get();
+    // projects/privacy T3: a Blocked peer's link is dropped as soon as it connects (either direction).
+    // The drop is scheduled (never inline on the event stack); the listener dies with this Amp stack.
+    auto& runtime = amp_->Runtime();
+    (void)runtime.AddLinkEventListener([this, &runtime](const pp::amp::LinkEvent& event) {
+      const AddressDisclosureGate* gate = address_disclosure_;
+      if (event.kind == pp::amp::LinkEvent::Kind::Connected && gate && gate->IsBlocked(event.peer_id)) {
+        MeshHostLog().info << "dropping a Blocked peer's link peer=" << event.peer_id;
+        (void)runtime.RequestDropLink(event.peer_id);
+      }
+    });
+  }
 }
 
 AmpDhtProtocol* MeshHost::AmpDht() { return amp_dht_.get(); }

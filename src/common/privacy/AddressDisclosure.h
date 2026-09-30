@@ -41,6 +41,8 @@ struct AddressDisclosurePolicy {
   std::unordered_set<std::string> blocked;
 
   bool AllowsDirect(const std::string& peer_key) const;
+  /** projects/privacy T3: a Blocked contact's key (never reaches us: links dropped, messages discarded). */
+  bool IsBlocked(const std::string& peer_key) const { return !peer_key.empty() && blocked.contains(peer_key); }
 };
 
 /**
@@ -52,6 +54,7 @@ class AddressDisclosureGate {
 public:
   void Publish(AddressDisclosurePolicy policy);
   bool AllowsDirect(const std::string& peer_key) const;
+  bool IsBlocked(const std::string& peer_key) const { return Snapshot()->IsBlocked(peer_key); }
   std::shared_ptr<const AddressDisclosurePolicy> Snapshot() const;
 
 private:

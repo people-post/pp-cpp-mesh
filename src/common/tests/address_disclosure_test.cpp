@@ -46,6 +46,13 @@ TEST(AddressDisclosureTest, GateAllowsNothingUntilPublishedAndNullGateAllowsAll)
 }
 
 // privacy Y2: public records (the directory) carry our addresses only for an everyone audience.
+TEST(AddressDisclosureTest, BlockedKeysAreKnown) {
+  const auto policy = PolicyWith(DirectAudience::Everyone);
+  EXPECT_TRUE(policy.IsBlocked("QmBlocked"));
+  EXPECT_FALSE(policy.IsBlocked("QmStranger"));
+  EXPECT_FALSE(policy.IsBlocked(""));
+}
+
 TEST(AddressDisclosureTest, OnlyEveryonePublishesAddresses) {
   EXPECT_TRUE(PublishesAddresses(DirectAudience::Everyone));
   EXPECT_FALSE(PublishesAddresses(DirectAudience::Contacts));
