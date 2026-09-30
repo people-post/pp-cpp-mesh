@@ -365,6 +365,8 @@ struct PunchServer::Impl {
       }
       if (!AllowsDirect(disclosure.load(std::memory_order_acquire), offer->initiator_peer_id)) {
         // projects/privacy T1: our candidates and burst would hand this initiator our IP.
+        AmpPunchLog().info << "punch target declined epoch=" << offer->epoch_id
+                           << " (initiator outside the direct-connections audience)";
         CountServed("target_declined");
         FailSession(session, offer->epoch_id, "punch: target declines this initiator");
         return;

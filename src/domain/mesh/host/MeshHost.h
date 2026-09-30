@@ -205,6 +205,8 @@ private:
   std::unique_ptr<DialBackClient> amp_dial_back_;
   std::unique_ptr<AmpPunchCoordinator> amp_punch_;
   const AddressDisclosureGate* address_disclosure_ = nullptr;
+  /** Apply the gate to Amp's ch0 capability (listen multiaddrs per peer); after every Amp (re)build. */
+  void ApplyAddressDisclosureToAmp();
   std::unique_ptr<AmpDhtProtocol> amp_dht_;
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;
   bool host_dht_ = false;

@@ -1,3 +1,4 @@
+#include "common/privacy/AddressDisclosure.h"
 #include "amp/L1/Clock.h"
 #include "amp/L1/LossyDatagramIo.h"
 #include "amp/L1/MemoryDatagramIo.h"
@@ -253,6 +254,51 @@ TEST(MeshHostAmpTest, NetworkChangeEvictsADeadLinkFast) {
   EXPECT_GT(rtt.count, 0u);
   EXPECT_GT(f.host.Amp()->Runtime().GetEndpoint().Stats().tx_datagrams, 0u);
   f.host.Stop();
+}
+
+// projects/privacy Y2: a host whose audience leaves a peer out does not hand it our listen addresses
+// in the ch0 capability when a link comes up (it still learns our PeerId and protocols).
+TEST(MeshHostAmpTest, Ch0CapabilityKeepsOurAddressesFromAPeerOutsideTheAudience) {
+  ASSERT_GE(sodium_init(), 0);
+  auto clock = std::make_shared<pp::adp::VirtualClock>(1'000'000);
+  auto hub = pp::adp::MemoryDatagramIo::MakeHub();
+  const auto addr_a = pp::adp::IpEndpoint::V4(10, 0, 2, 1, 1000);
+  const auto addr_b = pp::adp::IpEndpoint::V4(10, 0, 2, 2, 2000);
+  std::string peer_a;
+  std::string peer_b;
+  auto stack_a = MakeTestAmpStack(clock, std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr_a), &peer_a);
+  auto stack_b = MakeTestAmpStack(clock, std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr_b), &peer_b);
+  ASSERT_TRUE(stack_a && stack_b);
+  stack_b->GetEndpoint().SetAcceptEnabled(true);
+  stack_b->Start();
+  auto ma_a = pp::amp::FormatAdpMultiaddr(addr_a, peer_a);
+  auto ma_b = pp::amp::FormatAdpMultiaddr(addr_b, peer_b);
+  ASSERT_TRUE(ma_a && ma_b);
+
+  AddressDisclosureGate gate;
+  AddressDisclosurePolicy contacts_only;
+  contacts_only.audience = DirectAudience::Contacts;  // B is not a contact
+  gate.Publish(contacts_only);
+  MeshHost host;
+  host.SetAddressDisclosure(&gate);
+  ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack_a), *ma_a)));
+  auto& links = host.Amp()->Links();
+  ASSERT_TRUE(static_cast<bool>(links.RegisterEndpoint("b", *ma_b)));
+  bool connected = false;
+  links.EnsureAssociation("b", [&](pp::amp::PeerLinkManager::LinkRoe r) { connected = static_cast<bool>(r); });
+  const pp::amp::PeerLink* on_b = nullptr;
+  for (int i = 0; i < 300 && !(on_b && on_b->RemoteCapability()); ++i) {
+    clock->Advance(10);
+    host.Tick();
+    stack_b->Runtime().Drive();
+    on_b = stack_b->Links().FindLinkByPeerId(peer_a);
+  }
+  ASSERT_TRUE(connected);
+  ASSERT_NE(on_b, nullptr);
+  ASSERT_NE(on_b->RemoteCapability(), nullptr);
+  EXPECT_EQ(on_b->RemoteCapability()->local_peer_id, peer_a);
+  EXPECT_TRUE(on_b->RemoteCapability()->listen_multiaddrs.empty()) << "a stranger learned our addresses over ch0";
+  host.Stop();
 }
 
 // Going offline probes nothing: links ride out a short outage (a later online change probes them).

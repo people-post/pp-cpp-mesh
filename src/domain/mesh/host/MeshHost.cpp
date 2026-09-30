@@ -132,6 +132,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   // at once instead of waiting out its request timeout.
   (*stack)->Runtime().SetRefuseUnhandledOpens(true);
   amp_ = std::move(*stack);
+  ApplyAddressDisclosureToAmp();
   InstallMeshLinkEventLog(amp_->Runtime());
   InstallMeshLinkMetrics(amp_->Runtime());
   chat_links_ = NewAmpChatPeerLinks(amp_->Runtime());
@@ -365,6 +366,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   // Set before EnsureAmpL4Coordinators: L4 captures MakeL4IoPump (empty under MeshPump).
   prefer_mesh_pump_ = drive == AttachDrive::MeshPump;
   amp_ = std::move(stack);
+  ApplyAddressDisclosureToAmp();
   amp_->Start();
   amp_listen_multiaddr_ = std::move(listen_multiaddr);
   if (!amp_listen_multiaddr_.empty()) {
@@ -481,6 +483,19 @@ void MeshHost::SetAddressDisclosure(const AddressDisclosureGate* gate) {
   if (amp_punch_) {
     amp_punch_->SetAddressDisclosure(gate);
   }
+  ApplyAddressDisclosureToAmp();
+}
+
+void MeshHost::ApplyAddressDisclosureToAmp() {
+  if (!amp_) {
+    return;
+  }
+  // ch0 capability: our listen multiaddrs go only to peers that may learn our address (privacy Y2).
+  pp::amp::PeerLinkManager::ListenAddrDisclosure disclosure;
+  if (const AddressDisclosureGate* gate = address_disclosure_) {
+    disclosure = [gate](const std::string& remote_peer_id) { return gate->AllowsDirect(remote_peer_id); };
+  }
+  amp_->Links().SetListenAddrDisclosure(std::move(disclosure));
 }
 
 AmpDhtProtocol* MeshHost::AmpDht() { return amp_dht_.get(); }
