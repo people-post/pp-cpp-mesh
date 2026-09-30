@@ -121,6 +121,29 @@ TEST(SignalingPunchExchangeTest, FailsFastWithoutCandidatesOrCarrier) {
   EXPECT_FALSE(a.sent_answer);
 }
 
+// PR #240 review: a request whose offer cannot go out fails alone — the punch in flight stays.
+TEST(SignalingPunchExchangeTest, AnUnsendableRequestLeavesThePunchInFlight) {
+  Side a;
+  a.Bind();
+  std::optional<bool> first;
+  a.exchange.Request("12D3b", {"/ip4/1.1.1.1/tcp/1"}, [&](Roe<void> r) { first = static_cast<bool>(r); });
+  const PunchSignal in_flight = *a.sent_offer;
+  a.carrier_up = false;
+  std::optional<std::string> second;
+  a.exchange.Request("12D3b", {"/ip4/1.1.1.1/tcp/1"}, [&](Roe<void> r) { second = r ? "" : r.error().message; });
+  ASSERT_TRUE(second);
+  EXPECT_EQ(*second, "no carrier");
+  EXPECT_FALSE(first) << "the punch in flight was not superseded";
+
+  PunchSignal answer = in_flight;
+  answer.addrs = {"/ip4/2.2.2.2/tcp/2"};
+  ASSERT_TRUE(a.exchange.OnAnswer(answer));
+  ASSERT_EQ(a.bursts.size(), 1u);
+  a.pending_burst(Roe<void>{});
+  ASSERT_TRUE(first);
+  EXPECT_TRUE(*first);
+}
+
 // H011: an R1 chosen before there is a peer to tell is kept and sent on Flush.
 TEST(CircuitR1HintTest, KeepsTheR1UntilACarrierExists) {
   CircuitR1Hint hint;

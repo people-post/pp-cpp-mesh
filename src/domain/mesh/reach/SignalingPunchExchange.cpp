@@ -35,9 +35,6 @@ void SignalingPunchExchange::Request(const std::string& target_peer_id, std::vec
     done(Error("signaling punch: no carrier"));
     return;
   }
-  if (pending_) {
-    Complete(pending_->epoch_id, Error("signaling punch: superseded"));
-  }
   PunchSignal offer;
   offer.epoch_id = util::GenerateUuid();
   offer.window_ms = kDefaultWindowMs;
@@ -48,11 +45,15 @@ void SignalingPunchExchange::Request(const std::string& target_peer_id, std::vec
   if (offer.peer_id.empty()) {
     offer.peer_id = target_peer_id;
   }
-  pending_ = Pending{offer.epoch_id, std::move(done)};
+  // A request whose offer cannot go out fails alone: the punch already in flight stays.
   if (auto sent = ports_.send_offer(offer); !sent) {
-    Complete(offer.epoch_id, sent.error());
+    done(sent.error());
     return;
   }
+  if (pending_) {
+    Complete(pending_->epoch_id, Error("signaling punch: superseded"));
+  }
+  pending_ = Pending{offer.epoch_id, std::move(done)};
   log().info << "punch offer sent epoch=" << offer.epoch_id << " addrs=" << offer.addrs.size();
 }
 
