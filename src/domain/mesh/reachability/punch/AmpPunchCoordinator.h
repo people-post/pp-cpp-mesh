@@ -52,6 +52,7 @@ public:
 
   void SetLocalCandidateAddrs(std::vector<std::string> addrs) { server_.SetLocalCandidateAddrs(std::move(addrs)); }
   const std::vector<std::string>& LocalCandidateAddrs() const { return server_.LocalCandidateAddrs(); }
+  void SetAddressDisclosure(const AddressDisclosureGate* gate) { server_.SetAddressDisclosure(gate); }
 
   PunchClientCoordinator& Client() { return client_; }
 
@@ -94,7 +95,7 @@ private:
                         {{"kind", kind}, {"result", result}});
       }
     }
-    for (const char* role : {"introducer", "target"}) {
+    for (const char* role : {"introducer", "target", "target_declined"}) {
       (void)r.Counter("pp_punch_served_total", "Punch requests this node served, by role.", {{"role", role}});
     }
   }

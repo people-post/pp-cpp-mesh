@@ -63,6 +63,7 @@ struct PunchServer::Impl {
   /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
   DeferredSelf deferred;
   std::vector<std::string>* local_addrs = nullptr;
+  std::atomic<const AddressDisclosureGate*> disclosure{nullptr};
 
   pp::amp::PeerLinkManager& Links() { return runtime->Links(); }
 
@@ -362,6 +363,12 @@ struct PunchServer::Impl {
         FailSession(session, "", "punch: invalid offer");
         return;
       }
+      if (!AllowsDirect(disclosure.load(std::memory_order_acquire), offer->initiator_peer_id)) {
+        // projects/privacy T1: our candidates and burst would hand this initiator our IP.
+        CountServed("target_declined");
+        FailSession(session, offer->epoch_id, "punch: target declines this initiator");
+        return;
+      }
       *phase = "await_sync";
       CountServed("target");
       *punch_remote_peer_id = offer->initiator_peer_id;
@@ -421,6 +428,10 @@ PunchServer::PunchServer(pp::amp::MeshRuntime& runtime, IoPump io_pump)
 }
 
 PunchServer::~PunchServer() { Stop(); }
+
+void PunchServer::SetAddressDisclosure(const AddressDisclosureGate* gate) {
+  impl_->disclosure.store(gate, std::memory_order_release);
+}
 
 void PunchServer::SetLocalCandidateAddrs(std::vector<std::string> addrs) {
   local_addrs_ = SanitizePunchAddrs(std::move(addrs));

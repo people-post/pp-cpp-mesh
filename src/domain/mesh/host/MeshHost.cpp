@@ -236,6 +236,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
   }
   if (!amp_punch_) {
     amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Runtime(), io_pump);
+    amp_punch_->SetAddressDisclosure(address_disclosure_);
   }
   if (!amp_dht_) {
     amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Runtime(), post_worker);
@@ -474,6 +475,13 @@ void MeshHost::RefreshAdvertisedListenAddrs() {
 DialBackClient* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
 
 AmpPunchCoordinator* MeshHost::AmpPunch() { return amp_punch_.get(); }
+
+void MeshHost::SetAddressDisclosure(const AddressDisclosureGate* gate) {
+  address_disclosure_ = gate;
+  if (amp_punch_) {
+    amp_punch_->SetAddressDisclosure(gate);
+  }
+}
 
 AmpDhtProtocol* MeshHost::AmpDht() { return amp_dht_.get(); }
 

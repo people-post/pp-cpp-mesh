@@ -174,6 +174,44 @@ TEST(AmpPunchCoordinatorTest, SeedIntroducerColdPunchConnectsAToB) {
 }
 
 
+// projects/privacy T1: the target answers a punch only for initiators its audience allows —
+// answering hands the initiator our candidates and a burst from our IP.
+TEST(AmpPunchCoordinatorTest, TargetDeclinesAnInitiatorOutsideItsAudience) {
+  PunchExpiryStageFixture f;
+  ASSERT_TRUE(PunchExpiryStageFixture::Create(&f));
+  auto& harness = *f.harness;
+  AmpPunchCoordinator punch_a(*harness.runtime_a, MakeTriplePunchPump(harness));
+  AmpPunchCoordinator punch_i(*harness.runtime_r, MakeTriplePunchPump(harness));
+  AmpPunchCoordinator punch_b(*harness.runtime_b, MakeTriplePunchPump(harness));
+  punch_a.SetLocalCandidateAddrs({harness.ma_a});
+  punch_i.SetLocalCandidateAddrs({harness.ma_r});
+  punch_b.SetLocalCandidateAddrs({harness.ma_b});
+  AddressDisclosureGate b_audience;
+  AddressDisclosurePolicy strangers_only;
+  strangers_only.audience = DirectAudience::Contacts;  // A is not one of B's contacts
+  b_audience.Publish(strangers_only);
+  punch_b.SetAddressDisclosure(&b_audience);
+  punch_a.Start();
+  punch_i.Start();
+  punch_b.Start();
+  ASSERT_TRUE(f.AssocAAndBToIntroducer());
+
+  auto declined = punch_a.TryColdPunch("introducer", harness.peer_id_b, {harness.ma_a}, 3000);
+  EXPECT_FALSE(declined && declined->ok) << "B answered a stranger's punch";
+  EXPECT_EQ(harness.mgr_a().CountConnectedLinksForPeerId(harness.peer_id_b), 0u);
+
+  AddressDisclosurePolicy with_a = strangers_only;
+  with_a.contacts.insert(harness.peer_id_a);
+  b_audience.Publish(with_a);
+  auto punched = punch_a.TryColdPunch("introducer", harness.peer_id_b, {harness.ma_a}, 3000);
+  ASSERT_TRUE(static_cast<bool>(punched)) << punched.error().message;
+  EXPECT_TRUE(punched->ok) << punched->error;
+
+  punch_a.Stop();
+  punch_i.Stop();
+  punch_b.Stop();
+}
+
 TEST(AmpPunchCoordinatorTest, ContactIntroducerColdPunchConnectsAToB) {
   auto created = pbr::test::AmpMeshTripleHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
