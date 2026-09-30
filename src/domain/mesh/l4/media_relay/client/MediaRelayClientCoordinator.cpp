@@ -884,7 +884,26 @@ double MediaRelayClientCoordinator::PathPressure() const { return HealthSnapshot
 
 CallHopHealth MediaRelayClientCoordinator::HealthSnapshot() const {
   CallHopHealth health;
-  health.attached = IsAttached();
+  std::string relay_key;
+  {
+    std::lock_guard lock(impl_->mu);
+    health.attached = impl_->client_.channel != nullptr || (impl_->local_server && impl_->local_server->IsLocalAttached());
+    if (impl_->client_.channel) {
+      relay_key = impl_->client_.hop_peer_key;
+    }
+  }
+  if (relay_key.empty()) {
+    return health;  // detached, or on this device's own hop: no link to a relay
+  }
+  // Under the link strand only (IO callbacks take `mu` inside it).
+  pp::amp::LinkHandle link{};
+  runtime_.Links().WithLiveLinkByDialKey(relay_key, [&](pp::amp::PeerLink& live) { link = live.Handle(); });
+  if (const auto stats = runtime_.Links().LinkConnectionStats(link)) {
+    health.link = CallLinkCounters{.available = true,
+                                   .reliable_sent = stats->reliable_sent,
+                                   .retransmits = stats->retransmits,
+                                   .srtt_ms = stats->srtt_ms};
+  }
   return health;
 }
 
