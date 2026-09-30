@@ -72,6 +72,7 @@ void QuoteThenAttach(MediaRelayAttachPorts ports, MediaRelayAttachRequest reques
         attached.hop_peer_id = request.hop_peer_id;
         attached.quote_id = quote->quote_id;
         attached.a_up_bps = quote->a_up_bps;
+        attached.video_levels = quote->video_levels;
         ports.relay->AcceptAndAttachAsync(
             request.hop_peer_id, attached.quote_id, request.session_id, request.auth, std::move(hooks.on_frame),
             [attached, on_done = std::move(on_done)](Roe<MediaRelayAttachResult> result) mutable {

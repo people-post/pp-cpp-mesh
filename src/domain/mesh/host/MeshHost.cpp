@@ -141,6 +141,9 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   host_directory_ = config.host_directory;
   StartAmpL4Hosting(config.host_circuit_relay, config.host_media_relay, config.host_dht,
                     config.host_directory);
+  if (amp_media_relay_server_) {
+    amp_media_relay_server_->SetVideoPolicy(config.media_relay_video);
+  }
   StartOwnedThreads();
   return Roe<void>();
 }

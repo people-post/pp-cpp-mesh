@@ -111,6 +111,7 @@ _pp_mesh_library(media_relay
     l4/media_relay/MediaRelayFrames.cpp
     l4/media_relay/MediaRelayLogic.cpp
     l4/media_relay/MediaRelayBundleLogic.cpp
+    l4/media_relay/MediaRelayVideoLevels.cpp
     l4/media_relay/serve/MediaRelayAttachSm.cpp
     l4/media_relay/serve/MediaRelayServer.cpp
     l4/media_relay/client/MediaRelayClientCoordinator.cpp

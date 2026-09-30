@@ -7,6 +7,7 @@
 #include "domain/mesh/l4/media_relay/MediaRelayBundleLogic.h"
 #include "domain/mesh/l4/media_relay/MediaRelayFrames.h"
 #include "domain/mesh/l4/media_relay/MediaRelayLogic.h"
+#include "domain/mesh/l4/media_relay/MediaRelayVideoLevels.h"
 #include "domain/mesh/l4/media_relay/serve/MediaRelayAttachSm.h"
 #include "common/ValueJson.h"
 #include "foundation/runtime/DeferredSelf.h"
@@ -15,6 +16,7 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -47,6 +49,7 @@ struct MediaRelayServer::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
   mutable std::mutex mu;
   MediaRelayAdmissionPolicy admission;
+  MediaRelayVideoPolicy video_policy;
   std::atomic<bool> started{false};
   std::atomic<bool> stopped{true};
   std::atomic<bool> serve_inbound{true};
@@ -63,6 +66,8 @@ struct MediaRelayServer::Impl {
     FrameHandler local_on_frame;
     std::unordered_set<uint64_t> subscriptions;
     std::unordered_map<uint64_t, uint32_t> last_lossy_seq;
+    /** B009: video levels this participant may publish here; nullopt = any (the local participant). */
+    std::optional<std::vector<uint8_t>> video_levels;
   };
 
   struct HostSession {
@@ -226,6 +231,9 @@ struct MediaRelayServer::Impl {
     if (!frame) {
       return true;
     }
+    if (!CarriesVideoOf(*part, frame->channel_id)) {
+      return true;  // a level this relay did not agree to carry for this participant (B009)
+    }
     Fanout(session, part->peer_id, *frame, body);
     return true;
   }
@@ -321,6 +329,14 @@ struct MediaRelayServer::Impl {
   }
 
   /** Requires `mu`. */
+  static bool CarriesVideoOf(const HostParticipant& part, const uint16_t channel_id) {
+    if (!part.video_levels || !IsVideoChannel(channel_id)) {
+      return true;
+    }
+    const uint8_t level = VideoLevelOf(channel_id);
+    return std::find(part.video_levels->begin(), part.video_levels->end(), level) != part.video_levels->end();
+  }
+
   bool HandleQuote(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const Object& root,
                    const MediaRelayOpAdmitContext& admit) {
     const auto decision = DecideMediaRelayOpAdmit(admit);
@@ -336,8 +352,16 @@ struct MediaRelayServer::Impl {
     req.participants = static_cast<int>(root.getNonNegInt("participants").value_or(1));
     req.want_up_bps = root.getIf<int64_t>("want_up_bps").value_or(0);
     req.want_down_bps = root.getIf<int64_t>("want_down_bps").value_or(0);
+    req.video_levels = VideoLevelsFromJson(root, "video_levels");
+    req.video_parallel = static_cast<int>(root.getNonNegInt("video_parallel").value_or(1));
     sm.call_id = req.session_id;
+    auto carried = ChooseCarriedVideoLevels({req.video_levels, req.video_parallel}, video_policy);
+    if (!carried) {
+      Reject(channel, sm, carried.error().message, MediaRelayAttachEvent::AdmitFail);
+      return false;
+    }
     auto q = BuildDefaultMediaRelayQuote(req);
+    q.video_levels = *carried;
     if (!quotes.Add(q, req.session_id, sm.remote, Clock::now())) {
       Reject(channel, sm, "media-relay busy", MediaRelayAttachEvent::AdmitFail);
       return false;
@@ -355,6 +379,7 @@ struct MediaRelayServer::Impl {
     quote_resp.set("rate", q.rate);
     quote_resp.set("ceiling_bytes", q.ceiling_bytes);
     quote_resp.set("ceiling_amount", q.ceiling_amount);
+    quote_resp.set("video_levels", VideoLevelsToJson(q.video_levels));
     channel.EnqueueOutbound(JsonToBody(DumpJson(quote_resp)));
     (void)sm.Apply(MediaRelayAttachEvent::OpQuote);
     return true;
@@ -382,6 +407,7 @@ struct MediaRelayServer::Impl {
       return false;
     }
     sm.call_id = pending->call_id;
+    sm.video_levels = pending->quote.video_levels;
     quotes.Take(quote_id, now);
     sm.accepted_quote_id = quote_id;
     sm.session_token = MakeSessionToken();
@@ -431,6 +457,7 @@ struct MediaRelayServer::Impl {
     auto part = std::make_shared<HostParticipant>();
     part->peer_id = sm.remote;
     part->channel = channel;
+    part->video_levels = sm.video_levels;
     host->participants.push_back(part);
     PostIo([this, host, part] { RebindParticipantHandlers(host, part); });
     SendAck(*channel, "attach");
@@ -552,6 +579,11 @@ void MediaRelayServer::SetServeInbound(const bool serve) {
 
 bool MediaRelayServer::ServeInbound() const {
   return impl_->serve_inbound.load(std::memory_order_acquire);
+}
+
+void MediaRelayServer::SetVideoPolicy(MediaRelayVideoPolicy policy) {
+  std::lock_guard lock(impl_->mu);
+  impl_->video_policy = std::move(policy);
 }
 
 void MediaRelayServer::SetAdmissionPolicy(MediaRelayAdmissionPolicy policy) {

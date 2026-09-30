@@ -50,6 +50,8 @@ struct MeshHostConfig {
   bool host_directory = false;
   MediaRelayBudgetConfig media_relay_budget{};
   RelayPricingConfig media_relay_pricing{};
+  /** Video levels the hosted media_relay carries per publisher (B009). */
+  MediaRelayVideoPolicy media_relay_video{};
   /** Fire an Amp dial-back reachability probe after start (Node / pp-node). */
   bool start_reachability_probe = false;
   bool try_upnp_first = false;

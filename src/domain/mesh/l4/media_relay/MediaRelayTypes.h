@@ -86,6 +86,12 @@ struct MediaRelayQuoteRequest {
   int participants = 1;
   int64_t want_up_bps = 0;
   int64_t want_down_bps = 0;
+  /**
+   * B009 offer: video levels this participant can publish, and how many at once. Calls publish the
+   * default level; receive-only participants (broadcast viewers) offer none.
+   */
+  std::vector<uint8_t> video_levels{kDefaultVideoLevel};
+  int video_parallel = 1;
 };
 
 struct MediaRelayQuote {
@@ -100,6 +106,8 @@ struct MediaRelayQuote {
   double rate = 0.0;
   int64_t ceiling_bytes = 0;
   double ceiling_amount = 0.0;
+  /** B009 answer: the video levels the relay carries for this participant (ascending). */
+  std::vector<uint8_t> video_levels;
 };
 
 struct MediaRelayAttachResult {

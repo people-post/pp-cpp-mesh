@@ -1,4 +1,5 @@
 #include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "domain/mesh/l4/media_relay/MediaRelayVideoLevels.h"
 
 #include "domain/mesh/l4/shared/ChannelSessionSlot.h"
 #include "domain/mesh/l4/shared/ProductChannelPolicies.h"
@@ -45,6 +46,7 @@ MediaRelayQuote ParseQuoteResponse(const Object& root) {
   q.rate = root.getIf<double>("rate").value_or(0.0);
   q.ceiling_bytes = root.getIf<int64_t>("ceiling_bytes").value_or(0);
   q.ceiling_amount = root.getIf<double>("ceiling_amount").value_or(0.0);
+  q.video_levels = VideoLevelsFromJson(root, "video_levels");
   return q;
 }
 
@@ -539,6 +541,8 @@ struct MediaRelayClientCoordinator::Impl {
     req.set("participants", int64_t{request.participants});
     req.set("want_up_bps", request.want_up_bps);
     req.set("want_down_bps", request.want_down_bps);
+    req.set("video_levels", VideoLevelsToJson(request.video_levels));
+    req.set("video_parallel", int64_t{request.video_parallel});
     const std::string json = DumpJson(req);
     if (TryBeginOnCircuitHop(session, json, MediaRelayBundlePhase::WaitQuote)) {
       return;

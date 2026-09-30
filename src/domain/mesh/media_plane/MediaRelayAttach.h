@@ -55,6 +55,8 @@ struct MediaRelayAttached {
   std::string quote_id;
   /** Granted uplink from the quote (feeds the caller's adaptation). */
   int64_t a_up_bps = 0;
+  /** B009: the video levels the relay carries for this participant (publish exactly these). */
+  std::vector<uint8_t> video_levels;
 };
 
 /**
