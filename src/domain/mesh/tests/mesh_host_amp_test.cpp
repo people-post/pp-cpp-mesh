@@ -11,7 +11,9 @@
 #include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
 #include "domain/mesh/host/LocalNetworkChange.h"
+#include "domain/mesh/connectivity/MeshConnectivity.h"
 #include "domain/mesh/host/MeshHost.h"
+#include "domain/mesh/media_plane/MeshMediaRelay.h"
 #include "foundation/identity/PeerIdUtil.h"
 
 #include <gtest/gtest.h>
@@ -123,6 +125,49 @@ TEST(MeshHostAmpTest, AmpL4CoordinatorsShareIoTickWithoutOverwrite) {
   EXPECT_FALSE(host.AmpCircuitClient()->IsStarted());
   EXPECT_TRUE(host.AmpMediaRelayServer()->IsStarted());
 
+  host.Stop();
+}
+
+// Connectivity needs Amp, not the media_relay client: with that client coordinator stopped, the dial
+// registry still gets the Amp links and circuit reach is still built; only the media relay is out.
+TEST(MeshHostAmpTest, ConnectivityWiresOnAmpWithoutTheMediaRelayClient) {
+  ASSERT_GE(sodium_init(), 0);
+
+  auto clock = std::make_shared<pp::adp::VirtualClock>(1'000'000);
+  auto hub = pp::adp::MemoryDatagramIo::MakeHub();
+  const auto addr = pp::adp::IpEndpoint::V4(10, 0, 0, 3, 1002);
+  auto io = std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr);
+
+  std::string peer_id;
+  auto stack = MakeTestAmpStack(clock, io, &peer_id);
+  ASSERT_NE(stack, nullptr);
+  auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
+  ASSERT_TRUE(static_cast<bool>(ma));
+
+  MeshHost host;
+  ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
+  ASSERT_NE(host.AmpMediaRelayClientCoord(), nullptr);
+  host.AmpMediaRelayClientCoord()->Stop();
+  {
+    MeshConnectivity connectivity;
+    MeshMediaRelay media_relay(connectivity);
+    MeshConnectivityDeps deps;
+    deps.mesh = [&host]() { return &host; };
+    connectivity.SetDeps(std::move(deps));
+    connectivity.Wire();
+    media_relay.Wire();
+
+    ASSERT_NE(connectivity.Dial(), nullptr);
+    const std::string peer_ma = "/ip4/203.0.113.9/udp/4001/adp/1.0.0/p2p/12D3KooWConnectivityPeer";
+    EXPECT_TRUE(connectivity.Dial()->RegisterEndpoint("12D3KooWConnectivityPeer", peer_ma))
+        << "the dial registry has the Amp links";
+    EXPECT_NE(connectivity.CircuitReach(), nullptr) << "circuit reach needs only the circuit client";
+    EXPECT_FALSE(media_relay.AmpRelayAvailable());
+    EXPECT_EQ(media_relay.RelayClient(), nullptr);
+
+    media_relay.Clear();
+    connectivity.Clear();
+  }
   host.Stop();
 }
 

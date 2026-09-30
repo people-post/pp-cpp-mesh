@@ -41,7 +41,7 @@ public:
   /** media_relay client + dial + service reach, for `AttachToMediaRelayAsync` users. */
   MediaRelayAttachPorts RelayAttachPorts() const;
   /** True when the mesh runs a started Amp media_relay coordinator. */
-  bool AmpRelayAvailable() const { return connectivity_.AmpClientsUp(); }
+  bool AmpRelayAvailable() const;
 
 private:
   MeshConnectivity& connectivity_;

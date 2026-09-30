@@ -127,8 +127,6 @@ public:
 
   IDialRegistry* Dial() const;
   ICircuitHopReach* CircuitReach() const;
-  /** Amp and its client coordinators are up (the dial registry and circuit reach use them). */
-  bool AmpClientsUp() const;
   /** The mesh it wires from (null when none); for objects built on this (`MeshMediaRelay`). */
   MeshHost* Mesh() const { return mesh(); }
 

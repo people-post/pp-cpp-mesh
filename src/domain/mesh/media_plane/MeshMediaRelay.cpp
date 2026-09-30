@@ -61,6 +61,11 @@ void MeshMediaRelay::Clear() {
   });
 }
 
+bool MeshMediaRelay::AmpRelayAvailable() const {
+  MeshHost* m = connectivity_.Mesh();
+  return m && m->Amp() && m->AmpMediaRelayClientCoord() && m->AmpMediaRelayClientCoord()->IsStarted();
+}
+
 MediaRelayAttachPorts MeshMediaRelay::RelayAttachPorts() const {
   MediaRelayAttachPorts ports;
   ports.relay = RelayClient();

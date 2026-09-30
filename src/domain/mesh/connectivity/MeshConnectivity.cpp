@@ -190,26 +190,22 @@ void MeshConnectivity::ArmHopPolicyRefresh() {
   }));
 }
 
-bool MeshConnectivity::AmpClientsUp() const {
-  // Amp with its client coordinators started (they start together; the media_relay one stands for them).
-  MeshHost* m = mesh();
-  return m && m->Amp() && m->AmpMediaRelayClientCoord() && m->AmpMediaRelayClientCoord()->IsStarted();
-}
 
 void MeshConnectivity::WireDialRegistry(MeshHost* m, const MeshIoContext& io) {
   // Keep the dial registry stable across N025 listen sync — recreating mid-call drops answerer state.
   if (!dial_registry_) {
     dial_registry_ = std::make_unique<PeerSessionDialRegistry>();
   }
-  const bool amp = AmpClientsUp();
+  // Amp links whenever Amp runs (its own need; not gated on any L4 client being started).
   auto chat = m ? m->ChatDeps() : std::nullopt;
-  dial_registry_->SetAmpLinks(amp && chat ? &chat->links : nullptr);
-  dial_registry_->SetAmpCircuitHops(amp && m->AmpCircuitHops() ? m->AmpCircuitHops() : nullptr);
+  dial_registry_->SetAmpLinks(chat ? &chat->links : nullptr);
+  dial_registry_->SetAmpCircuitHops(chat && m->AmpCircuitHops() ? m->AmpCircuitHops() : nullptr);
   dial_registry_->SetPostIo(io.post_io);
 }
 
 void MeshConnectivity::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io) {
-  const bool use_amp_circuit = AmpClientsUp() && m->AmpCircuitClient() && m->AmpCircuitClient()->IsStarted() &&
+  // Circuit reach needs a started circuit client and the hop registry — nothing else.
+  const bool use_amp_circuit = m && m->Amp() && m->AmpCircuitClient() && m->AmpCircuitClient()->IsStarted() &&
                                m->AmpCircuitHops();
   auto circuit = use_amp_circuit ? m->CircuitDeps() : std::nullopt;
   if (!circuit) {
