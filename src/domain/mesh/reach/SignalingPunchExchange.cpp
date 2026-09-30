@@ -61,6 +61,9 @@ Roe<void> SignalingPunchExchange::OnOffer(const PunchSignal& offer, const std::s
   if (!ports_.burst) {
     return Error("signaling punch burst unavailable");
   }
+  if (ports_.may_answer && !ports_.may_answer(offer.peer_id, sender_key)) {
+    return Error("signaling punch: declined (address not disclosed to this peer)");
+  }
   std::vector<std::string> my_addrs = ports_.local_candidates ? ports_.local_candidates() : std::vector<std::string>{};
   if (my_addrs.empty()) {
     return Error("signaling punch: no local candidates for answer");
