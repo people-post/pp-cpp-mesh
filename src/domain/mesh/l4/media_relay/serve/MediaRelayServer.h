@@ -3,6 +3,7 @@
 #include "amp/link/MeshRuntime.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/l4/media_relay/MediaRelayVideoLevels.h"
+#include "domain/mesh/l4/shared/RelayRuntimeStats.h"
 
 #include "common/Error.h"
 #include "common/PbrCompat.h"
@@ -40,6 +41,8 @@ public:
   void SetServeInbound(bool serve);
   bool ServeInbound() const;
   void SetAdmissionPolicy(MediaRelayAdmissionPolicy policy);
+  /** Hosted sessions with participants, and those participants (aggregates only). Any thread. */
+  MediaRelayRuntimeStats RuntimeStats() const;
   /** B009: which video levels this relay carries per publisher (from the operator's config). */
   void SetVideoPolicy(MediaRelayVideoPolicy policy);
 

@@ -10,6 +10,7 @@
 #include "domain/mesh/l4/media_relay/MediaRelayVideoLevels.h"
 #include "domain/mesh/l4/media_relay/serve/MediaRelayAttachSm.h"
 #include "common/ValueJson.h"
+#include "common/metrics/MetricsRegistry.h"
 #include "foundation/runtime/DeferredSelf.h"
 
 #include <algorithm>
@@ -42,6 +43,52 @@ std::string MakeSessionToken() {
   oss << "s" << seq.fetch_add(1, std::memory_order_relaxed);
   return oss.str();
 }
+
+} // namespace
+
+namespace {
+
+/** Operator metrics (docs/contracts/NODE_METRICS.md § Media relay). */
+struct MediaRelayMetrics {
+  MetricCounter& frames_received;
+  MetricCounter& bytes_received;
+  MetricCounter& frames_forwarded;
+  MetricCounter& bytes_forwarded;
+  MetricCounter& dropped_stale;
+  MetricCounter& dropped_video_level;
+  MetricCounter& quotes_issued;
+  MetricCounter& quotes_refused_admission;
+  MetricCounter& quotes_refused_video_level;
+  MetricCounter& quotes_refused_busy;
+  MetricCounter& attaches_ok;
+  MetricCounter& attaches_refused;
+
+  static MediaRelayMetrics& Get() {
+    static MediaRelayMetrics metrics = [] {
+      MetricsRegistry& r = MetricsRegistry::Global();
+      const char* frames = "Media relay data frames.";
+      const char* bytes = "Media relay data frame bytes.";
+      const char* dropped = "Media relay frames dropped, by reason.";
+      const char* quotes = "Media relay quotes, by result.";
+      const char* attaches = "Media relay attaches, by result.";
+      return MediaRelayMetrics{
+          r.Counter("pp_media_relay_frames_total", frames, {{"direction", "received"}}),
+          r.Counter("pp_media_relay_bytes_total", bytes, {{"direction", "received"}}),
+          r.Counter("pp_media_relay_frames_total", frames, {{"direction", "forwarded"}}),
+          r.Counter("pp_media_relay_bytes_total", bytes, {{"direction", "forwarded"}}),
+          r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "stale"}}),
+          r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "video_level"}}),
+          r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "issued"}}),
+          r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "refused_admission"}}),
+          r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "refused_video_level"}}),
+          r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "refused_busy"}}),
+          r.Counter("pp_media_relay_attaches_total", attaches, {{"result", "ok"}}),
+          r.Counter("pp_media_relay_attaches_total", attaches, {{"result", "refused"}}),
+      };
+    }();
+    return metrics;
+  }
+};
 
 } // namespace
 
@@ -154,6 +201,7 @@ struct MediaRelayServer::Impl {
           if (ShouldDropStaleLossyFrame(it != part->last_lossy_seq.end(),
                                         it != part->last_lossy_seq.end() ? it->second : 0, frame.seq,
                                         frame.mark)) {
+            MediaRelayMetrics::Get().dropped_stale.Inc();
             continue;
           }
           part->last_lossy_seq[key] = frame.seq;
@@ -164,6 +212,9 @@ struct MediaRelayServer::Impl {
           channel = part->channel;
         }
       }
+      MediaRelayMetrics& metrics = MediaRelayMetrics::Get();
+      metrics.frames_forwarded.Inc();
+      metrics.bytes_forwarded.Inc(body.size());
       if (on_frame) {
         on_frame(frame);
         continue;
@@ -231,7 +282,11 @@ struct MediaRelayServer::Impl {
     if (!frame) {
       return true;
     }
+    MediaRelayMetrics& metrics = MediaRelayMetrics::Get();
+    metrics.frames_received.Inc();
+    metrics.bytes_received.Inc(body.size());
     if (!CarriesVideoOf(*part, frame->channel_id)) {
+      metrics.dropped_video_level.Inc();
       return true;  // a level this relay did not agree to carry for this participant (B009)
     }
     Fanout(session, part->peer_id, *frame, body);
@@ -341,6 +396,7 @@ struct MediaRelayServer::Impl {
                    const MediaRelayOpAdmitContext& admit) {
     const auto decision = DecideMediaRelayOpAdmit(admit);
     if (decision != MediaRelayOpAdmitDecision::Allow) {
+      MediaRelayMetrics::Get().quotes_refused_admission.Inc();
       Reject(channel, sm,
              decision == MediaRelayOpAdmitDecision::RefuseStranger ? "prefer contacts: stranger refused"
                                                                    : "media-relay not ready",
@@ -357,15 +413,18 @@ struct MediaRelayServer::Impl {
     sm.call_id = req.session_id;
     auto carried = ChooseCarriedVideoLevels({req.video_levels, req.video_parallel}, video_policy);
     if (!carried) {
+      MediaRelayMetrics::Get().quotes_refused_video_level.Inc();
       Reject(channel, sm, carried.error().message, MediaRelayAttachEvent::AdmitFail);
       return false;
     }
     auto q = BuildDefaultMediaRelayQuote(req);
     q.video_levels = *carried;
     if (!quotes.Add(q, req.session_id, sm.remote, Clock::now())) {
+      MediaRelayMetrics::Get().quotes_refused_busy.Inc();
       Reject(channel, sm, "media-relay busy", MediaRelayAttachEvent::AdmitFail);
       return false;
     }
+    MediaRelayMetrics::Get().quotes_issued.Inc();
     Object quote_resp;
     quote_resp.set("v", int64_t{1});
     quote_resp.set("ok", true);
@@ -426,6 +485,7 @@ struct MediaRelayServer::Impl {
   bool HandleAttach(const std::shared_ptr<pp::amp::ChannelSession>& channel, MediaRelayAttachSm& sm,
                     const Object& root, MediaRelayOpAdmitContext admit) {
     if (!sm.Apply(MediaRelayAttachEvent::OpAttach)) {
+      MediaRelayMetrics::Get().attaches_refused.Inc();
       Reject(*channel, sm, "attach not allowed in phase", MediaRelayAttachEvent::OpAttach);
       return false;
     }
@@ -434,16 +494,19 @@ struct MediaRelayServer::Impl {
     const std::string auth = root.getString("auth").value_or("");
     sm.call_id = call_id;
     if (token.empty() || call_id.empty()) {
+      MediaRelayMetrics::Get().attaches_refused.Inc();
       Reject(*channel, sm, "missing session_token or call_id", MediaRelayAttachEvent::AttachFail);
       return false;
     }
     if (!MediaRelayAuthStubOk(auth, call_id)) {
+      MediaRelayMetrics::Get().attaches_refused.Inc();
       Reject(*channel, sm, "auth failed", MediaRelayAttachEvent::AttachFail);
       return false;
     }
     admit.call_id = call_id;
     admit.session_exists_for_call = hosts_by_call.contains(call_id);
     if (DecideMediaRelayOpAdmit(admit) != MediaRelayOpAdmitDecision::Allow) {
+      MediaRelayMetrics::Get().attaches_refused.Inc();
       Reject(*channel, sm, "prefer contacts: stranger refused", MediaRelayAttachEvent::AdmitFail);
       return false;
     }
@@ -459,6 +522,7 @@ struct MediaRelayServer::Impl {
     part->channel = channel;
     part->video_levels = sm.video_levels;
     host->participants.push_back(part);
+    MediaRelayMetrics::Get().attaches_ok.Inc();
     PostIo([this, host, part] { RebindParticipantHandlers(host, part); });
     SendAck(*channel, "attach");
     (void)sm.Apply(MediaRelayAttachEvent::AttachOk);
@@ -537,6 +601,7 @@ struct MediaRelayServer::Impl {
 
 MediaRelayServer::MediaRelayServer(pp::amp::MeshRuntime& runtime)
     : impl_(std::make_unique<Impl>()), runtime_(runtime) {
+  (void)MediaRelayMetrics::Get();  // its series exist (at 0) from the start
   impl_->runtime = &runtime_;
 }
 
@@ -579,6 +644,18 @@ void MediaRelayServer::SetServeInbound(const bool serve) {
 
 bool MediaRelayServer::ServeInbound() const {
   return impl_->serve_inbound.load(std::memory_order_acquire);
+}
+
+MediaRelayRuntimeStats MediaRelayServer::RuntimeStats() const {
+  MediaRelayRuntimeStats stats;
+  std::lock_guard lock(impl_->mu);
+  for (const auto& [call_id, host] : impl_->hosts_by_call) {
+    if (host && !host->participants.empty()) {
+      ++stats.active_sessions;
+      stats.active_participants += host->participants.size();
+    }
+  }
+  return stats;
 }
 
 void MediaRelayServer::SetVideoPolicy(MediaRelayVideoPolicy policy) {
@@ -687,6 +764,9 @@ bool MediaRelayServer::SendLocal(const MediaDataFrame& frame) {
   // channels under the runtime io lock (io-affine sessions; see CallMediaLegCoordinator::SendMedia).
   // Io lock → `mu` (Fanout locks it) is the io tick's order.
   const std::vector<uint8_t> body = EncodeMediaDataFrame(frame);
+  MediaRelayMetrics& metrics = MediaRelayMetrics::Get();
+  metrics.frames_received.Inc();
+  metrics.bytes_received.Inc(body.size());
   runtime_.WithIoLock([&]() { impl_->Fanout(session, from_peer, frame, body); });
   return true;
 }
