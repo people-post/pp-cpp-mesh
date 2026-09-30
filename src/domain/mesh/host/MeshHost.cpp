@@ -133,6 +133,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   (*stack)->Runtime().SetRefuseUnhandledOpens(true);
   amp_ = std::move(*stack);
   InstallMeshLinkEventLog(amp_->Runtime());
+  InstallMeshLinkMetrics(amp_->Runtime());
   chat_links_ = NewAmpChatPeerLinks(amp_->Runtime());
   ApplyAmpAdvertisement(config);
   prefer_mesh_pump_ = true;
@@ -375,6 +376,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   // synthetic addrs (e.g. 10.0.0.1) with real NIC IPs.
   // Manual: no MeshPump — harnesses call Tick() (VirtualClock is not pump-safe).
   StartAmpL4Hosting(false, false, false, false, /*refresh_listen_addrs=*/false);
+  InstallMeshLinkMetrics(amp_->Runtime());
   if (drive == AttachDrive::MeshPump) {
     InstallMeshLinkEventLog(amp_->Runtime());
     StartOwnedThreads();

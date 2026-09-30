@@ -8,6 +8,10 @@ namespace pbr {
 struct CircuitRelayRuntimeStats {
   /** Live inbound bridges this Node is hosting (≈ helped dialer clients). */
   size_t active_bridges = 0;
+  /** Tunnels still being set up (far leg not bridged yet). */
+  size_t pending_tunnels = 0;
+  /** Answerers parked here (op=reserve). */
+  size_t reservations = 0;
 };
 
 struct MediaRelayRuntimeStats {

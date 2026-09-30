@@ -1,5 +1,7 @@
 #include "domain/mesh/reachability/punch/serve/PunchServer.h"
 
+#include "common/metrics/MetricsRegistry.h"
+
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/PeerLink.h"
@@ -324,6 +326,13 @@ struct PunchServer::Impl {
                        [complete](pp::amp::BurstDialResult r) { (*complete)(ToPunchBurst(std::move(r))); });
   }
 
+  /** pp_punch_served_total{role} (docs/contracts/NODE_METRICS.md § Reachability). */
+  static void CountServed(const char* role) {
+    MetricsRegistry::Global()
+        .Counter("pp_punch_served_total", "Punch requests this node served, by role.", {{"role", role}})
+        .Inc();
+  }
+
   void HandleInboundFrame(const std::shared_ptr<pp::amp::ChannelSession>& session,
                           const std::string& remote_peer_id, const std::shared_ptr<std::string>& phase,
                           const std::shared_ptr<std::string>& punch_remote_peer_id,
@@ -343,6 +352,7 @@ struct PunchServer::Impl {
         return;
       }
       *phase = "introducing";
+      CountServed("introducer");
       RunIntroducerConnect(session, remote_peer_id, *req);
       return;
     }
@@ -353,6 +363,7 @@ struct PunchServer::Impl {
         return;
       }
       *phase = "await_sync";
+      CountServed("target");
       *punch_remote_peer_id = offer->initiator_peer_id;
       PunchCandidates reply;
       reply.peer_id = Links().LocalPeerId();

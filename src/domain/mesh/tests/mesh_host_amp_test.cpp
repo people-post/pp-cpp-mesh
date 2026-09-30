@@ -13,6 +13,7 @@
 #include "domain/mesh/host/LocalNetworkChange.h"
 #include "domain/mesh/connectivity/MeshConnectivity.h"
 #include "domain/mesh/host/MeshHost.h"
+#include "common/metrics/MetricsRegistry.h"
 #include "domain/mesh/media_plane/MeshMediaRelay.h"
 #include "foundation/identity/PeerIdUtil.h"
 
@@ -234,10 +235,16 @@ TEST(MeshHostAmpTest, NetworkChangeEvictsADeadLinkFast) {
   if (::testing::Test::HasFatalFailure()) {
     return;
   }
+  // node-monitoring M2: the drop shows in the operator counters, by reason, as a live link.
+  auto& drops = MetricsRegistry::Global().Counter("pp_link_drops_total",
+                                                   "Amp links dropped, by reason; stage=attempt never connected.",
+                                                   {{"reason", "network-changed"}, {"stage", "connected"}});
+  const uint64_t drops_before = drops.Value();
   f.host.OnLocalNetworkChanged(LocalNetworkChange{true, true, true});
   f.Run(30, 100);  // 3 s
   EXPECT_TRUE(f.Dropped(pp::amp::LinkDropReason::NetworkChanged));
   EXPECT_EQ(f.host.Amp()->Links().FindLink("b"), nullptr);
+  EXPECT_EQ(drops.Value(), drops_before + 1);
   f.host.Stop();
 }
 
