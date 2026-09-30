@@ -21,6 +21,14 @@ const char* DirectAudienceName(DirectAudience audience);
 std::optional<DirectAudience> DirectAudienceFromName(std::string_view name);
 
 /**
+ * Whether our addresses may go into records anyone can read (the org directory): only when the
+ * audience is everyone — any narrower audience would be undone by a public lookup (privacy Y2).
+ */
+constexpr bool PublishesAddresses(const DirectAudience audience) {
+  return audience == DirectAudience::Everyone;
+}
+
+/**
  * One snapshot of the audience and the contact sets it is judged against. Keys are the identities a
  * caller holds for a peer: device PeerIds and contact identity values (account ids) alike.
  */

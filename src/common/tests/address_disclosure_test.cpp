@@ -45,6 +45,14 @@ TEST(AddressDisclosureTest, GateAllowsNothingUntilPublishedAndNullGateAllowsAll)
   EXPECT_TRUE(AllowsDirect(nullptr, "QmStranger")) << "unwired callers disclose as before";
 }
 
+// privacy Y2: public records (the directory) carry our addresses only for an everyone audience.
+TEST(AddressDisclosureTest, OnlyEveryonePublishesAddresses) {
+  EXPECT_TRUE(PublishesAddresses(DirectAudience::Everyone));
+  EXPECT_FALSE(PublishesAddresses(DirectAudience::Contacts));
+  EXPECT_FALSE(PublishesAddresses(DirectAudience::Friendly));
+  EXPECT_FALSE(PublishesAddresses(DirectAudience::Nobody));
+}
+
 TEST(AddressDisclosureTest, AudienceNamesRoundTrip) {
   for (const auto audience : {DirectAudience::Everyone, DirectAudience::Contacts, DirectAudience::Friendly,
                               DirectAudience::Nobody}) {
