@@ -16,8 +16,8 @@ namespace pbr {
 
 /**
  * Mesh ports an attach runs over. `service_reach` may be null (no circuit / punch fallback).
- * `objects_alive` / `objects_snap`: the owner's liveness for these raw pointers (`MeshMediaPlane`
- * invalidates it before it frees them). Service reach can take seconds; the continuation after it
+ * `objects_alive` / `objects_snap`: the owner's liveness for these raw pointers (`MeshConnectivity` and
+ * `MeshMediaRelay` invalidate it before freeing them). Service reach can take seconds; the continuation after it
  * (and before AcceptAndAttach) fails instead of dereferencing freed objects. Null = ungated (tests).
  */
 struct MediaRelayAttachPorts {

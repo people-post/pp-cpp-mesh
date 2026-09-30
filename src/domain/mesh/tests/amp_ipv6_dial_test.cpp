@@ -19,7 +19,7 @@ namespace pbr {
 namespace {
 
 TEST(AmpIpv6DialTest, PreferGlobalIpv6WhenRegisteringMixedAddrs) {
-  // Mirrors MeshMediaPlane::RegisterPeerListenMultiaddrs: RegisterEndpoints(best-first).
+  // Mirrors MeshConnectivity::RegisterPeerListenMultiaddrs: RegisterEndpoints(best-first).
   ASSERT_GE(sodium_init(), 0);
   auto clock = std::make_shared<pp::adp::VirtualClock>(1'000'000);
   auto hub = pp::adp::MemoryDatagramIo::MakeHub();

@@ -1,4 +1,5 @@
-#include "domain/mesh/media_plane/MeshMediaPlane.h"
+#include "domain/mesh/connectivity/MeshConnectivity.h"
+#include "domain/mesh/media_plane/MeshMediaRelay.h"
 #include "foundation/runtime/AppRuntime.h"
 
 #include <gtest/gtest.h>
@@ -20,60 +21,62 @@ std::string Ma(const std::string& host, int port) {
 // Without a mesh (no dial registry): the listen book still ranks and merges, the best dialable
 // addr's PeerId comes back (calls learn account ↔ PeerId from it), and each addr goes to the
 // delivery plane worst → best so the best one ends Preferred.
-TEST(MeshMediaPlaneTest, ListenBookMergesAndRegistersDirectEndpointsWithoutADialRegistry) {
-  MeshMediaPlane plane;
+TEST(MeshConnectivityTest, ListenBookMergesAndRegistersDirectEndpointsWithoutADialRegistry) {
+  MeshConnectivity connectivity;
   std::vector<std::pair<std::string, std::string>> registered;
-  MeshMediaPlaneDeps deps;
+  MeshConnectivityDeps deps;
   deps.register_direct_endpoint = [&](const std::string& key, const std::string& ma) { registered.emplace_back(key, ma); };
-  plane.SetDeps(std::move(deps));
+  connectivity.SetDeps(std::move(deps));
 
   const std::string pub = Ma("203.0.113.7", 4001);
   // No runtime here: the owner step runs inline.
   std::string peer_id;
-  plane.RegisterPeerListenMultiaddrs("account:bob", {pub}, [&peer_id](const std::string& id) { peer_id = id; });
+  connectivity.RegisterPeerListenMultiaddrs("account:bob", {pub}, [&peer_id](const std::string& id) { peer_id = id; });
   EXPECT_EQ(peer_id, kPeer);
   ASSERT_FALSE(registered.empty());
   EXPECT_EQ(registered.back().second, pub);
-  EXPECT_EQ(plane.PeerListenBook()->at("account:bob"), std::vector<std::string>{pub});
+  EXPECT_EQ(connectivity.PeerListenBook()->at("account:bob"), std::vector<std::string>{pub});
 
   const std::string second = Ma("198.51.100.9", 4002);
-  plane.RegisterPeerListenMultiaddrs("account:bob", {pub, second});
-  const auto book = plane.PeerListenBook()->at("account:bob");
+  connectivity.RegisterPeerListenMultiaddrs("account:bob", {pub, second});
+  const auto book = connectivity.PeerListenBook()->at("account:bob");
   EXPECT_EQ(book.size(), 2u) << "merged without duplicates";
 }
 
-TEST(MeshMediaPlaneTest, EmptyInputsRegisterNothing) {
-  MeshMediaPlane plane;
+TEST(MeshConnectivityTest, EmptyInputsRegisterNothing) {
+  MeshConnectivity connectivity;
   std::string peer_id = "unset";
-  plane.RegisterPeerListenMultiaddrs("", {Ma("203.0.113.7", 4001)}, [&peer_id](const std::string& id) { peer_id = id; });
+  connectivity.RegisterPeerListenMultiaddrs("", {Ma("203.0.113.7", 4001)}, [&peer_id](const std::string& id) { peer_id = id; });
   EXPECT_TRUE(peer_id.empty());
   peer_id = "unset";
-  plane.RegisterPeerListenMultiaddrs("account:bob", {}, [&peer_id](const std::string& id) { peer_id = id; });
+  connectivity.RegisterPeerListenMultiaddrs("account:bob", {}, [&peer_id](const std::string& id) { peer_id = id; });
   EXPECT_TRUE(peer_id.empty());
-  EXPECT_TRUE(plane.PeerListenBook()->empty());
+  EXPECT_TRUE(connectivity.PeerListenBook()->empty());
 }
 
 // No mesh: nothing is wired, and every shared object reads as absent rather than dangling.
-TEST(MeshMediaPlaneTest, WireWithoutAMeshLeavesNoSharedObjects) {
-  MeshMediaPlane plane;
-  plane.Wire();
-  const MediaRelayAttachPorts ports = plane.RelayAttachPorts();
+TEST(MeshConnectivityTest, WireWithoutAMeshLeavesNoSharedObjects) {
+  MeshConnectivity connectivity;
+  MeshMediaRelay media_relay(connectivity);
+  connectivity.Wire();
+  media_relay.Wire();
+  const MediaRelayAttachPorts ports = media_relay.RelayAttachPorts();
   EXPECT_EQ(ports.relay, nullptr);
   EXPECT_EQ(ports.service_reach, nullptr);
-  EXPECT_FALSE(plane.AmpRelayAvailable());
-  EXPECT_FALSE(plane.TryEnsurePeerReachable("peer"));
+  EXPECT_FALSE(media_relay.AmpRelayAvailable());
+  EXPECT_FALSE(connectivity.TryEnsurePeerReachable("peer"));
 }
 
 // thread-ownership t3-2b: candidate policy is evaluated on the Connectivity owner — never on the
 // Amp IO strand — and the IO side reads the published snapshot.
-TEST(MeshMediaPlaneTest, HopPolicyIsEvaluatedOnTheConnectivityOwnerAndPublished) {
+TEST(MeshConnectivityTest, HopPolicyIsEvaluatedOnTheConnectivityOwnerAndPublished) {
   AppRuntime::Initialize(ManualOwnerRuntimeConfig());
   {
-    MeshMediaPlane plane;
+    MeshConnectivity connectivity;
     std::atomic<int> evaluations{0};
     std::atomic<bool> off_owner{false};
     std::string seed = "12D3KooWSeedA";
-    MeshMediaPlaneDeps deps;
+    MeshConnectivityDeps deps;
     deps.bootstrap_seeds = [&]() {
       ++evaluations;
       if (!AppRuntime::CurrentlyOn(OwnerThreadId::Connectivity)) {
@@ -83,18 +86,18 @@ TEST(MeshMediaPlaneTest, HopPolicyIsEvaluatedOnTheConnectivityOwnerAndPublished)
       hop.peer_id = seed;
       return std::vector<MeshHopCandidate>{hop};
     };
-    plane.SetDeps(std::move(deps));
-    plane.Wire();  // no mesh: nothing wired, but the policy is read once
-    ASSERT_EQ(plane.HopPolicy()->bootstrap_seeds.size(), 1u);
-    EXPECT_EQ(plane.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedA");
+    connectivity.SetDeps(std::move(deps));
+    connectivity.Wire();  // no mesh: nothing wired, but the policy is read once
+    ASSERT_EQ(connectivity.HopPolicy()->bootstrap_seeds.size(), 1u);
+    EXPECT_EQ(connectivity.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedA");
 
     seed = "12D3KooWSeedB";
     const int before = evaluations.load();
-    plane.RefreshHopPolicy();
+    connectivity.RefreshHopPolicy();
     EXPECT_EQ(evaluations.load(), before) << "posted to the owner, not run by the caller";
-    EXPECT_EQ(plane.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedA");
+    EXPECT_EQ(connectivity.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedA");
     AppRuntime::RunOwnerTasks(OwnerThreadId::Connectivity);
-    EXPECT_EQ(plane.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedB");
+    EXPECT_EQ(connectivity.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedB");
     EXPECT_FALSE(off_owner.load()) << "providers only ever run on the Connectivity owner";
   }
   AppRuntime::Shutdown();
