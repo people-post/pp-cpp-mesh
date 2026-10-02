@@ -31,6 +31,12 @@ std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
 constexpr size_t kMaxDialBackTargets = 4;
 constexpr int kMaxDialBackTimeoutMs = 15000;
 constexpr int kMinDialBackTimeoutMs = 1000;
+/**
+ * The request channel waits while targets are dialed one after another, each up to the
+ * requested timeout: it must outlast the whole walk or the reply is lost.
+ */
+constexpr auto kDialBackServeReadTimeout =
+    std::chrono::milliseconds(static_cast<int64_t>(kMaxDialBackTargets) * kMaxDialBackTimeoutMs + 5000);
 
 /** One inbound probe's walk over its targets (IO strand only). */
 struct DialTargetsWalk {
@@ -280,7 +286,7 @@ struct DialBackServer::Impl {
     }
     auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
     *session_holder = Links().BindChannel(
-        remote_peer_id, channel_id, InboundReplyPolicy(pp::amp::ControlJsonChannelPolicy()),
+        remote_peer_id, channel_id, InboundReplyPolicy(pp::amp::ControlJsonChannelPolicy(kDialBackServeReadTimeout)),
         [this, session_holder, remote_peer_id](Roe<std::vector<uint8_t>> frame) {
           auto session = *session_holder;
           if (!session || !frame || stopped.load(std::memory_order_acquire)) {
