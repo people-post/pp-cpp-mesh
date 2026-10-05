@@ -141,6 +141,13 @@ void DirectoryClient::Rpc(const std::string& peer_key, Object request, std::func
                                      }
                                      finish(std::move(*root));
                                      return false;
+                                   },
+                                   // The reply channel can end with no frame (read timeout, link
+                                   // dropped, server stopping): settle, or the request never does.
+                                   [finish](const char* reason) {
+                                     finish(RpcRoe::error(Failure::Of(
+                                         Err::ChannelFailed, std::string("directory channel closed: ") +
+                                                                 (reason ? reason : ""))));
                                    });
                                if (!*session_holder) {
                                  finish(RpcRoe::error(

@@ -134,6 +134,45 @@ TEST_F(CircuitRelayServerClientTest, BridgeForwardsPayload) {
   }
 }
 
+// A bridged tunnel leaves the client's table when its channel ends (it used to stay until Stop:
+// the close decision ignores finished tunnels).
+TEST_F(CircuitRelayServerClientTest, BridgedTunnelIsReleasedWhenItsChannelEnds) {
+  ArmTargetReader();
+  CircuitBridgeTarget target;
+  target.target_multiaddr = harness_->ma_b;
+  target.target_peer_id = harness_->peer_id_b;
+  target.target_protocol = kAmpBridgeTargetProtocol;
+  for (int round = 0; round < 3; ++round) {
+    BridgeWait wait;
+    ASSERT_TRUE(client_->StartBridge("relay", target, {}, {}, wait.Fn(), 8000));
+    wait.PumpUntilDone(*harness_);
+    ASSERT_TRUE(wait.result && wait.result->ok && wait.result->session);
+    EXPECT_EQ(client_->TunnelCount(), 1u);
+    wait.result->session->Close();
+    harness_->PumpUntil([this] { return client_->TunnelCount() == 0; });
+    EXPECT_EQ(client_->TunnelCount(), 0u) << "round " << round;
+  }
+}
+
+// The relay registers a dialer-supplied target it did not know for that bridge only, and forgets
+// it when the tunnel ends — otherwise its dial book kept one entry per target peer id requested.
+TEST_F(CircuitRelayServerClientTest, RelayForgetsATargetEndpointItRegisteredForOneBridge) {
+  ArmTargetReader();
+  harness_->mgr_r().UnregisterEndpoint(harness_->peer_id_b);  // the relay does not know the target
+  CircuitBridgeTarget target;
+  target.target_multiaddr = harness_->ma_b;
+  target.target_peer_id = harness_->peer_id_b;
+  target.target_protocol = kAmpBridgeTargetProtocol;
+  BridgeWait wait;
+  ASSERT_TRUE(client_->StartBridge("relay", target, {}, {}, wait.Fn(), 8000));
+  wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(wait.result && wait.result->ok && wait.result->session);
+  EXPECT_TRUE(harness_->mgr_r().GetLinkSnapshot(harness_->peer_id_b).has_endpoint);
+  wait.result->session->Close();
+  harness_->PumpUntil([this] { return !harness_->mgr_r().GetLinkSnapshot(harness_->peer_id_b).has_endpoint; });
+  EXPECT_FALSE(harness_->mgr_r().GetLinkSnapshot(harness_->peer_id_b).has_endpoint);
+}
+
 TEST_F(CircuitRelayServerClientTest, BridgeForwardsReversePayload) {
   ArmTargetReader();
 

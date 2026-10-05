@@ -298,6 +298,12 @@ struct CircuitClientCoordinator::Impl {
           if (tunnel->on_closed) {
             tunnel->on_closed(reason);
           }
+          if (tunnel->finished) {
+            // Bridged (or a held reservation): nothing to report, but the record must go — the
+            // close decision ignores finished tunnels, so each one stayed until Stop.
+            TearDown(*tunnel, /*suppress_notify=*/true, /*local_cancel=*/false, "");
+            return;
+          }
           const auto decision = DecideCircuitTunnelClose(CircuitTunnelCloseContext{
               .phase = tunnel->phase,
               .local_cancel = tunnel->local_cancel,
@@ -552,6 +558,11 @@ bool CircuitClientCoordinator::IsTunnelActive(const CircuitTunnelId id) const {
 size_t CircuitClientCoordinator::ParkedRelayCount() const {
   std::lock_guard lock(impl_->mu);
   return impl_->reserved_relays.size();
+}
+
+size_t CircuitClientCoordinator::TunnelCount() const {
+  std::lock_guard lock(impl_->mu);
+  return impl_->tunnels.size();
 }
 
 std::shared_ptr<pp::amp::ChannelSession> CircuitClientCoordinator::Session(const CircuitTunnelId id) const {

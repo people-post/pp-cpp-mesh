@@ -38,6 +38,11 @@ constexpr int kMinDialBackTimeoutMs = 1000;
 constexpr auto kDialBackServeReadTimeout =
     std::chrono::milliseconds(static_cast<int64_t>(kMaxDialBackTargets) * kMaxDialBackTimeoutMs + 5000);
 
+/** Dial key for the requester's `index`-th probe target (registered for one probe only). */
+std::string DialBackProbeKey(const std::string& remote_peer_id, const size_t index) {
+  return "dialback:probe:" + remote_peer_id + ":" + std::to_string(index);
+}
+
 /** One inbound probe's walk over its targets (IO strand only). */
 struct DialTargetsWalk {
   pp::amp::MeshRuntime* runtime = nullptr;
@@ -109,7 +114,7 @@ void DialNextTarget(std::shared_ptr<DialTargetsWalk> walk) {
       out.dialed = ma;
       continue;
     }
-    const std::string key = "dialback:probe:" + walk->remote_peer_id + ":" + std::to_string(i);
+    const std::string key = DialBackProbeKey(walk->remote_peer_id, i);
     if (auto registered = links.RegisterEndpoint(key, ma); !registered) {
       out.error = registered.error().message;
       out.dialed = ma;
@@ -150,7 +155,15 @@ void DialAmpTargetsAsync(pp::amp::MeshRuntime& runtime, std::vector<std::string>
   walk->timeout = std::chrono::milliseconds(clamped_timeout);
   walk->remote_peer_id = std::move(remote_peer_id);
   walk->observed_host = observed_host;
-  walk->done = std::move(done);
+  // The probe keys are per probe: forget them when it ends, or the dial book keeps a set per
+  // requester ever seen.
+  walk->done = [rt = &runtime, peer = walk->remote_peer_id, count = walk->targets.size(),
+                done = std::move(done)](DialBackProbeResult result) {
+    for (size_t i = 0; i < count; ++i) {
+      rt->Links().UnregisterEndpoint(DialBackProbeKey(peer, i));
+    }
+    done(std::move(result));
+  };
   if (walk->targets.empty()) {
     walk->result.error = "no target_multiaddrs";
     walk->done(std::move(walk->result));

@@ -60,6 +60,48 @@ TEST(AmpDhtProtocolTest, FindPeerReturnsBootstrapRecord) {
   seed.Stop();
 }
 
+// A lookup whose reply channel ends without an answer (read timeout here) settles with an error.
+// It used to hang: its concurrency slot never came back, and after max_concurrent_lookups (4)
+// such lookups every find_peer failed with ConcurrencyLimit for the process's lifetime.
+TEST(AmpDhtProtocolTest, LookupToASilentPeerSettlesAndFreesItsSlot) {
+  auto created = pbr::test::AmpMeshHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
+
+  // The "seed" accepts DHT channels and never answers.
+  std::vector<std::shared_ptr<pp::amp::ChannelSession>> silent;
+  harness->runtime_b->SetProtocolHandler(
+      kDhtProtocolId, [&](pp::amp::LinkHandle, const std::string& remote_peer_id, const uint32_t channel_id) {
+        silent.push_back(harness->mgr_b().BindChannel(remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
+                                                      [](Roe<std::vector<uint8_t>>) { return true; }));
+      });
+
+  AmpDhtProtocol client(*harness->runtime_a);
+  AmpDhtProtocolConfig client_cfg;
+  client_cfg.local_peer_id = harness->peer_id_a;
+  client_cfg.listen_multiaddrs = {harness->ma_a};
+  client_cfg.device_signing_secret = harness->alice.ml_dsa_secret_key;
+  client_cfg.device_signing_public = harness->alice.ml_dsa_public_key;
+  client_cfg.query_peer_keys = {"seed"};
+  client.Configure(client_cfg);
+  client.Start();
+
+  for (int i = 0; i < 6; ++i) {  // more than the default 4 concurrent lookups
+    SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait;
+    client.FindPeer("QmSomeoneElse",
+                    [&wait](AmpDhtProtocol::FindPeerRoe result) { wait.Finish(std::move(result)); });
+    harness->PumpUntil([&]() { return wait.IsSettled(); }, 30000);
+    ASSERT_TRUE(wait.IsSettled()) << "lookup " << i << " never settled";
+    auto found = wait.Wait(std::chrono::seconds(1),
+                           AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "unsettled"));
+    ASSERT_FALSE(static_cast<bool>(found));
+    EXPECT_NE(found.error().GetCode(), AmpDhtProtocol::Err::ConcurrencyLimit) << "lookup " << i;
+  }
+  client.Stop();
+  harness->runtime_b->SetProtocolHandler(kDhtProtocolId, {});
+}
+
 /** Lab acceptance: two participating Nodes discover each other's ADP addrs (no Brief HTTP). */
 TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
   auto created = pbr::test::AmpMeshHarness::Create();

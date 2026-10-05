@@ -474,19 +474,23 @@ struct MediaRelayClientCoordinator::Impl {
           std::lock_guard lock(mu);
           return HandleSessionFrame(id, std::move(frame));
         },
+        // Posted: a write that fails closes the channel inside EnqueueOutbound, and several sends
+        // run under `mu` (HandleSessionFrame, OpenAndSend) — handling it inline re-locked `mu`.
         [this, id](const char*) {
-          std::lock_guard lock(mu);
-          if (auto* session = Find(id)) {
-            const auto decision = DecideMediaRelayBundleClose({
-                .phase = session->phase,
-                .local_cancel = session->local_cancel,
-                .remote_terminal = true,
-                .finished = session->finished,
-            });
-            if (decision != MediaRelayBundleCloseDecision::Ignore) {
-              TearDown(*session, session->local_cancel, "media-relay channel closed");
+          PostIo([this, id] {
+            std::lock_guard lock(mu);
+            if (auto* session = Find(id)) {
+              const auto decision = DecideMediaRelayBundleClose({
+                  .phase = session->phase,
+                  .local_cancel = session->local_cancel,
+                  .remote_terminal = true,
+                  .finished = session->finished,
+              });
+              if (decision != MediaRelayBundleCloseDecision::Ignore) {
+                TearDown(*session, session->local_cancel, "media-relay channel closed");
+              }
             }
-          }
+          });
         });
   }
 

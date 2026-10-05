@@ -1,5 +1,7 @@
 #include "domain/mesh/dht/DhtRateLimiter.h"
 
+#include <iterator>
+
 namespace pbr {
 
 DhtRateLimiter::DhtRateLimiter(const int max_ops_per_window, const int window_seconds) {
@@ -29,7 +31,21 @@ bool DhtRateLimiter::Allow(const std::string& peer_key) {
     return false;
   }
   times.push_back(now);
+  // Peers whose ops all left the window keep nothing; without this sweep every peer id ever
+  // seen kept its (empty) entry.
+  if (++grants_since_sweep_ >= kSweepEveryGrants) {
+    grants_since_sweep_ = 0;
+    for (auto it = by_peer_.begin(); it != by_peer_.end();) {
+      PruneLocked(it->second, now);
+      it = it->second.empty() ? by_peer_.erase(it) : std::next(it);
+    }
+  }
   return true;
+}
+
+size_t DhtRateLimiter::TrackedPeers() const {
+  std::lock_guard lock(mutex_);
+  return by_peer_.size();
 }
 
 void DhtRateLimiter::Clear() {

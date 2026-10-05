@@ -23,6 +23,12 @@ public:
 
   void Clear();
 
+  /** Peers with an entry (tests: idle peers are dropped). */
+  size_t TrackedPeers() const;
+
+  /** Idle peers are dropped once per this many grants. */
+  static constexpr size_t kSweepEveryGrants = 256;
+
 private:
   using Clock = std::chrono::steady_clock;
 
@@ -32,6 +38,8 @@ private:
   int max_ops_per_window_ = 60;
   int window_seconds_ = 60;
   std::unordered_map<std::string, std::deque<Clock::time_point>> by_peer_;
+  /** Grants since peers with no op left in the window were last dropped. */
+  size_t grants_since_sweep_ = 0;
 };
 
 } // namespace pbr

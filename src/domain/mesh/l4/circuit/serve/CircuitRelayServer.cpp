@@ -52,8 +52,14 @@ std::vector<uint8_t> ErrorBody(const std::string& message) {
   return JsonToBody(DumpJson(err));
 }
 
+/**
+ * (dial key, multiaddr) for a bridge target. `registered_key` is set when this call registered a
+ * dial key that was not known before — the bridge owns it and forgets it when the tunnel ends
+ * (the target peer id is dialer-supplied: one key per id ever requested, otherwise).
+ */
 Roe<std::pair<std::string, std::string>> NormalizeAmpCircuitTarget(pp::amp::PeerLinkManager& links,
-                                                                   const CircuitBridgeTarget& target) {
+                                                                   const CircuitBridgeTarget& target,
+                                                                   std::string& registered_key) {
   if (target.target_multiaddr.empty() && target.target_peer_id.empty()) {
     return Error("missing circuit bridge target");
   }
@@ -66,8 +72,12 @@ Roe<std::pair<std::string, std::string>> NormalizeAmpCircuitTarget(pp::amp::Peer
     if (peer_id.empty()) {
       return Error("circuit target multiaddr missing peer id");
     }
+    const bool known = links.GetLinkSnapshot(peer_id).has_endpoint;
     if (auto registered = links.RegisterEndpoint(peer_id, target.target_multiaddr); !registered) {
       return registered.error();
+    }
+    if (!known) {
+      registered_key = peer_id;
     }
     return std::make_pair(peer_id, target.target_multiaddr);
   }
@@ -154,6 +164,10 @@ struct CircuitRelayServer::Impl {
     bool local_cancel = false;
     /** Absolute steady ms; 0 = not waiting for far PeerLink (event-driven ServeDial). */
     int64_t serve_far_wait_deadline_ms = 0;
+    /** The target's dial key once resolved (NormalizeAmpCircuitTarget). */
+    std::string target_key;
+    /** Dial key this tunnel registered for its target (forgotten in TearDown); empty = none. */
+    std::string registered_target_key;
   };
 
   struct Reservation {
@@ -330,6 +344,16 @@ struct CircuitRelayServer::Impl {
   }
 
   /** Requires `mu`. */
+  /** Requires `mu`. Another tunnel still dials / uses this target's dial key. */
+  bool AnyTunnelTargets(const std::string& target_key) const {
+    for (const auto& [_, other] : tunnels) {
+      if (other && other->target_key == target_key) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void TearDown(Tunnel& tunnel, const bool local_cancel, const std::string& /*error*/) {
     if (!tunnel.finished && !tunnel.bridged) {
       CircuitRelayMetrics::Get().tunnels_failed.Inc();
@@ -349,7 +373,11 @@ struct CircuitRelayServer::Impl {
     if (tunnel.far_session) {
       CloseQuietSlot(tunnel.far_session, ResolveLink(tunnel.target.target_peer_id));
     }
+    const std::string registered_key = std::move(tunnel.registered_target_key);
     tunnels.erase(tunnel.id.value);
+    if (!registered_key.empty() && runtime && !AnyTunnelTargets(registered_key)) {
+      runtime->Links().UnregisterEndpoint(registered_key);
+    }
   }
 
   void TickDeadlines() {
@@ -593,12 +621,13 @@ struct CircuitRelayServer::Impl {
       return;
     }
 
-    auto normalized = NormalizeAmpCircuitTarget(runtime->Links(), tunnel.target);
+    auto normalized = NormalizeAmpCircuitTarget(runtime->Links(), tunnel.target, tunnel.registered_target_key);
     if (!normalized) {
       FailNear(tunnel, normalized.error().message);
       return;
     }
     tunnel.resolved_multiaddr = normalized->second;
+    tunnel.target_key = normalized->first;
     const std::string target_key = normalized->first;
     const CircuitTunnelId id = tunnel.id;
     const auto deadline = tunnel.deadline;

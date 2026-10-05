@@ -33,6 +33,9 @@ TEST(DialBackServerClientTest, ProbeRoundTripOk) {
   ASSERT_TRUE(static_cast<bool>(probed)) << probed.error().message;
   EXPECT_TRUE(probed->ok) << probed->error;
   EXPECT_EQ(probed->dialed, harness->ma_a);
+  // The seed's probe dial key lasts for the probe only (one set per requester, forever, otherwise).
+  harness->PumpBoth();
+  EXPECT_FALSE(harness->mgr_b().GetLinkSnapshot("dialback:probe:" + harness->peer_id_a + ":0").has_endpoint);
 
   client.Stop();
   seed.Stop();
