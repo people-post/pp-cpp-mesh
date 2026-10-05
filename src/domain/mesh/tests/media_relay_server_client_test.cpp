@@ -2,11 +2,13 @@
 #include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
 #include "domain/mesh/tests/support/mesh_test_harness.h"
 #include "common/directory/RelayScope.h"
+#include "domain/mesh/l4/shared/ProductChannelPolicies.h"
 
 #include <gtest/gtest.h>
 
 #include <atomic>
 #include <future>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -127,6 +129,37 @@ TEST_F(MediaRelayServerClientTest, AdmitRefusesStrangerOnQuote) {
   wait.PumpUntilDone(*harness_);
   ASSERT_FALSE(wait.result);
   EXPECT_NE(wait.result.error().message.find("stranger"), std::string::npos);
+}
+
+// Shutdown order (MeshHost::Stop): L4 servers are freed before Amp tears down their channels. A
+// relay channel still mid-handshake then ends after the server is gone, and its closed callback
+// must not reach the freed server (heap-use-after-free under ASan before it was bound to the
+// server's lifetime token).
+TEST_F(MediaRelayServerClientTest, ChannelEndingAfterTheServerIsFreedDoesNotTouchIt) {
+  std::optional<uint32_t> channel;
+  harness_->mgr_a().OpenChannel("hop", kMediaRelayProtocolId, pp::amp::MediaRelayClientChannelPolicy(),
+                                [&](const pp::amp::PeerLinkManager::ChannelRoe& ch) {
+                                  if (ch.isOk()) {
+                                    channel = ch.value();
+                                  }
+                                });
+  harness_->PumpUntil([&] {
+    auto* link = harness_->mgr_a().FindLink("hop");
+    return channel && link && link->Mux() && link->Mux()->State(*channel) == pp::amp::ChannelState::Open;
+  });
+  ASSERT_TRUE(channel.has_value());
+
+  hop_client_->Stop();  // holds the server (local hop)
+  hop_client_.reset();
+  hop_->Stop();
+  hop_.reset();  // the hop's inbound channel is still bound, mid-handshake
+
+  auto* link = harness_->mgr_a().FindLink("hop");
+  ASSERT_TRUE(link && link->Mux());
+  ASSERT_TRUE(static_cast<bool>(link->Mux()->CloseChannel(*channel)));
+  for (int i = 0; i < 50; ++i) {
+    harness_->PumpBoth();  // the hop sees the CLOSE: its closed callback runs
+  }
 }
 
 TEST_F(MediaRelayServerClientTest, LocalHopFanoutRoundTrip) {
@@ -332,26 +365,52 @@ TEST_F(AmpMediaRelayClientLossTest, ObserversHearReplacementDetachAndLoss) {
   client_->RemoveClientTransportLostObserver(token);
 }
 
-// A participant whose channel ends is released, and its session with it: a client leaving
-// (Detach closes the channel; no detach op is sent) used to stay in the hop's session for the
-// node's lifetime — participants piled up with every call, and the pump kept fanning out to them.
+// A participant whose channel ends is released: a client leaving (Detach closes the channel; no
+// detach op is sent) used to stay in the hop's session for the node's lifetime — participants
+// piled up with every call, and the pump kept fanning out to them.
 TEST_F(AmpMediaRelayClientLossTest, HopReleasesAParticipantWhoseChannelEnds) {
-  Attach("leaving");
-  EXPECT_EQ(hop_->RuntimeStats().active_participants, 1u);
-  EXPECT_EQ(hop_->RuntimeStats().active_sessions, 1u);
-  client_->Detach();
-  harness_->PumpUntil([this] { return hop_->RuntimeStats().active_participants == 0; }, 800);
-  EXPECT_EQ(hop_->RuntimeStats().active_participants, 0u);
-  EXPECT_EQ(hop_->RuntimeStats().active_sessions, 0u);
-
-  // Every round leaves nothing behind.
   for (int round = 0; round < 3; ++round) {
-    Attach("round");
+    Attach("leaving");
+    EXPECT_EQ(hop_->RuntimeStats().active_participants, 1u);
     client_->Detach();
     harness_->PumpUntil([this] { return hop_->RuntimeStats().active_participants == 0; }, 800);
+    EXPECT_EQ(hop_->RuntimeStats().active_participants, 0u) << "round " << round;
   }
-  EXPECT_EQ(hop_->RuntimeStats().active_participants, 0u);
-  EXPECT_EQ(hop_->RuntimeStats().active_sessions, 0u);
+}
+
+// Call-scoped admission (CALLS.md): a non-contact may join a call while its session exists. A
+// session outlives its last participant by a grace — everyone dropping at once (links flap) and
+// re-attaching in any order still works — and is dropped after it: the call is over, and a new
+// session for the call id needs contact admission again (it used to be hosted forever).
+TEST_F(AmpMediaRelayClientLossTest, EmptiedSessionAdmitsNonContactsOnlyWithinItsGrace) {
+  hop_->SetEmptySessionGraceForTest(std::chrono::milliseconds(300));
+  MediaRelayAdmissionPolicy contacts_only;
+  contacts_only.serve_scope_mask = kRelayScopeLinkSiteSocial;
+  contacts_only.contact_peer_ids = {harness_->peer_id_a};
+  hop_->SetAdmissionPolicy(contacts_only);
+  Attach("scoped-call");  // a contact opens the session
+
+  contacts_only.contact_peer_ids = {"someone-else"};  // the client is now a non-contact
+  hop_->SetAdmissionPolicy(contacts_only);
+  auto quote = [this]() {
+    MediaRelayQuoteRequest req;
+    req.session_id = "scoped-call";
+    Wait<MediaRelayQuote> wait;
+    EXPECT_TRUE(client_->StartQuote("hop", req, wait.Fn(), 5000));
+    wait.PumpUntilDone(*harness_);
+    return std::move(wait.result);
+  };
+  EXPECT_TRUE(quote()) << "session live: call-scoped admission";
+
+  client_->Detach();
+  harness_->PumpUntil([this] { return hop_->RuntimeStats().active_participants == 0; }, 800);
+  EXPECT_TRUE(quote()) << "emptied, within the grace: still the call's session";
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(400));
+  harness_->PumpBoth();  // the hop's tick drops the expired session
+  auto refused = quote();
+  ASSERT_FALSE(refused) << "after the grace the call is over";
+  EXPECT_NE(refused.error().message.find("stranger"), std::string::npos) << refused.error().message;
 }
 
 // One-way media (a broadcaster only sends, a viewer only receives) leaves one end without RX:

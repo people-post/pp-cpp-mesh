@@ -8,6 +8,7 @@
 #include "common/Error.h"
 #include "common/PbrCompat.h"
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -45,6 +46,8 @@ public:
   MediaRelayRuntimeStats RuntimeStats() const;
   /** B009: which video levels this relay carries per publisher (from the operator's config). */
   void SetVideoPolicy(MediaRelayVideoPolicy policy);
+  /** Test: how long a session outlives its last participant (default kEmptySessionGrace). */
+  void SetEmptySessionGraceForTest(std::chrono::milliseconds grace);
 
   /** Drop every hosted session, pending quote and the local participant. */
   void AbortInflight();

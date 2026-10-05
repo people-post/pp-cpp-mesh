@@ -476,7 +476,9 @@ struct MediaRelayClientCoordinator::Impl {
         },
         // Posted: a write that fails closes the channel inside EnqueueOutbound, and several sends
         // run under `mu` (HandleSessionFrame, OpenAndSend) — handling it inline re-locked `mu`.
-        [this, id](const char*) {
+        // Bound to `lifetime`: the callback can fire after this coordinator is freed (MeshHost
+        // frees L4 before Amp tears down its channels).
+        lifetime.Bind([this, id](const char*) {
           PostIo([this, id] {
             std::lock_guard lock(mu);
             if (auto* session = Find(id)) {
@@ -491,7 +493,7 @@ struct MediaRelayClientCoordinator::Impl {
               }
             }
           });
-        });
+        }));
   }
 
   /** Open a direct channel to the hop, then send `json` and wait in `wait_phase`. */
