@@ -332,6 +332,28 @@ TEST_F(AmpMediaRelayClientLossTest, ObserversHearReplacementDetachAndLoss) {
   client_->RemoveClientTransportLostObserver(token);
 }
 
+// A participant whose channel ends is released, and its session with it: a client leaving
+// (Detach closes the channel; no detach op is sent) used to stay in the hop's session for the
+// node's lifetime — participants piled up with every call, and the pump kept fanning out to them.
+TEST_F(AmpMediaRelayClientLossTest, HopReleasesAParticipantWhoseChannelEnds) {
+  Attach("leaving");
+  EXPECT_EQ(hop_->RuntimeStats().active_participants, 1u);
+  EXPECT_EQ(hop_->RuntimeStats().active_sessions, 1u);
+  client_->Detach();
+  harness_->PumpUntil([this] { return hop_->RuntimeStats().active_participants == 0; }, 800);
+  EXPECT_EQ(hop_->RuntimeStats().active_participants, 0u);
+  EXPECT_EQ(hop_->RuntimeStats().active_sessions, 0u);
+
+  // Every round leaves nothing behind.
+  for (int round = 0; round < 3; ++round) {
+    Attach("round");
+    client_->Detach();
+    harness_->PumpUntil([this] { return hop_->RuntimeStats().active_participants == 0; }, 800);
+  }
+  EXPECT_EQ(hop_->RuntimeStats().active_participants, 0u);
+  EXPECT_EQ(hop_->RuntimeStats().active_sessions, 0u);
+}
+
 // One-way media (a broadcaster only sends, a viewer only receives) leaves one end without RX:
 // the client marks its hop link hot so keepalive echoes keep it alive past the 5 s cold window.
 TEST_F(AmpMediaRelayClientLossTest, PublishOnlyClientSurvivesLongSilenceFromTheHop) {
