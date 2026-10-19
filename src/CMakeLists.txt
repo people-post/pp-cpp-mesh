@@ -1,37 +1,33 @@
-# Product Amp mesh glue (domain peer). Libp2p Host/Yamux/Noise L4 retired from product (A017/D10).
-# Bound for pp-cpp-mesh (docs/architecture/MESH.md): it links the libraries it will depend on there
-# (pp-cpp-common, pp-cpp-crypto, pp-cpp-amp) and pp_pbr_common only for the vocabulary that moves with it.
+# One static library per folder; the DEPS below are the allowed include edges
+# (scripts/check_layers.sh keeps the two in step). Bottom to top:
 #
-# One static library per folder; the link edges below are the allowed include edges
-# (scripts/check/check_mesh_layers.sh keeps the two in step). Bottom to top:
-#
+#   types          (the vocabulary product code shares: directory, hops, relay scope, disclosure,
+#                   config — pp-cpp-common only, so an app's lower layers can use it without Amp)
 #   shared (shared/ + l4/shared/)
 #   reachability   dht <- discovery   circuit <- media_relay
 #   host           (MeshHost: composes the services above)
 #   reach          (reach / rendezvous / punch walk over MeshHost)
 #   connectivity   (MeshConnectivity: dial registry, listen book, circuit reach, rendezvous, punch walk)
 #   media_plane    (MeshMediaRelay, MediaRelayAttach)
+#   testing        (in-memory Amp harnesses for this repo's tests and consumers' — not in pp_mesh)
 #
-# `pp_domain_mesh` aggregates them for consumers outside the peer.
+# `pp_mesh` aggregates them for consumers.
 
-set(_pp_mesh_base_libs
-  pp_pbr_common
-  pp_crypto
-  pp_amp_l1
-  pp_amp_link
-  pp_common)
-
-# pp_domain_mesh_<name>: sources are relative to this directory.
+# Every folder but types sits on Amp and the vocabulary.
 function(_pp_mesh_library name)
   cmake_parse_arguments(ARG "" "" "SOURCES;DEPS" ${ARGN})
-  set(_deps "")
-  foreach(dep IN LISTS ARG_DEPS)
-    list(APPEND _deps pp_domain_mesh_${dep})
-  endforeach()
-  pp_browser_add_domain_library(pp_domain_mesh_${name}
+  pp_mesh_add_library(${name}
     SOURCES ${ARG_SOURCES}
-    PUBLIC_LIBS ${_pp_mesh_base_libs} ${_deps})
+    DEPS types ${ARG_DEPS}
+    LIBS pp_crypto pp_amp_l1 pp_amp_link)
 endfunction()
+
+pp_mesh_add_library(types
+  SOURCES
+    types/AddressDisclosure.cpp
+    types/MeshHopDial.cpp
+    types/PublicAddress.cpp
+  LIBS pp_common)
 
 _pp_mesh_library(shared
   SOURCES
@@ -65,14 +61,11 @@ _pp_mesh_library(reachability
   SOURCES ${_pp_mesh_reachability_sources}
   DEPS shared)
 if(WIN32)
-  target_link_libraries(pp_domain_mesh_reachability PUBLIC ws2_32 iphlpapi)
+  target_link_libraries(pp_mesh_reachability PUBLIC ws2_32 iphlpapi)
 endif()
-if(TARGET miniupnpc-static)
-  target_link_libraries(pp_domain_mesh_reachability PRIVATE miniupnpc-static)
-  target_compile_definitions(pp_domain_mesh_reachability PUBLIC PP_BROWSER_HAS_MINIUPNPC)
-  target_include_directories(pp_domain_mesh_reachability PRIVATE
-    ${CMAKE_SOURCE_DIR}/third_party/miniupnpc/include
-    ${CMAKE_BINARY_DIR}/third_party/miniupnpc)
+if(TARGET libminiupnpc-static)
+  target_link_libraries(pp_mesh_reachability PRIVATE libminiupnpc-static)
+  target_compile_definitions(pp_mesh_reachability PRIVATE PP_MESH_HAS_MINIUPNPC)
 endif()
 
 _pp_mesh_library(dht
@@ -149,19 +142,24 @@ _pp_mesh_library(media_plane
     media_plane/MediaRelayAttach.cpp
   DEPS connectivity reach host reachability media_relay)
 
-add_library(pp_domain_mesh INTERFACE)
-target_link_libraries(pp_domain_mesh INTERFACE
-  pp_domain_mesh_media_plane
-  pp_domain_mesh_connectivity
-  pp_domain_mesh_reach
-  pp_domain_mesh_host
-  pp_domain_mesh_media_relay
-  pp_domain_mesh_circuit
-  pp_domain_mesh_discovery
-  pp_domain_mesh_dht
-  pp_domain_mesh_reachability
-  pp_domain_mesh_shared)
+_pp_mesh_library(testing
+  SOURCES
+    testing/mesh_harness_support.cpp
+    testing/mesh_test_harness.cpp
+    testing/mesh_triple_harness.cpp
+  DEPS host shared)
 
-if(PP_BROWSER_BUILD_TESTS)
-  add_subdirectory(tests)
-endif()
+# Everything but the test harness.
+add_library(pp_mesh INTERFACE)
+target_link_libraries(pp_mesh INTERFACE
+  pp_mesh_media_plane
+  pp_mesh_connectivity
+  pp_mesh_reach
+  pp_mesh_host
+  pp_mesh_media_relay
+  pp_mesh_circuit
+  pp_mesh_discovery
+  pp_mesh_dht
+  pp_mesh_reachability
+  pp_mesh_shared
+  pp_mesh_types)
