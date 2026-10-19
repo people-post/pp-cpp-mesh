@@ -158,6 +158,6 @@ bool AmpMediaRelayClient::IsLocalHopAttached() const { return coordinator_.IsLoc
 
 double AmpMediaRelayClient::PathPressure() const { return coordinator_.PathPressure(); }
 
-CallHopHealth AmpMediaRelayClient::HealthSnapshot() const { return coordinator_.HealthSnapshot(); }
+MediaRelayClientHealth AmpMediaRelayClient::HealthSnapshot() const { return coordinator_.HealthSnapshot(); }
 
 } // namespace pbr

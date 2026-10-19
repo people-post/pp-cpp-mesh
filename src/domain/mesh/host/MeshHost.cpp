@@ -7,9 +7,6 @@
 #include "domain/mesh/reachability/punch/PunchTypes.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
-#include "domain/mesh/l4/call_media/ICallMediaTransport.h"
-#include "common/chat/IDirectMessageClient.h"
-#include "common/thread/ChatBlobTypes.h"
 
 #include "domain/mesh/host/MeshPorts.h"
 
@@ -398,10 +395,10 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
   if (!amp_) {
     return;
   }
-  std::vector<std::string> protocols = {kDirectChatProtocolId, kChatHistoryProtocolId, kChatBlobProtocolId,
-                                        kRpcPeerAnnounceProtocolId,
-                                        kRpcBroadcastProtocolId,
-                                        kCallMediaDirectProtocolId, kDialBackProtocolId, kAmpPunchProtocolId};
+  // The app's protocols (SetAppProtocols), then the mesh's own.
+  std::vector<std::string> protocols = AppProtocols();
+  protocols.push_back(kDialBackProtocolId);
+  protocols.push_back(kAmpPunchProtocolId);
   if (config.host_circuit_relay) {
     protocols.push_back(kCircuitRelayProtocolId);
   }
@@ -534,17 +531,36 @@ void MeshHost::ConfigureAmpDht(AmpDhtProtocolConfig config) {
   RunOnLane([&]() { amp_dht_->Configure(std::move(config)); });  // its tick reads the config there
 }
 
+MeshHostConfig MeshHost::CurrentHosting() const {
+  MeshHostConfig hosting;
+  hosting.host_circuit_relay = amp_circuit_server_ && amp_circuit_server_->ServeInbound();
+  hosting.host_media_relay = amp_media_relay_server_ && amp_media_relay_server_->ServeInbound();
+  hosting.host_dht = host_dht_;
+  hosting.host_directory = host_directory_;
+  return hosting;
+}
+
+void MeshHost::SetAppProtocols(std::vector<std::string> protocol_ids) {
+  {
+    std::lock_guard lock(app_protocols_mu_);
+    app_protocols_ = std::move(protocol_ids);
+  }
+  if (amp_) {
+    ApplyAmpAdvertisement(CurrentHosting());
+  }
+}
+
+std::vector<std::string> MeshHost::AppProtocols() const {
+  std::lock_guard lock(app_protocols_mu_);
+  return app_protocols_;
+}
+
 void MeshHost::RefreshAmpDhtHosting(const bool host_dht) {
   host_dht_ = host_dht;
   if (!amp_) {
     return;
   }
-  MeshHostConfig ad_cfg;
-  ad_cfg.host_circuit_relay = amp_circuit_server_ && amp_circuit_server_->ServeInbound();
-  ad_cfg.host_media_relay = amp_media_relay_server_ && amp_media_relay_server_->ServeInbound();
-  ad_cfg.host_dht = host_dht_;
-  ad_cfg.host_directory = host_directory_;
-  ApplyAmpAdvertisement(ad_cfg);
+  ApplyAmpAdvertisement(CurrentHosting());
   if (amp_dht_ && host_dht) {
     RunOnLane([this]() { amp_dht_->Tick(); });
   }
@@ -562,12 +578,7 @@ void MeshHost::RefreshAmpDirectoryHosting(const bool host_directory) {
   if (!amp_) {
     return;
   }
-  MeshHostConfig ad_cfg;
-  ad_cfg.host_circuit_relay = amp_circuit_server_ && amp_circuit_server_->ServeInbound();
-  ad_cfg.host_media_relay = amp_media_relay_server_ && amp_media_relay_server_->ServeInbound();
-  ad_cfg.host_dht = host_dht_;
-  ad_cfg.host_directory = host_directory_;
-  ApplyAmpAdvertisement(ad_cfg);
+  ApplyAmpAdvertisement(CurrentHosting());
 }
 
 AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) const {

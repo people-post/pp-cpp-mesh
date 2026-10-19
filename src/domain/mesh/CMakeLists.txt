@@ -5,7 +5,7 @@
 # (scripts/check/check_mesh_layers.sh keeps the two in step). Bottom to top:
 #
 #   shared (shared/ + l4/shared/)
-#   reachability   dht <- discovery   circuit <- media_relay   call_media
+#   reachability   dht <- discovery   circuit <- media_relay
 #   host           (MeshHost: composes the services above)
 #   reach          (reach / rendezvous / punch walk over MeshHost)
 #   connectivity   (MeshConnectivity: dial registry, listen book, circuit reach, rendezvous, punch walk)
@@ -119,15 +119,6 @@ _pp_mesh_library(media_relay
     l4/media_relay/client/MediaRelayFrameCrypto.cpp
   DEPS circuit shared)
 
-_pp_mesh_library(call_media
-  SOURCES
-    l4/call_media/CallMediaLegCoordinator.cpp
-    l4/call_media/CallMediaAmpTransport.cpp
-    l4/call_media/CallMediaBundleLogic.cpp
-    l4/call_media/CallMediaSessionLogic.cpp
-    l4/call_media/CallMediaFrameCrypto.cpp
-  DEPS shared)
-
 _pp_mesh_library(host
   SOURCES
     host/AmpLinkConfig.cpp
@@ -137,7 +128,7 @@ _pp_mesh_library(host
     host/DisclosureGatedPeerLinks.cpp
     host/MeshPorts.cpp
     host/MeshPumpThread.cpp
-  DEPS reachability dht discovery circuit media_relay call_media shared)
+  DEPS reachability dht discovery circuit media_relay shared)
 
 _pp_mesh_library(reach
   SOURCES
@@ -165,7 +156,6 @@ target_link_libraries(pp_domain_mesh INTERFACE
   pp_domain_mesh_connectivity
   pp_domain_mesh_reach
   pp_domain_mesh_host
-  pp_domain_mesh_call_media
   pp_domain_mesh_media_relay
   pp_domain_mesh_circuit
   pp_domain_mesh_discovery

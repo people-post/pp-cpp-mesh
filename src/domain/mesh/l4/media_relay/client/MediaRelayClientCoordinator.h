@@ -1,7 +1,6 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "common/media/CallMediaHealth.h"
 #include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/media_relay/MediaRelayBundleLogic.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
@@ -70,7 +69,7 @@ public:
   bool IsAttached() const;
   bool IsLocalHopAttached() const;
   double PathPressure() const;
-  CallHopHealth HealthSnapshot() const;
+  MediaRelayClientHealth HealthSnapshot() const;
 
 private:
   struct Impl;

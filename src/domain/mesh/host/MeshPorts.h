@@ -3,7 +3,6 @@
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/LinkIdentity.h"
-#include "domain/mesh/l4/call_media/ICallMediaTransport.h"
 #include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "common/CodedFailure.h"
@@ -187,10 +186,6 @@ struct MeshCircuitDeps {
   CircuitClientCoordinator& tunnel;
   AmpCircuitHopRegistry& hops;
   IChatPeerLinks& links;
-};
-
-struct MeshCallMediaDeps {
-  ICallMediaTransport& transport;
 };
 
 /** Returns true when `multiaddr` is a parseable ADP multiaddr. */

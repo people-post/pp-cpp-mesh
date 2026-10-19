@@ -19,6 +19,8 @@
 #include "foundation/identity/PeerIdUtil.h"
 
 #include <gtest/gtest.h>
+
+#include <algorithm>
 #include <sodium.h>
 
 namespace pbr {
@@ -298,6 +300,51 @@ TEST(MeshHostAmpTest, Ch0CapabilityKeepsOurAddressesFromAPeerOutsideTheAudience)
   ASSERT_NE(on_b->RemoteCapability(), nullptr);
   EXPECT_EQ(on_b->RemoteCapability()->local_peer_id, peer_a);
   EXPECT_TRUE(on_b->RemoteCapability()->listen_multiaddrs.empty()) << "a stranger learned our addresses over ch0";
+  host.Stop();
+}
+
+// The app's protocols are advertised beside the mesh's own (MeshHost::SetAppProtocols): the mesh
+// names none of the app's — a host that registers none (pp-node) advertises only its own.
+TEST(MeshHostAmpTest, Ch0CapabilityAdvertisesTheAppsProtocolsBesideTheMeshs) {
+  ASSERT_GE(sodium_init(), 0);
+  auto clock = std::make_shared<pp::adp::VirtualClock>(1'000'000);
+  auto hub = pp::adp::MemoryDatagramIo::MakeHub();
+  const auto addr_a = pp::adp::IpEndpoint::V4(10, 0, 4, 1, 1000);
+  const auto addr_b = pp::adp::IpEndpoint::V4(10, 0, 4, 2, 2000);
+  std::string peer_a;
+  std::string peer_b;
+  auto stack_a = MakeTestAmpStack(clock, std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr_a), &peer_a);
+  auto stack_b = MakeTestAmpStack(clock, std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr_b), &peer_b);
+  ASSERT_TRUE(stack_a && stack_b);
+  stack_b->GetEndpoint().SetAcceptEnabled(true);
+  stack_b->Start();
+  auto ma_a = pp::amp::FormatAdpMultiaddr(addr_a, peer_a);
+  auto ma_b = pp::amp::FormatAdpMultiaddr(addr_b, peer_b);
+  ASSERT_TRUE(ma_a && ma_b);
+
+  const std::string app_protocol = "/test-app/rpc/1.0.0";
+  MeshHost host{MeshExecutors{}};  // manual drive: L4 work inline
+  host.SetAppProtocols({app_protocol});
+  ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack_a), *ma_a)));
+  auto& links = host.Amp()->Links();
+  ASSERT_TRUE(static_cast<bool>(links.RegisterEndpoint("b", *ma_b)));
+  links.EnsureAssociation("b", [](pp::amp::PeerLinkManager::LinkRoe) {});
+  const pp::amp::PeerLink* on_b = nullptr;
+  for (int i = 0; i < 300 && !(on_b && on_b->RemoteCapability()); ++i) {
+    clock->Advance(10);
+    host.Tick();
+    stack_b->Runtime().Drive();
+    on_b = stack_b->Links().FindLinkByPeerId(peer_a);
+  }
+  ASSERT_NE(on_b, nullptr);
+  ASSERT_NE(on_b->RemoteCapability(), nullptr);
+  const std::vector<std::string>& protocols = on_b->RemoteCapability()->protocols;
+  const auto has = [&protocols](const std::string& id) {
+    return std::find(protocols.begin(), protocols.end(), id) != protocols.end();
+  };
+  EXPECT_TRUE(has(app_protocol)) << "the app's protocol";
+  EXPECT_TRUE(has(kDialBackProtocolId)) << "and the mesh's own";
+  EXPECT_FALSE(has("/pp-browser/realtime/1.0.0")) << "the mesh names none of the app's protocols itself";
   host.Stop();
 }
 

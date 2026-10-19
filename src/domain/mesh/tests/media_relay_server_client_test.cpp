@@ -109,10 +109,10 @@ TEST_F(MediaRelayServerClientTest, AcceptAndAttachRoundTrip) {
   EXPECT_FALSE(attach_wait.result->session_token.empty());
   EXPECT_TRUE(client_->IsAttached());
   // Call details on a hop: the figures of the association to the relay.
-  const CallHopHealth health = client_->HealthSnapshot();
+  const MediaRelayClientHealth health = client_->HealthSnapshot();
   EXPECT_TRUE(health.attached);
-  EXPECT_TRUE(health.link.available);
-  EXPECT_GT(health.link.reliable_sent, 0u);
+  EXPECT_TRUE(health.link_available);
+  EXPECT_GT(health.reliable_sent, 0u);
 }
 
 TEST_F(MediaRelayServerClientTest, AdmitRefusesStrangerOnQuote) {

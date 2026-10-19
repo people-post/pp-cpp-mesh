@@ -52,7 +52,7 @@ public:
   bool IsAttached() const override;
   bool IsLocalHopAttached() const override;
   double PathPressure() const override;
-  CallHopHealth HealthSnapshot() const override;
+  MediaRelayClientHealth HealthSnapshot() const override;
 
 private:
   MediaRelayClientCoordinator& coordinator_;

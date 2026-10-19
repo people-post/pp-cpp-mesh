@@ -25,6 +25,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -152,6 +153,14 @@ public:
   /** Hot refresh: advertise `/pp-mesh/directory/1.0.0` when serving. */
   void RefreshAmpDirectoryHosting(bool host_directory);
 
+  /**
+   * The protocols the app serves on this mesh's links (pp-browser's chat, history, blobs, announce,
+   * broadcast and call media; a hosted ledger's RPC), advertised beside the mesh's own every time the
+   * advertisement is rebuilt. Set before Start / AttachAmpStack; a later call re-advertises. Any
+   * thread. The mesh does not serve them: the app binds their handlers.
+   */
+  void SetAppProtocols(std::vector<std::string> protocol_ids);
+
   /** Who drives the attached stack's Amp turn loop. */
   enum class AttachDrive {
     /** Caller Ticks (VirtualClock / MemoryDatagramIo tests — MeshPump is not clock-safe). */
@@ -180,6 +189,9 @@ private:
   Roe<void> StartAmpFromConfig(const MeshHostConfig& config);
   void StopAmp();
   void ApplyAmpAdvertisement(const MeshHostConfig& config);
+  /** What this host hosts now (for rebuilding the advertisement). */
+  MeshHostConfig CurrentHosting() const;
+  std::vector<std::string> AppProtocols() const;
   void EnsureAmpL4Coordinators();
   void RefreshAdvertisedListenAddrs();
   /** When `refresh_listen_addrs` is false, keep caller-supplied listen multiaddrs (AttachAmpStack /
@@ -231,6 +243,8 @@ private:
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;
   bool host_dht_ = false;
   bool host_directory_ = false;
+  mutable std::mutex app_protocols_mu_;
+  std::vector<std::string> app_protocols_;
   /** True for product Start (MeshPump); false for AttachAmpStack harnesses. */
   bool prefer_mesh_pump_ = false;
   std::unique_ptr<IChatPeerLinks> chat_links_;

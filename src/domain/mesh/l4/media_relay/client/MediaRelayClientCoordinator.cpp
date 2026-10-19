@@ -886,10 +886,10 @@ bool MediaRelayClientCoordinator::IsLocalHopAttached() const {
   return impl_->local_server && impl_->local_server->IsLocalAttached();
 }
 
-double MediaRelayClientCoordinator::PathPressure() const { return HealthSnapshot().path_pressure; }
+double MediaRelayClientCoordinator::PathPressure() const { return 0.0; }  // not reported yet (V032)
 
-CallHopHealth MediaRelayClientCoordinator::HealthSnapshot() const {
-  CallHopHealth health;
+MediaRelayClientHealth MediaRelayClientCoordinator::HealthSnapshot() const {
+  MediaRelayClientHealth health;
   std::string relay_key;
   {
     std::lock_guard lock(impl_->mu);
@@ -905,11 +905,11 @@ CallHopHealth MediaRelayClientCoordinator::HealthSnapshot() const {
   pp::amp::LinkHandle link{};
   runtime_.Links().WithLiveLinkByDialKey(relay_key, [&](pp::amp::PeerLink& live) { link = live.Handle(); });
   if (const auto stats = runtime_.Links().LinkConnectionStats(link)) {
-    health.link = CallLinkCounters{.available = true,
-                                   .link_id = link.id.value,
-                                   .reliable_sent = stats->reliable_sent,
-                                   .retransmits = stats->retransmits,
-                                   .srtt_ms = stats->srtt_ms};
+    health.link_available = true;
+    health.link_id = link.id.value;
+    health.reliable_sent = stats->reliable_sent;
+    health.retransmits = stats->retransmits;
+    health.srtt_ms = stats->srtt_ms;
   }
   return health;
 }

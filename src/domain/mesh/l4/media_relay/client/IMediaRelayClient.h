@@ -1,7 +1,6 @@
 #pragma once
 
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
-#include "common/media/CallMediaHealth.h"
 
 #include "common/Error.h"
 
@@ -26,6 +25,24 @@ enum class MediaRelayClientLoss : uint8_t {
   Replaced,
   /** Someone detached the client session. */
   Detached,
+};
+
+
+/** The client's view of its relay session, in the relay's own terms (the app maps it for its chrome). */
+struct MediaRelayClientHealth {
+  bool attached = false;
+  /** The association to the relay; none when attached to this device's own hop. */
+  bool link_available = false;
+  /**
+   * Which link these are (unique per link instance): a delta between two samples means something
+   * only for the same link — a move can land on a long-lived link whose counters are far along.
+   */
+  uint64_t link_id = 0;
+  /** Cumulative Reliable figures of that association (Amp `ConnectionStats`). */
+  uint64_t reliable_sent = 0;
+  uint64_t retransmits = 0;
+  /** Smoothed round trip; -1 before the first sample. */
+  int64_t srtt_ms = -1;
 };
 
 class IMediaRelayClient {
@@ -78,10 +95,10 @@ public:
   virtual void Detach() = 0;
   virtual bool IsAttached() const = 0;
   virtual bool IsLocalHopAttached() const = 0;
-  /** Hop drop pressure 0..1 (V032); default 0 for fakes. */
+  /** Hop drop pressure 0..1 (V032); the relay does not report one yet, so 0. */
   virtual double PathPressure() const { return 0.0; }
-  /** Hop health counters (V032); default empty. */
-  virtual CallHopHealth HealthSnapshot() const { return {}; }
+  /** The session's health (V032); default empty. */
+  virtual MediaRelayClientHealth HealthSnapshot() const { return {}; }
 };
 
 } // namespace pbr

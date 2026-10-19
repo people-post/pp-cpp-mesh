@@ -283,7 +283,6 @@ public:
 
   void ClearPeerCircuitHop(const std::string& peer_key) override {
     if (amp_hops_) {
-      amp_hops_->Clear(peer_key, kRealtimeProtocolId);
       amp_hops_->Clear(peer_key, pp::amp::kAmpCircuitCarrierProtocolId);
     }
   }
