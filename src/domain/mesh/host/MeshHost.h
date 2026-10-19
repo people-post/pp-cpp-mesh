@@ -16,6 +16,7 @@
 #include "domain/mesh/host/MeshIdentityConfig.h"
 #include "domain/mesh/host/MeshPorts.h"
 #include "domain/mesh/shared/MeshExecutors.h"
+#include "common/SerialExecutor.h"
 #include "domain/mesh/host/MeshPumpThread.h"
 #include "domain/mesh/reachability/ReachabilityEngine.h"
 #include "common/Error.h"
@@ -89,6 +90,12 @@ public:
   const MeshExecutors& Executors() const { return executors_; }
   /** The I/O lane mesh control runs on (Amp's io executor); null when Amp is down. */
   std::shared_ptr<pp::SerialExecutor> IoLane() const;
+  /**
+   * The host is going away (an app's quit, which it may still cancel): synchronous reach waits are
+   * refused from now on, so nothing parks a thread on a mesh about to stop. Any thread.
+   */
+  void SetStopping(bool stopping) { stopping_.store(stopping, std::memory_order_release); }
+  bool IsStopping() const { return stopping_.load(std::memory_order_acquire); }
 
   ReachabilityEngine& Reachability();
 
@@ -195,6 +202,7 @@ private:
   std::unique_ptr<ReachabilityEngine> reachability_;
   MeshPumpThread pump_;
   const MeshExecutors executors_;
+  std::atomic<bool> stopping_{false};
   /** Set while MeshPump drives: L4 work goes to `executors_` (MakeL4WorkerPost). */
   std::atomic<bool> l4_on_workers_{false};
   /** k5: the latest network change; a delayed re-probe for an older one stands down. */

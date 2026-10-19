@@ -8,6 +8,7 @@
 #include "domain/mesh/reach/MeshReachPorts.h"
 #include "domain/mesh/reach/PunchIntroducerWalk.h"
 #include "common/Lifetime.h"
+#include "common/SerialExecutor.h"
 
 #include <atomic>
 #include <cstdint>
@@ -69,15 +70,17 @@ struct MeshLocalView {
  * The owner sequences rewires: dependents holding `Dial()` / `CircuitReach()` must be detached
  * before `Wire`, `ResetDialRegistry`, `ResetAfterMeshStop` or teardown replace them.
  *
- * Threading (thread-ownership t3-2): lives on the Connectivity owner (`pp-connectivity`).
+ * Threading (THREADING.md § Mesh threads): its state lives on the wired mesh's io lane
+ * (`MeshHost::IoLane`), next to the Amp state it drives; unwired, on the caller of an edge.
  * Lifecycle edges (deps, hooks, Wire / Reset / Clear, test path) run there and the caller waits
- * (`AppRuntime::RunAndWait` — callers are UI or the media-sessions owner, never below it). Listen
- * registrations post there; the listen book is read as a published snapshot. The candidate policy
- * is the app's, pushed from any thread (`SetHopPolicy`), never evaluated here. Circuit reach's
- * relay-chosen notice hops from Amp IO to the owner, and the consumer hook runs there — consumers
- * hop to their own owner. The object accessors (`Dial` / `CircuitReach`) are read by consumers at
- * their bind points, between the owner's rewire edges (L015 sequencing). Async callbacks that
- * capture `this` (and the rendezvous coordinator's) are dropped after `InvalidateAsyncOps`.
+ * (`RunEdge`: serialized among themselves; callers are the app's threads, never the lane). Listen
+ * registrations, local-view refreshes and relay-chosen notices post there (dropped if the mesh they
+ * were posted for is gone by then); the listen book, local view and policy are read as published
+ * snapshots. The candidate policy is the app's, pushed from any thread (`SetHopPolicy`), never
+ * evaluated here. The relay-chosen consumer hook runs on the lane — consumers hop to their own
+ * thread. The object accessors (`Dial` / `CircuitReach` / `Lane`) are read by consumers at their
+ * bind points, between rewire edges (L015 sequencing). Async callbacks that capture `this` (and the
+ * rendezvous coordinator's) are dropped after `InvalidateAsyncOps`.
  */
 class MeshConnectivity : public Module {
 public:
@@ -134,7 +137,12 @@ public:
   /** The wired mesh's `work` executor (null when not wired: inline), for objects built on this. */
   std::shared_ptr<pp::Executor> WorkExecutor() const { return work_; }
   /** The wired mesh's io lane, where reach runs (`PeerReachPorts`); null when not wired. */
-  std::shared_ptr<pp::SerialExecutor> Lane() const { return test_lane_ ? test_lane_ : lane_; }
+  std::shared_ptr<pp::SerialExecutor> Lane() const { return test_lane_ ? test_lane_ : StateLane(); }
+  /**
+   * A lifecycle edge of an object built on this one (`MeshMediaRelay`): runs where this one's state
+   * lives — the wired mesh's io lane, else the caller — while the caller waits. Never from the lane.
+   */
+  void RunEdge(const std::function<void()>& task);
   /** The mesh it wires from (null when none); for objects built on this (`MeshMediaRelay`). */
   MeshHost* Mesh() const { return mesh(); }
 
@@ -170,8 +178,14 @@ public:
 
 private:
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }
-  std::string RegisterPeerListenMultiaddrsOnOwner(const std::string& key, const std::vector<std::string>& multiaddrs);
-  void RefreshLocalViewOnOwner();
+  std::shared_ptr<pp::SerialExecutor> StateLane() const;
+  void SetStateLane(std::shared_ptr<pp::SerialExecutor> lane);
+  /** Debug assertions: on the state lane (unwired: anywhere, an edge holds the edge lock). */
+  bool OnStateLane() const;
+  /** `task` where the state lives: posted to the lane; unwired, now on the caller (as an edge). */
+  void Post(std::function<void()> task);
+  std::string RegisterPeerListenMultiaddrsOnLane(const std::string& key, const std::vector<std::string>& multiaddrs);
+  void RefreshLocalViewOnLane();
   void PublishLocalView(MeshLocalView view);
   /** Refresh the local view periodically while wired (the mesh's addrs change without notice). */
   void ArmLocalViewRefresh();
@@ -181,20 +195,24 @@ private:
 
   MeshConnectivityDeps deps_;
   std::function<void(const std::string&)> on_relay_chosen_;
-  ListenBook peer_listen_mas_;  // owner
+  ListenBook peer_listen_mas_;  // state lane
   mutable std::mutex listen_book_mu_;
   std::shared_ptr<const ListenBook> listen_book_ = std::make_shared<const ListenBook>();
-  std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
   mutable std::mutex hop_policy_mu_;
   std::shared_ptr<const MeshHopPolicy> hop_policy_ = std::make_shared<const MeshHopPolicy>();
-  uint64_t local_view_timer_ = 0;  // owner
-  bool wired_ = false;             // owner: between Wire and InvalidateAsyncOps
+  uint64_t local_view_timer_ = 0;  // state lane
+  bool wired_ = false;             // state lane: between Wire and InvalidateAsyncOps
+  /** Serializes edges (they nest: Clear runs InvalidateAsyncOps). Never taken on the lane. */
+  std::recursive_mutex edge_mu_;
+  /** Guards `lane_` only: a leaf, never held while running anything. */
+  mutable std::mutex lane_mu_;
+  /** The wired mesh's io lane: where the state lives (null: unwired). */
+  std::shared_ptr<pp::SerialExecutor> lane_;
   mutable std::mutex local_view_mu_;
   std::shared_ptr<const MeshLocalView> local_view_ = std::make_shared<const MeshLocalView>();
   std::unique_ptr<PeerSessionDialRegistry> dial_registry_;
   std::unique_ptr<ICircuitHopReach> circuit_hop_reach_;
   std::shared_ptr<pp::Executor> work_;  // set at Wire, read at consumers' bind points like Dial()
-  std::shared_ptr<pp::SerialExecutor> lane_;  // likewise
   std::shared_ptr<pp::SerialExecutor> test_lane_;
   IDialRegistry* test_dial_ = nullptr;
   ICircuitHopReach* test_circuit_reach_ = nullptr;
@@ -202,6 +220,8 @@ private:
   CircuitRendezvousCoordinator rendezvous_;
   pp::Lifetime deferred_;
   pp::Lifetime objects_;
+  /** Everything Post()ed: the destructor drops what is queued and waits for one running. */
+  pp::Lifetime self_;
 };
 
 } // namespace pbr

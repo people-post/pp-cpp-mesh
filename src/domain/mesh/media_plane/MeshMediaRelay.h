@@ -18,8 +18,9 @@ namespace pbr {
  * The owner sequences rewires: dependents holding `RelayClient()` (or `RelayAttachPorts()`) must be
  * detached before `Wire`, `ResetRelayClient` or teardown replace it.
  *
- * Threading: like `MeshConnectivity`, on the Connectivity owner; lifecycle edges run there and the
- * caller waits. `RelayClient()` / `RelayAttachPorts()` are read by consumers at their bind points.
+ * Threading: where `MeshConnectivity`'s state lives (the wired mesh's io lane); lifecycle edges run
+ * there through `MeshConnectivity::RunEdge` and the caller waits. `RelayClient()` /
+ * `RelayAttachPorts()` are read by consumers at their bind points.
  */
 class MeshMediaRelay : public Module {
 public:

@@ -64,7 +64,7 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   bootstrap_peers_ = config.bootstrap_peers;
   reachability_ = std::make_unique<ReachabilityEngine>();
   // B26: always refresh ch0 / punch candidates when dial-back or UPnP lands, then notify product.
-  // Runs on the Connectivity owner: the link / punch updates belong to the Amp IO strand.
+  // Runs on the io lane (the probe's): the link / punch updates belong there too, after it.
   reachability_->SetOnUpdated([this, product_cb = config.on_reachability_updated]() {
     MakeL4IoPost()([this]() { RefreshAdvertisedListenAddrs(); });
     if (product_cb) {
@@ -411,7 +411,7 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
 }
 
 void MeshHost::Stop() {
-  // Retire the probe first (its destructor waits on the Connectivity owner), so no `on_updated`
+  // Retire the probe first (its destructor waits for a step running on the lane), so no `on_updated`
   // runs while the Amp stack below goes away. Reachability() stays valid (a fresh engine).
   reachability_ = std::make_unique<ReachabilityEngine>();
   if (amp_circuit_client_) {
@@ -571,6 +571,7 @@ AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) con
   deps.post_worker = MakeL4WorkerPost(executors_.blocking);  // UPnP discovery blocks (~2 s)
   deps.post_io = MakeL4IoPost();
   deps.post_after = MakeL4IoAfter();
+  deps.lane = IoLane();
   deps.try_upnp_first = try_upnp_first;
   return deps;
 }

@@ -70,7 +70,7 @@ struct MediaRelayAttached {
  * AcceptAndAttach. Stateless and feature-neutral: what to do with the attached session
  * (start media, subscribe, fan-out) and how to recover from loss stay with the caller (L009).
  *
- * Threading: continues on an AppRuntime worker after service reach (off the IO strand) and completes
+ * Threading: continues on the mesh's `work` executor after service reach (off the IO strand) and completes
  * on whatever thread the relay client completes on — callers hop to their own thread.
  */
 void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRequest request,

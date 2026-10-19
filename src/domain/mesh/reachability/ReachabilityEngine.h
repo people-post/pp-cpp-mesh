@@ -1,6 +1,8 @@
 #pragma once
 
 #include "domain/mesh/reachability/Reachability.h"
+#include "common/Lifetime.h"
+#include "common/SerialExecutor.h"
 
 #include <atomic>
 #include <chrono>
@@ -32,15 +34,16 @@ struct AmpReachabilityProbeDeps {
   std::function<void(std::function<void()>)> post_io;
   /** MeshRuntime::PostAfter — Amp-clock seed dial deadline. */
   std::function<void(std::chrono::milliseconds, std::function<void()>)> post_after;
+  /** The mesh's io lane: where the probe's steps run (null: inline — no Amp, nothing to probe). */
+  std::shared_ptr<pp::SerialExecutor> lane;
   bool try_upnp_first = false;
 };
 
 /**
- * Async reachability probe orchestration (thread-ownership t3-2c). The probe's steps, its result
- * and `on_updated` run on the Connectivity owner (inline without a runtime); UPnP discovery (a
- * blocking ~2 s socket wait) is a worker step; link work completes on Amp IO and hops back.
- * Snapshot reads are thread-safe. Destroy from above the owner (T004): the destructor retires the
- * engine on the owner so no late step touches it.
+ * Async reachability probe orchestration (THREADING.md § Mesh threads). The probe's steps, its
+ * result and `on_updated` run on the mesh's io lane (inline without one); UPnP discovery (a blocking
+ * ~2 s socket wait) is a `blocking` step that hops back. Snapshot reads are thread-safe. Destroy from
+ * off the lane: the destructor drops queued steps and waits for one running.
  */
 class ReachabilityEngine {
 public:
@@ -53,7 +56,7 @@ public:
 
   bool IsProbing() const { return probing_.load(); }
 
-  /** Fire-and-forget Amp dial-back probe (steps on the Connectivity owner). */
+  /** Fire-and-forget Amp dial-back probe (steps on the mesh's io lane). */
   void StartProbe(AmpReachabilityProbeDeps deps);
 
   /** Block until an in-flight probe completes (pp-node --status). */
@@ -62,26 +65,31 @@ public:
   /** Ops / pp-node --status JSON line. */
   std::string FormatOpsStatusJson() const;
 
-  /** Subscribe to probe completion. Runs on the Connectivity owner — consumers hop to their own. */
+  /** Subscribe to probe completion. Runs on the mesh's io lane — consumers hop to their own thread. */
   void SetOnUpdated(std::function<void()> callback);
 
 private:
   void RunProbe(AmpReachabilityProbeDeps deps);
-  /** After the (optional) UPnP step: seed dial → dial-back probe. Owner. */
+  /** After the (optional) UPnP step: seed dial → dial-back probe. On the lane. */
   void ProbeSeed(AmpReachabilityProbeDeps deps, ReachabilitySnapshot result);
-  /** Classify, publish, clear `probing_` — on the owner, whatever thread the probe ended on. */
+  /** Classify, publish, clear `probing_` — on the lane, whatever thread the probe ended on. */
   void Complete(ReachabilitySnapshot result, bool classify);
+  /** `step` on the probe's lane, or now without one; dropped once this engine is gone. */
+  void PostStep(std::function<void()> step);
+  bool OnLane() const;
   void Publish(ReachabilitySnapshot snapshot);
 
   mutable std::mutex mutex_;
   ReachabilitySnapshot snapshot_;
   std::function<void()> on_updated_;
   std::atomic<bool> probing_{false};
-  /** Last UPnP mapping (owner): later probes still offer it as a dial-back target. */
+  /** The running probe's lane (mutex_). */
+  std::shared_ptr<pp::SerialExecutor> lane_;
+  /** Last UPnP mapping (lane): later probes still offer it as a dial-back target. */
   std::string upnp_external_ip_;
   int upnp_external_port_ = 0;
-  /** Cleared on the owner by the destructor: posted steps for a retired engine drop. */
-  std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
+  /** Posted steps: the destructor drops them and waits for one running. */
+  pp::Lifetime self_;
 };
 
 } // namespace pbr

@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include "common/PbrCompat.h"
@@ -32,9 +33,10 @@ struct CircuitRendezvousDeps {
  *   the surface (connected first, then a bounded serial cold walk), late-reserve a chosen R1, await
  *   a seed park (H010), and re-park when a surface peer reconnects after a path change (B27).
  *
- * Threading: entry points on any thread; association / reserve work posts to the Amp IO thread;
- * callbacks capturing `this` are dropped after `Invalidate` (a pending park still answers `false`
- * at its deadline).
+ * Threading: entry points on any thread; association / reserve work, park checks and their timers
+ * (Amp's clock) run on the mesh's io lane; callbacks capturing `this` are dropped after
+ * `Invalidate`, which answers every pending park `false` at once (the stopping runtime drops its
+ * timers).
  */
 class CircuitRendezvousCoordinator : public Module {
 public:
@@ -59,7 +61,7 @@ public:
 
   /** B27: arm re-park on reconnect for the running mesh (after the owner wires it). */
   void InstallReparkListener();
-  /** Drop async callbacks and the re-park listener (mesh stop / teardown). */
+  /** Drop async callbacks and the re-park listener, and answer pending parks `false` (mesh stop / teardown). */
   void Invalidate();
   void Clear();
 
@@ -91,6 +93,9 @@ private:
   /** H011 L3.1b/c: last chosen / announced R1 PeerId for park sticky + late-reserve (IO strand). */
   std::string chosen_circuit_r1_;
   pp::amp::PeerLinkManager::PeerConnectedListenerId repark_listener_id_ = 0;
+  /** Parks still waiting (Invalidate answers them). */
+  std::mutex parks_mu_;
+  std::vector<std::weak_ptr<SeedPark>> parks_;
   pp::Lifetime deferred_;
 };
 

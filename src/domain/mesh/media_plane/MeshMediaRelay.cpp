@@ -1,19 +1,11 @@
 #include "domain/mesh/media_plane/MeshMediaRelay.h"
 
 #include "domain/mesh/l4/media_relay/client/AmpMediaRelayClient.h"
-#include "foundation/runtime/AppRuntime.h"
 
 #include <utility>
 #include "common/PbrCompat.h"
 
 namespace pbr {
-namespace {
-
-/** Its owner: the Connectivity owner, next to `MeshConnectivity` (thread-ownership T001). */
-constexpr OwnerThreadId kOwner = OwnerThreadId::Connectivity;
-
-} // namespace
-
 MeshMediaRelay::MeshMediaRelay(MeshConnectivity& connectivity) : connectivity_(connectivity) {
   redirectLogger("MeshMediaRelay");
 }
@@ -23,7 +15,7 @@ MeshMediaRelay::~MeshMediaRelay() {
 }
 
 void MeshMediaRelay::Wire() {
-  AppRuntime::RunAndWait(kOwner, [&]() {
+  connectivity_.RunEdge([&]() {
     connectivity_.InvalidateObjects();  // rewire replaces the client earlier ports point at
     MeshHost* m = connectivity_.Mesh();
     if (!m || !AmpRelayAvailable()) {
@@ -43,18 +35,18 @@ void MeshMediaRelay::Wire() {
 }
 
 void MeshMediaRelay::BindTestRelay(IMediaRelayClient* relay) {
-  AppRuntime::RunAndWait(kOwner, [&]() { test_relay_ = relay; });
+  connectivity_.RunEdge([&]() { test_relay_ = relay; });
 }
 
 void MeshMediaRelay::ResetRelayClient() {
-  AppRuntime::RunAndWait(kOwner, [&]() {
+  connectivity_.RunEdge([&]() {
     connectivity_.InvalidateObjects();
     media_relay_client_.reset();
   });
 }
 
 void MeshMediaRelay::Clear() {
-  AppRuntime::RunAndWait(kOwner, [&]() {
+  connectivity_.RunEdge([&]() {
     connectivity_.InvalidateObjects();
     media_relay_client_.reset();
     test_relay_ = nullptr;

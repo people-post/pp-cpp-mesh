@@ -6,8 +6,8 @@
 #include "domain/mesh/reachability/ReachabilityNetIf.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
 #include "common/ValueJson.h"
-#include "foundation/runtime/AppRuntime.h"
 
+#include <cassert>
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -19,8 +19,6 @@ namespace pbr {
 namespace {
 
 using Clock = std::chrono::steady_clock;
-/** Reachability belongs to connectivity (thread-ownership T001). */
-constexpr OwnerThreadId kOwner = OwnerThreadId::Connectivity;
 
 ReachabilitySignals AnalyzeAmpListen(const std::string& amp_listen,
                                      const std::vector<std::string>& ipv6_addrs) {
@@ -83,19 +81,39 @@ void ReachabilityEngine::Publish(ReachabilitySnapshot snapshot) {
 }
 
 ReachabilityEngine::~ReachabilityEngine() {
-  AppRuntime::RunAndWait(kOwner, [this]() { alive_->store(false, std::memory_order_release); });
+  self_.InvalidateAndWait();
+}
+
+void ReachabilityEngine::PostStep(std::function<void()> step) {
+  std::shared_ptr<pp::SerialExecutor> lane;
+  {
+    std::lock_guard lock(mutex_);
+    lane = lane_;
+  }
+  auto bound = self_.Bind(std::move(step));
+  if (lane) {
+    lane->Post(std::move(bound));
+  } else {
+    bound();
+  }
+}
+
+bool ReachabilityEngine::OnLane() const {
+  std::lock_guard lock(mutex_);
+  return !lane_ || lane_->RunsTasksOnCurrentThread();
 }
 
 void ReachabilityEngine::StartProbe(AmpReachabilityProbeDeps deps) {
   if (probing_.exchange(true)) {
     return;
   }
+  {
+    std::lock_guard lock(mutex_);
+    lane_ = deps.lane;
+  }
   ReachabilitySnapshot checking;
   checking.status = ReachabilityStatus::Checking;
-  AppRuntime::PostToOwnerOrRun(kOwner, [this, alive = alive_, checking, deps = std::move(deps)]() mutable {
-    if (!alive->load(std::memory_order_acquire)) {
-      return;
-    }
+  PostStep([this, checking, deps = std::move(deps)]() mutable {
     Publish(checking);
     RunProbe(std::move(deps));
   });
@@ -106,21 +124,15 @@ void ReachabilityEngine::RunProbeBlocking(AmpReachabilityProbeDeps deps) {
   StartProbe(std::move(deps));
   while (probing_.load()) {
     if (io_pump) {
-      io_pump();
-    } else if (AppRuntime::OwnerThreadsManual()) {
-      AppRuntime::RunOwnerTasks(kOwner);
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      io_pump();  // the caller drives Amp: the lane runs here
     } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));  // MeshPump drives the lane
     }
   }
 }
 
 void ReachabilityEngine::Complete(ReachabilitySnapshot result, const bool classify) {
-  AppRuntime::PostToOwnerOrRun(kOwner, [this, alive = alive_, result = std::move(result), classify]() mutable {
-    if (!alive->load(std::memory_order_acquire)) {
-      return;
-    }
+  PostStep([this, result = std::move(result), classify]() mutable {
     if (classify) {
       result.status = ClassifyReachability(result.signals);
     }
@@ -130,7 +142,7 @@ void ReachabilityEngine::Complete(ReachabilitySnapshot result, const bool classi
 }
 
 void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
-  PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
+  assert(OnLane());
   ReachabilitySnapshot result;
   result.measured_at = Clock::now();
 
@@ -147,19 +159,27 @@ void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
   // N013: prefer IPv6 advertise over UPnP when a global address is already present.
   if (deps.try_upnp_first && udp_port && !ShouldSkipUpnpForListen(deps.amp_listen_multiaddr) &&
       !result.signals.has_global_ipv6) {
-    // UPnP discovery blocks on a socket (~2 s): a worker step, then back onto the owner.
-    auto upnp = [this, alive = alive_, port = *udp_port, deps, result]() mutable {
+    // UPnP discovery blocks on a socket (~2 s): a `blocking` step, then back onto the lane. The step
+    // holds no `this` — only the continuation, a no-op once the engine is gone (its destructor never
+    // waits on UPnP).
+    auto next = self_.Bind([this](AmpReachabilityProbeDeps probe_deps, ReachabilitySnapshot probe_result) {
+      ProbeSeed(std::move(probe_deps), std::move(probe_result));
+    });
+    auto upnp = [next, lane = deps.lane, port = *udp_port, deps, result]() mutable {
       auto mapped = TryUpnpUdpPortMapping(port);
       if (mapped.ok) {
         result.signals.upnp_mapped = true;
         result.signals.upnp_external_ip = mapped.external_ip;
         result.signals.upnp_external_port = mapped.external_port;
       }
-      AppRuntime::PostToOwnerOrRun(kOwner, [this, alive, deps = std::move(deps), result = std::move(result)]() mutable {
-        if (alive->load(std::memory_order_acquire)) {
-          ProbeSeed(std::move(deps), std::move(result));
-        }
-      });
+      auto step = [next, deps = std::move(deps), result = std::move(result)]() mutable {
+        next(std::move(deps), std::move(result));
+      };
+      if (lane) {
+        lane->Post(std::move(step));
+      } else {
+        step();
+      }
     };
     if (deps.post_worker) {
       auto post_worker = deps.post_worker;
@@ -173,7 +193,7 @@ void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
 }
 
 void ReachabilityEngine::ProbeSeed(AmpReachabilityProbeDeps deps, ReachabilitySnapshot result) {
-  PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
+  assert(OnLane());
   if (result.signals.upnp_mapped) {
     upnp_external_ip_ = result.signals.upnp_external_ip;
     upnp_external_port_ = result.signals.upnp_external_port;
@@ -194,14 +214,15 @@ void ReachabilityEngine::ProbeSeed(AmpReachabilityProbeDeps deps, ReachabilitySn
     return;
   }
 
-  // Link work completes on Amp IO; the result hops back onto the owner (Complete).
+  // Link work completes on Amp IO; the result is completed on the lane (Complete).
   auto probe_finished = std::make_shared<std::atomic<bool>>(false);
-  auto finish_once = [this, probe_finished](ReachabilitySnapshot snap) {
+  // Bound: a link completion arriving after the engine is gone touches nothing.
+  auto finish_once = self_.Bind([this, probe_finished](ReachabilitySnapshot snap) {
     if (probe_finished->exchange(true, std::memory_order_acq_rel)) {
       return;
     }
     Complete(std::move(snap), /*classify=*/true);
-  };
+  });
 
   // Settles when seed dial callback runs or seed dial times out (not when ProbeAsync ends).
   auto seed_settled = std::make_shared<std::atomic<bool>>(false);
