@@ -1,9 +1,9 @@
 #include "domain/mesh/dht/DhtRecordCodec.h"
-#include "foundation/identity/MultiaddrPeerId.h"
 
-#include "foundation/crypto/CryptoUtil.h"
-#include "foundation/crypto/MlDsa.h"
+#include "amp/link/PeerId.h"
 #include "common/Utilities.h"
+#include "crypto/MlDsa.h"
+#include "crypto/SodiumUtil.h"
 
 #include <cstring>
 #include <limits>
@@ -99,7 +99,7 @@ Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const Object& object) {
     return Error("missing multiaddrs");
   }
   for (const std::string& ma : record.multiaddrs) {
-    if (PeerIdFromMultiaddr(ma) != record.peer_id) {
+    if (pp::amp::PeerIdFromMultiaddr(ma) != record.peer_id) {
       return Error("multiaddr peer_id mismatch");
     }
   }
@@ -114,35 +114,35 @@ Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const Object& object) {
 
 Roe<PeerRoutingRecord> SignPeerRoutingRecord(PeerRoutingRecord record,
                                              std::span<const uint8_t> device_signing_secret) {
-  if (device_signing_secret.size() != kMlDsa65SecretKeyBytes) {
+  if (device_signing_secret.size() != pp::kMlDsa65SecretKeyBytes) {
     return Error("invalid signing secret size");
   }
   const auto sign_bytes = BuildPeerRoutingSignBytes(record);
-  ByteVector secret(device_signing_secret.begin(), device_signing_secret.end());
-  auto signature = MlDsa::Sign(secret, sign_bytes);
+  pp::ByteVector secret(device_signing_secret.begin(), device_signing_secret.end());
+  auto signature = pp::MlDsa::Sign(secret, sign_bytes);
   if (!signature) {
     return signature.error();
   }
-  record.signature_b64 = Base64Encode(*signature);
+  record.signature_b64 = pp::Base64Encode(*signature);
   record.signature_alg = "ml-dsa-65";
   return record;
 }
 
 Roe<bool> VerifyPeerRoutingRecord(const PeerRoutingRecord& record,
                                   std::span<const uint8_t> signing_public_key) {
-  if (signing_public_key.size() != kMlDsa65PublicKeyBytes) {
+  if (signing_public_key.size() != pp::kMlDsa65PublicKeyBytes) {
     return Error("invalid signing public key size");
   }
   if (record.signature_alg != "ml-dsa-65") {
     return Error("unsupported signature_alg");
   }
-  auto signature = Base64Decode(record.signature_b64);
+  auto signature = pp::Base64Decode(record.signature_b64);
   if (!signature) {
     return signature.error();
   }
   const auto sign_bytes = BuildPeerRoutingSignBytes(record);
-  ByteVector public_key(signing_public_key.begin(), signing_public_key.end());
-  return MlDsa::Verify(public_key, sign_bytes, *signature);
+  pp::ByteVector public_key(signing_public_key.begin(), signing_public_key.end());
+  return pp::MlDsa::Verify(public_key, sign_bytes, *signature);
 }
 
 bool PeerRoutingRecordExpired(const PeerRoutingRecord& record, const int64_t now_seconds,

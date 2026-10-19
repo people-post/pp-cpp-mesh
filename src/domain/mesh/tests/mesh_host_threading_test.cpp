@@ -6,7 +6,7 @@
 #include "domain/mesh/tests/support/mesh_harness_support.h"
 #include "domain/mesh/host/MeshHost.h"
 #include "domain/mesh/host/MeshPumpThread.h"
-#include "foundation/identity/PeerIdUtil.h"
+#include "crypto/PeerId.h"
 
 #include <gtest/gtest.h>
 #include <future>
@@ -30,7 +30,7 @@ std::unique_ptr<pp::amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<pp::ad
   pp::amp::MshIdentity identity;
   identity.ml_dsa_secret_key = std::move(keys->secret_key);
   identity.ml_dsa_public_key = std::move(keys->public_key);
-  auto peer_id = PeerIdFromMlDsaPublicKey(identity.ml_dsa_public_key);
+  auto peer_id = pp::PeerIdFromMlDsaPublicKey(identity.ml_dsa_public_key);
   if (!peer_id) {
     return nullptr;
   }
