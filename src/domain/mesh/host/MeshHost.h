@@ -87,6 +87,8 @@ public:
   bool MeshPumpRunning() const { return pump_.IsRunning(); }
   /** Where this mesh hands work off its I/O lane (given at construction). */
   const MeshExecutors& Executors() const { return executors_; }
+  /** The I/O lane mesh control runs on (Amp's io executor); null when Amp is down. */
+  std::shared_ptr<pp::SerialExecutor> IoLane() const;
 
   ReachabilityEngine& Reachability();
 

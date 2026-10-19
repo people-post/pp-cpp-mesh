@@ -84,6 +84,7 @@ void MeshConnectivity::Wire() {
     objects_.Invalidate();  // rewire replaces the objects earlier ports point at
     wired_ = true;
     work_ = m ? m->Executors().work : nullptr;
+    lane_ = m ? m->IoLane() : nullptr;
     RefreshLocalViewOnOwner();
     ArmLocalViewRefresh();
     WireDialRegistry(m, io);
@@ -238,10 +239,12 @@ void MeshConnectivity::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io)
   log().info << "circuit-hop reach=amp";
 }
 
-void MeshConnectivity::BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach) {
+void MeshConnectivity::BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach,
+                                    std::shared_ptr<pp::SerialExecutor> lane) {
   AppRuntime::RunAndWait(kOwner, [&]() {
     test_dial_ = dial;
     test_circuit_reach_ = circuit_reach;
+    test_lane_ = std::move(lane);
   });
 }
 
@@ -282,6 +285,7 @@ void MeshConnectivity::ResetAfterMeshStop() {
     dial_registry_.reset();
     circuit_hop_reach_.reset();
     work_.reset();
+    lane_.reset();
   });
 }
 
@@ -292,6 +296,7 @@ void MeshConnectivity::Clear() {
     circuit_hop_reach_.reset();
     test_dial_ = nullptr;
     test_circuit_reach_ = nullptr;
+    test_lane_.reset();
     rendezvous_.Clear();
     peer_listen_mas_.clear();
     PublishListenBook();

@@ -172,6 +172,10 @@ std::function<void(std::function<void()>)> MeshHost::MakeL4WorkerPost(std::share
   };
 }
 
+std::shared_ptr<pp::SerialExecutor> MeshHost::IoLane() const {
+  return amp_ ? amp_->Runtime().IoExecutor() : nullptr;
+}
+
 std::function<void()> MeshHost::MakeL4IoPump() const {
   // Exclusive Amp Drive: MeshPump product path never Ticks from L4 — AmpParkUntil sleeps
   // while MeshPumpThread Drives. AttachAmpStack harnesses have no MeshPump; sync Try*

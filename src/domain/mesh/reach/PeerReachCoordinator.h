@@ -4,6 +4,7 @@
 #include "domain/mesh/reach/MeshReachPorts.h"
 
 #include "common/Module.h"
+#include "common/SerialExecutor.h"
 
 #include <atomic>
 #include <cstdint>
@@ -75,13 +76,24 @@ struct PeerReachResult {
 using PeerReachId = uint64_t;
 
 /**
+ * What a reach dials through, and the lane it runs on: the mesh's io lane (`MeshConnectivity::Lane`;
+ * THREADING.md § Mesh threads), or a test's. Null lane: no mesh — every reach fails at once.
+ */
+struct PeerReachPorts {
+  IDialRegistry* dial = nullptr;
+  ICircuitHopReach* circuit = nullptr;
+  std::shared_ptr<pp::SerialExecutor> lane;
+};
+
+/**
  * Establishes a mesh link to one peer: direct dial (ADP EnsureAssociation), relay circuit and
  * punch (ICircuitHopReach), gated on a Connected bootstrap seed park. Knows nothing about what
  * the link will carry.
  *
- * Threading: all reach state lives on the Connectivity owner (`pp-connectivity`; the
- * Coordinator strand when the runtime has no owners). `on_done` runs at most once — on that
- * owner, or inline on the thread that calls Cancel / CancelAll; callers hop to their own owner.
+ * Threading: all reach state lives on its lane (the mesh's io lane), steps and timers included —
+ * so link state is read where it changes. `on_done` runs at most once — on the lane, or inline on
+ * the thread that calls Ensure without a lane, Cancel / CancelAll, or SetDeps with another lane
+ * (the attempts fail: their steps were on the old one); callers hop to their own owner.
  * Destruction drops pending callbacks without running them.
  */
 class PeerReachCoordinator : public Module {
@@ -89,14 +101,17 @@ public:
   using SeedParkAwait = std::function<void(std::function<void(bool parked)>, int timeout_ms)>;
   using Done = std::function<void(Roe<PeerReachResult>)>;
 
-  PeerReachCoordinator(IDialRegistry* dial, ICircuitHopReach* circuit);
+  explicit PeerReachCoordinator(PeerReachPorts ports);
   ~PeerReachCoordinator() override;
 
   PeerReachCoordinator(const PeerReachCoordinator&) = delete;
   PeerReachCoordinator& operator=(const PeerReachCoordinator&) = delete;
 
-  /** Rewire mesh ports (listen sync). In-flight reaches pick up the new pointers on their next step. */
-  void SetDeps(IDialRegistry* dial, ICircuitHopReach* circuit);
+  /**
+   * Rewire mesh ports (listen sync). On the same lane, in-flight reaches pick up the new pointers on
+   * their next step; on another lane (mesh stopped / restarted) they fail with "mesh stopped".
+   */
+  void SetDeps(PeerReachPorts ports);
   /** Await at least one bootstrap seed Connected before circuit / punch (H010). */
   void SetSeedParkAwait(SeedParkAwait park);
   /** Shrink the direct-dial budget for gtests (<= 0 = production default). */
@@ -132,7 +147,7 @@ public:
   /**
    * During a relayed call (call-path-resilience k3): punch toward `peer_id` with the circuit's
    * relay as introducer. OK once a direct link is Connected — the call moves onto it by itself.
-   * `on_done` on the Connectivity owner.
+   * `on_done` on the lane (inline when there is none).
    */
   void UpgradeToDirect(const std::string& peer_id, std::function<void(Roe<void>)> on_done);
   /**
@@ -151,6 +166,10 @@ private:
   struct Attempt;
   using AttemptPtr = std::shared_ptr<Attempt>;
 
+  std::shared_ptr<pp::SerialExecutor> Lane() const;
+  /** On the lane (or there is none). Debug assertions. */
+  bool OnLane() const;
+  void FailAll(const Error& error);
   void Start(const AttemptPtr& a);
   void Tick(const AttemptPtr& a);
   void ScheduleTick(const AttemptPtr& a, int delay_ms);
@@ -173,7 +192,8 @@ private:
 
   std::atomic<IDialRegistry*> dial_{nullptr};
   std::atomic<ICircuitHopReach*> circuit_{nullptr};
-  mutable std::mutex mu_;
+  mutable std::mutex mu_;  // a leaf: never held while posting or calling out
+  std::shared_ptr<pp::SerialExecutor> lane_;  // mu_
   SeedParkAwait seed_park_;
   int64_t dial_budget_ms_;
   PeerReachId next_id_ = 1;

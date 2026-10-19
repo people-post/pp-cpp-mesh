@@ -117,8 +117,9 @@ public:
 
   /** (Re)create the dial registry and circuit reach from the running mesh; arm re-park. */
   void Wire();
-  /** Tests / harness without MeshHost objects: use these instead (not owned). */
-  void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach);
+  /** Tests / harness without MeshHost objects: use these instead (not owned), reach running on `lane`. */
+  void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach,
+                    std::shared_ptr<pp::SerialExecutor> lane = nullptr);
   /** Drop async callbacks, relay-chosen notices and the re-park listener (mesh stop / teardown). */
   void InvalidateAsyncOps();
   /** Dial registry (capability refresh); Wire makes a new one. */
@@ -132,6 +133,8 @@ public:
   ICircuitHopReach* CircuitReach() const;
   /** The wired mesh's `work` executor (null when not wired: inline), for objects built on this. */
   std::shared_ptr<pp::Executor> WorkExecutor() const { return work_; }
+  /** The wired mesh's io lane, where reach runs (`PeerReachPorts`); null when not wired. */
+  std::shared_ptr<pp::SerialExecutor> Lane() const { return test_lane_ ? test_lane_ : lane_; }
   /** The mesh it wires from (null when none); for objects built on this (`MeshMediaRelay`). */
   MeshHost* Mesh() const { return mesh(); }
 
@@ -191,6 +194,8 @@ private:
   std::unique_ptr<PeerSessionDialRegistry> dial_registry_;
   std::unique_ptr<ICircuitHopReach> circuit_hop_reach_;
   std::shared_ptr<pp::Executor> work_;  // set at Wire, read at consumers' bind points like Dial()
+  std::shared_ptr<pp::SerialExecutor> lane_;  // likewise
+  std::shared_ptr<pp::SerialExecutor> test_lane_;
   IDialRegistry* test_dial_ = nullptr;
   ICircuitHopReach* test_circuit_reach_ = nullptr;
   PunchIntroducerWalk punch_;
