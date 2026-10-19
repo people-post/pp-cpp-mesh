@@ -1,7 +1,6 @@
 #include "domain/mesh/l4/shared/MediaFrameBody.h"
 
-#include "foundation/crypto/CryptoConstants.h"
-#include "foundation/crypto/MessageCipher.h"
+#include "crypto/Aead.h"
 
 #include <cstring>
 #include "common/PbrCompat.h"
@@ -20,11 +19,7 @@ Roe<std::vector<uint8_t>> SealMediaFrameV2Body(const ByteVector& media_key, cons
   }
   const ByteVector aad(aad_str.begin(), aad_str.end());
   const ByteVector plain(payload.begin(), payload.end());
-  auto nonce = MessageCipher::GenerateNonce();
-  if (!nonce) {
-    return nonce.error();
-  }
-  auto encrypted = MessageCipher::Encrypt(media_key, plain, aad, *nonce);
+  auto encrypted = pp::XChaCha20Poly1305::Seal(media_key, plain, aad, pp::XChaCha20Poly1305::RandomNonce());
   if (!encrypted) {
     return encrypted.error();
   }
@@ -49,15 +44,15 @@ Roe<MediaFrameOpened> OpenMediaFrameBody(const ByteVector& media_key, const std:
   if (media_key.empty()) {
     return Error("media key required");
   }
-  if (body.size() < header_bytes + kAeadNonceSize) {
+  if (body.size() < header_bytes + pp::XChaCha20Poly1305::kNonceBytes) {
     return Error("media frame truncated");
   }
   const ByteVector aad(aad_str.begin(), aad_str.end());
-  EncryptedBlob blob;
+  pp::XChaCha20Poly1305::Sealed blob;
   blob.nonce.assign(body.begin() + static_cast<std::ptrdiff_t>(header_bytes),
-                    body.begin() + static_cast<std::ptrdiff_t>(header_bytes + kAeadNonceSize));
-  blob.ciphertext.assign(body.begin() + static_cast<std::ptrdiff_t>(header_bytes + kAeadNonceSize), body.end());
-  auto decrypted = MessageCipher::Decrypt(media_key, blob, aad);
+                    body.begin() + static_cast<std::ptrdiff_t>(header_bytes + pp::XChaCha20Poly1305::kNonceBytes));
+  blob.ciphertext.assign(body.begin() + static_cast<std::ptrdiff_t>(header_bytes + pp::XChaCha20Poly1305::kNonceBytes), body.end());
+  auto decrypted = pp::XChaCha20Poly1305::Open(media_key, blob, aad);
   if (!decrypted) {
     return decrypted.error();
   }

@@ -17,7 +17,7 @@
 #include "amp/L1/Types.h"
 #include "amp/L2/Types.h"
 #include "amp/link/AdpMultiaddr.h"
-#include "foundation/identity/PeerIdUtil.h"
+#include "crypto/PeerId.h"
 #include "common/Logger.h"
 #include "common/PbrCompat.h"
 
@@ -86,7 +86,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   identity.ml_dsa_public_key.assign(host_cfg.device_ml_dsa_public_key->begin(),
                                     host_cfg.device_ml_dsa_public_key->end());
 
-  auto peer_id = PeerIdFromMlDsaPublicKey(identity.ml_dsa_public_key);
+  auto peer_id = pp::PeerIdFromMlDsaPublicKey(identity.ml_dsa_public_key);
   if (!peer_id) {
     return peer_id.error();
   }
