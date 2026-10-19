@@ -33,9 +33,5 @@ endif()
 
 add_subdirectory(src)
 
-if(PP_MESH_BUILD_TESTS)
-  add_subdirectory(tests)
-endif()
-
 include(GNUInstallDirs)
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

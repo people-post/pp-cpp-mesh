@@ -39,8 +39,10 @@ its history; pp-browser and its headless node `pp-node` are its first consumers.
 | `media_plane/` | `pp_mesh_media_plane` | `MeshMediaRelay`, `MediaRelayAttach` |
 | `testing/` | `pp_mesh_testing` | In-memory Amp harnesses, for these tests and consumers' (not in `pp_mesh`) |
 
-`pp_mesh` links them all but `testing`. Each library's `DEPS` in `src/CMakeLists.txt` are its allowed
-include edges.
+Each folder under `src/` has its own `CMakeLists.txt` defining its library, and its unit tests in a
+`tests/` beside its sources (`src/<folder>/tests/*_test.cpp` → `pp_mesh_<folder>_test`). A library's
+`DEPS` are its allowed include edges; a test sits with the highest library it includes and may use
+the harnesses (`pp_mesh_testing`) on top. `pp_mesh` links them all but `testing`.
 
 ## Build
 

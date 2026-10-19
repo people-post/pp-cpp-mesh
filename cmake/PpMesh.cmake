@@ -22,7 +22,8 @@ function(pp_mesh_apply_warnings target)
   endif()
 endfunction()
 
-# pp_mesh_<name>: a static library of one folder. DEPS name other folder libraries (without the
+# pp_mesh_add_library(<name> SOURCES … [DEPS …] [LIBS …]): pp_mesh_<name>, the library of the folder
+# this is called from; SOURCES are relative to it. DEPS name other folder libraries (without the
 # pp_mesh_ prefix) — they are the allowed include edges (scripts/check_layers.sh); LIBS are external.
 function(pp_mesh_add_library name)
   cmake_parse_arguments(ARG "" "" "SOURCES;DEPS;LIBS" ${ARGN})
@@ -40,4 +41,30 @@ function(pp_mesh_add_library name)
     target_compile_definitions(${target} PUBLIC NOMINMAX)
   endif()
   pp_mesh_apply_warnings(${target})
+endfunction()
+
+# pp_mesh_add_folder_library: pp_mesh_add_library for a folder above the vocabulary — it sits on
+# types and Amp. Every folder but types/ uses this one.
+function(pp_mesh_add_folder_library name)
+  cmake_parse_arguments(ARG "" "" "SOURCES;DEPS" ${ARGN})
+  pp_mesh_add_library(${name}
+    SOURCES ${ARG_SOURCES}
+    DEPS types ${ARG_DEPS}
+    LIBS pp_crypto pp_amp_l1 pp_amp_link)
+endfunction()
+
+# pp_mesh_add_tests(<library> [LINK_LIBS …]): the *_test.cpp of the folder this is called from (a
+# library's tests/) as one GoogleTest executable, <library>_test. A test sits with the highest
+# library it includes; pp_mesh_testing (the in-memory Amp harnesses) is test support, like GoogleTest.
+function(pp_mesh_add_tests lib)
+  cmake_parse_arguments(ARG "" "" "LINK_LIBS" ${ARGN})
+  file(GLOB _sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*_test.cpp")
+  if(NOT _sources)
+    message(FATAL_ERROR "pp_mesh_add_tests(${lib}): no *_test.cpp in ${CMAKE_CURRENT_SOURCE_DIR}")
+  endif()
+  add_executable(${lib}_test ${_sources})
+  target_link_libraries(${lib}_test PRIVATE GTest::gtest GTest::gtest_main ${lib} ${ARG_LINK_LIBS})
+  pp_mesh_apply_warnings(${lib}_test)
+  include(GoogleTest)
+  gtest_discover_tests(${lib}_test DISCOVERY_TIMEOUT 60)
 endfunction()
