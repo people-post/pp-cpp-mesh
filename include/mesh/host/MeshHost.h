@@ -1,0 +1,262 @@
+#pragma once
+
+#include "mesh/types/MeshConfigTypes.h"
+#include "amp/link/AmpStack.h"
+#include "mesh/host/LocalNetworkChange.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/dht/AmpDhtProtocol.h"
+#include "mesh/discovery/AmpDirectoryProtocol.h"
+#include "mesh/reachability/dial_back/client/DialBackClient.h"
+#include "mesh/reachability/dial_back/serve/DialBackServer.h"
+#include "mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "mesh/host/MeshIdentityConfig.h"
+#include "mesh/host/MeshPorts.h"
+#include "mesh/shared/MeshExecutors.h"
+#include "common/SerialExecutor.h"
+#include "mesh/host/MeshPumpThread.h"
+#include "mesh/reachability/ReachabilityEngine.h"
+#include "common/Error.h"
+#include "common/metrics/MetricsRegistry.h"
+
+#include <chrono>
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <vector>
+namespace pp::mesh {
+
+/**
+ * Amp-only mesh host (A017/D10): owns AmpStack + Amp L4 coordinators + reachability.
+ *
+ * Product SoftMigrate uses Amp when coordinators are up; circuit NAT adopts bridged
+ * ChannelSessions via AmpCircuitHopRegistry. Dial-back (D8) feeds Me→Network chrome.
+ */
+struct MeshHostConfig {
+  /** ML-DSA identity for Amp PeerId (device keys; historically shared with Libp2pHost). */
+  MeshIdentityConfig host;
+  /** Start inbound circuit-relay hosting (Node with circuit_relay capability). */
+  bool host_circuit_relay = false;
+  /** Start inbound media_relay hosting (Node with media_relay capability). */
+  bool host_media_relay = false;
+  /** Participate in mesh DHT (Node with dht capability). */
+  bool host_dht = false;
+  /** Serve Amp directory twin (pp-node / org seed; N029 nd4). */
+  bool host_directory = false;
+  MediaRelayBudgetConfig media_relay_budget{};
+  RelayPricingConfig media_relay_pricing{};
+  /** Video levels the hosted media_relay carries per publisher (B009). */
+  MediaRelayVideoPolicy media_relay_video{};
+  /** Fire an Amp dial-back reachability probe after start (Node / pp-node). */
+  bool start_reachability_probe = false;
+  bool try_upnp_first = false;
+  /** Optional probe-completion callback (worker thread). */
+  std::function<void()> on_reachability_updated;
+  /** Bootstrap peers for seed dial (ADP multiaddrs preferred for dial-back). */
+  std::vector<std::string> bootstrap_peers;
+
+  /**
+   * Peer mesh on/off. When true, bind UDP + AmpStack (D10 hard-require).
+   * Requires `host.device_ml_dsa_*` so AMP PeerId matches identity.
+   * Failure fails `MeshHost::Start` (no TCP underlay fallback).
+   */
+  bool mesh_enabled = false;
+  /** ADP UDP listen port; 0 = ephemeral. */
+  uint16_t amp_udp_port = 0;
+};
+
+class MeshHost {
+public:
+  /**
+   * `executors`: where this mesh hands work off its I/O lane (empty: inline — manual-drive harnesses).
+   * `metrics`: where this mesh records its operator metrics (pp-browser docs/contracts/NODE_METRICS.md); it must
+   * outlive the host. pp-node and the product pass the process's registry; tests may pass their own.
+   */
+  MeshHost(MeshExecutors executors, MetricsRegistry& metrics);
+  ~MeshHost();
+
+  MeshHost(const MeshHost&) = delete;
+  MeshHost& operator=(const MeshHost&) = delete;
+
+  Roe<void> Start(const MeshHostConfig& config);
+  void Stop();
+  void Tick();
+  bool IsRunning() const;
+
+  bool MeshPumpRunning() const { return pump_.IsRunning(); }
+  /** Where this mesh hands work off its I/O lane (given at construction). */
+  const MeshExecutors& Executors() const { return executors_; }
+  /** The I/O lane mesh control runs on (Amp's io executor); null when Amp is down. */
+  std::shared_ptr<pp::SerialExecutor> IoLane() const;
+  /** `task` on the io lane while the caller waits (inline without Amp). Never from the lane's own callbacks into the app. */
+  void RunOnLane(const std::function<void()>& task);
+  /**
+   * The host is going away (an app's quit, which it may still cancel): synchronous reach waits are
+   * refused from now on, so nothing parks a thread on a mesh about to stop. Any thread.
+   */
+  void SetStopping(bool stopping) { stopping_.store(stopping, std::memory_order_release); }
+  bool IsStopping() const { return stopping_.load(std::memory_order_acquire); }
+
+  ReachabilityEngine& Reachability();
+
+  /** Feature-layer chat port bundle (null when Amp is down). */
+  std::optional<MeshChatDeps> ChatDeps();
+  /** Circuit + hop registry + links for feature reach helpers. */
+  std::optional<MeshCircuitDeps> CircuitDeps();
+
+  /**
+   * Low-level Amp access — mesh tests and AttachAmpStack only.
+   * Feature code must use ChatDeps() / CircuitDeps() instead.
+   */
+  pp::amp::AmpStack* Amp();
+  const pp::amp::AmpStack* Amp() const;
+  const std::string& AmpListenMultiaddr() const { return amp_listen_multiaddr_; }
+  /**
+   * Ranked dialable Amp listen MAs for ch0 / DHT / invite (global /ip6 before private /ip4).
+   * Empty when Amp is down. May expand wildcard binds via LAN + GlobalIpv6Addresses.
+   */
+  std::vector<std::string> AdvertisedListenMultiaddrs() const;
+  /** Set when Amp was requested but failed (Start returns error; for diagnostics). */
+  const std::string& AmpLastError() const { return amp_last_error_; }
+
+  /** circuit serving side (bridge / reserve for others); gated by host_circuit_relay. */
+  CircuitRelayServer* AmpCircuitServer();
+  /** circuit client side (our bridges and reservations on relays). */
+  CircuitClientCoordinator* AmpCircuitClient();
+  /** media_relay serving side (inbound quote / attach, hosted sessions); gated by host_media_relay. */
+  MediaRelayServer* AmpMediaRelayServer();
+  /** media_relay client side (outbound quote / attach, the attached session). */
+  MediaRelayClientCoordinator* AmpMediaRelayClientCoord();
+  AmpCircuitHopRegistry* AmpCircuitHops();
+  /** Amp dial-back for reachability chrome (D8); null when Amp is down. */
+  DialBackClient* AmpDialBack();
+  /** Amp coordinated punch (H009 / L3.25a); null when Amp is down. */
+  AmpPunchCoordinator* AmpPunch();
+  /**
+   * Who may learn this node's address (projects/privacy T1): applied to the services that would
+   * disclose it (punch target), now and whenever they are rebuilt. Null = everyone. Not owned.
+   */
+  void SetAddressDisclosure(const AddressDisclosureGate* gate);
+  /** Amp mesh DHT (n2); null when Amp is down. */
+  AmpDhtProtocol* AmpDht();
+  /** Amp directory twin (N029 nd4); null when Amp is down. */
+  AmpDirectoryProtocol* AmpDirectory();
+
+  void ConfigureAmpDht(AmpDhtProtocolConfig config);
+  /** Hot refresh: advertisement + participate flag without restart. */
+  void RefreshAmpDhtHosting(bool host_dht);
+
+  void ConfigureAmpDirectory(AmpDirectoryProtocolConfig config);
+  /** Hot refresh: advertise `/pp-mesh/directory/1.0.0` when serving. */
+  void RefreshAmpDirectoryHosting(bool host_directory);
+
+  /**
+   * The protocols the app serves on this mesh's links (pp-browser's chat, history, blobs, announce,
+   * broadcast and call media; a hosted ledger's RPC), advertised beside the mesh's own every time the
+   * advertisement is rebuilt. Set before Start / AttachAmpStack; a later call re-advertises. Any
+   * thread. The mesh does not serve them: the app binds their handlers.
+   */
+  void SetAppProtocols(std::vector<std::string> protocol_ids);
+
+  /** Who drives the attached stack's Amp turn loop. */
+  enum class AttachDrive {
+    /** Caller Ticks (VirtualClock / MemoryDatagramIo tests — MeshPump is not clock-safe). */
+    Manual,
+    /** Own MeshPump and hand L4 work to the host's executors like product Start (wall-clock harnesses, e.g. pp-call-probe). */
+    MeshPump,
+  };
+  Roe<void> AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr = {},
+                           AttachDrive drive = AttachDrive::Manual);
+
+  const std::string& LastError() const { return last_error_; }
+
+  void AbortInflightCircuitRequests();
+
+  /** Build deps and run Amp reachability probe (async). */
+  void StartReachabilityProbe(bool try_upnp_first = false);
+  /**
+   * k5: the device's network changed (any thread). Per `DecideLocalNetworkReaction`: Amp probes
+   * every direct link and evicts the silent ones fast; reachability is probed again once that
+   * settled, refreshing advertised and punch addresses. A newer change supersedes a pending re-probe.
+   */
+  void OnLocalNetworkChanged(const LocalNetworkChange& change);
+  void RunReachabilityProbeBlocking(bool try_upnp_first = false);
+
+private:
+  Roe<void> StartAmpFromConfig(const MeshHostConfig& config);
+  void StopAmp();
+  void ApplyAmpAdvertisement(const MeshHostConfig& config);
+  /** What this host hosts now (for rebuilding the advertisement). */
+  MeshHostConfig CurrentHosting() const;
+  std::vector<std::string> AppProtocols() const;
+  void EnsureAmpL4Coordinators();
+  void RefreshAdvertisedListenAddrs();
+  /** When `refresh_listen_addrs` is false, keep caller-supplied listen multiaddrs (AttachAmpStack /
+   * MemoryDatagramIo tests) instead of expanding from real LAN NICs. */
+  void StartAmpL4Hosting(bool host_circuit, bool host_media, bool host_dht, bool host_directory,
+                         bool refresh_listen_addrs = true);
+  AmpReachabilityProbeDeps MakeReachabilityDeps(bool try_upnp_first) const;
+  void StartOwnedThreads();
+  void StopOwnedThreads();
+  /** Empty under MeshPump; AttachAmpStack harnesses return Tick for sync AmpParkUntil. */
+  std::function<void()> MakeL4IoPump() const;
+  std::function<void(std::function<void()>)> MakeL4IoPost() const;
+  /** MeshRuntime::PostAfter — Amp-clock delayed work (deadlines). */
+  std::function<void(std::chrono::milliseconds, std::function<void()>)> MakeL4IoAfter() const;
+  /**
+   * Where L4 work leaves the IO strand: `executor` (one of `executors_`) once this host drives its
+   * own MeshPump (product, wall-clock harnesses); inline on the driving thread for manual-drive
+   * harnesses. Nothing posted here may wait on the mesh.
+   */
+  std::function<void(std::function<void()>)> MakeL4WorkerPost(std::shared_ptr<pp::Executor> executor) const;
+
+  std::unique_ptr<ReachabilityEngine> reachability_;
+  MeshPumpThread pump_;
+  const MeshExecutors executors_;
+  MetricsRegistry& metrics_;
+  std::atomic<bool> stopping_{false};
+  /** Set while MeshPump drives: L4 work goes to `executors_` (MakeL4WorkerPost). */
+  std::atomic<bool> l4_on_workers_{false};
+  /** k5: the latest network change; a delayed re-probe for an older one stands down. */
+  std::atomic<uint64_t> network_change_gen_{0};
+  void ReprobeAfterNetworkChange(uint64_t gen, int attempts_left);
+  std::unique_ptr<pp::amp::AmpStack> amp_;
+  std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
+  std::unique_ptr<CircuitRelayServer> amp_circuit_server_;
+  std::unique_ptr<CircuitClientCoordinator> amp_circuit_client_;
+  std::unique_ptr<MediaRelayServer> amp_media_relay_server_;
+  /** Holds a pointer to the server (local hop): declared after it, so freed first. */
+  std::unique_ptr<MediaRelayClientCoordinator> amp_media_relay_client_;
+  std::unique_ptr<DialBackServer> amp_dial_back_server_;
+  std::unique_ptr<DialBackClient> amp_dial_back_;
+  std::unique_ptr<AmpPunchCoordinator> amp_punch_;
+  const AddressDisclosureGate* address_disclosure_ = nullptr;
+  /** The Amp stack the Blocked-peer link listener is installed on (one listener per stack). */
+  const void* blocked_listener_amp_ = nullptr;
+  /** Apply the gate to Amp's ch0 capability (listen multiaddrs per peer); after every Amp (re)build. */
+  void ApplyAddressDisclosureToAmp();
+  std::unique_ptr<AmpDhtProtocol> amp_dht_;
+  /** The DHT's self-publish io tick (0: none). */
+  pp::amp::MeshRuntime::IoTickId dht_tick_ = 0;
+  std::unique_ptr<AmpDirectoryProtocol> amp_directory_;
+  bool host_dht_ = false;
+  bool host_directory_ = false;
+  mutable std::mutex app_protocols_mu_;
+  std::vector<std::string> app_protocols_;
+  /** True for product Start (MeshPump); false for AttachAmpStack harnesses. */
+  bool prefer_mesh_pump_ = false;
+  std::unique_ptr<IChatPeerLinks> chat_links_;
+  std::shared_ptr<pp::adp::Clock> amp_clock_;
+  std::string amp_listen_multiaddr_;
+  std::string amp_last_error_;
+  std::string last_error_;
+  std::vector<std::string> bootstrap_peers_;
+};
+
+} // namespace pp::mesh

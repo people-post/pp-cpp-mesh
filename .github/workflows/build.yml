@@ -1,0 +1,59 @@
+name: build
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-14]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+
+      - name: Install Windows deps
+        if: runner.os == 'Windows'
+        run: choco install ninja --no-progress -y
+
+      - name: Layer check
+        if: runner.os == 'Linux'
+        run: scripts/check_layers.sh
+
+      - name: Configure
+        shell: bash
+        run: |
+          generator=()
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            generator=(-G Ninja)
+          fi
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+            -DPP_MESH_BUILD_TESTS=ON \
+            "${generator[@]}"
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release -j 2
+
+      - name: Test
+        shell: bash
+        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error
+
+  # UPnP is off by default; keep it compiling.
+  upnp:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DPP_MESH_WITH_UPNP=ON
+      - name: Build
+        run: cmake --build build -j 2 --target pp_mesh_reachability
