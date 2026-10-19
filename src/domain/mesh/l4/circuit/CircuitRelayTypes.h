@@ -4,16 +4,10 @@
 #include "domain/mesh/l4/shared/L4ProtocolIds.h"
 #include "common/PbrCompat.h"
 
-#include <memory>
 #include <string>
 #include <unordered_set>
 
-namespace libp2p::connection {
-class Stream;
-}
-
 namespace pbr {
-
 
 /** Provider admission (nf / N023): scope mask + contact PeerIds. */
 struct CircuitRelayAdmissionPolicy {
@@ -23,12 +17,11 @@ struct CircuitRelayAdmissionPolicy {
   std::unordered_set<std::string> contact_peer_ids;
 };
 
-/** Circuit bridge outcome (Amp product path ignores `stream`). */
+/** Circuit bridge outcome. */
 struct CircuitRelayBridgeResult {
   bool ok = false;
   std::string error;
   std::string resolved_multiaddr;
-  std::shared_ptr<libp2p::connection::Stream> stream;
 };
 
 } // namespace pbr

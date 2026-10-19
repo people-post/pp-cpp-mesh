@@ -32,7 +32,7 @@ struct LanMdnsDiscoveredPeer {
 
 /**
  * Minimal multicast DNS announcer/browser for contacts-only LAN discovery (ns2).
- * Announces local PeerId + libp2p TCP port when listening; browse results are filtered upstream.
+ * Announces the local PeerId and listen ports (Amp UDP in TXT `amp_udp=`) when listening; browse results are filtered upstream.
  */
 class LanMdnsDiscovery {
 public:
