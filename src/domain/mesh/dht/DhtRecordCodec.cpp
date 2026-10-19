@@ -1,8 +1,8 @@
 #include "domain/mesh/dht/DhtRecordCodec.h"
+#include "foundation/identity/MultiaddrPeerId.h"
 
 #include "foundation/crypto/CryptoUtil.h"
 #include "foundation/crypto/MlDsa.h"
-#include "foundation/data/MeshRole.h"
 #include "common/Utilities.h"
 
 #include <cstring>

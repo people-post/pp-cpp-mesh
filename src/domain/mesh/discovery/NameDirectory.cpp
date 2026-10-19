@@ -1,6 +1,6 @@
 #include "domain/mesh/discovery/NameDirectory.h"
 
-#include "foundation/data/Config.h"
+#include "foundation/data/MeshConfigTypes.h"
 
 namespace pbr {
 namespace {

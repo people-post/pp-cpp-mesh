@@ -1,6 +1,6 @@
 #pragma once
 
-#include "foundation/data/Config.h"
+#include "foundation/data/MeshConfigTypes.h"
 #include "common/directory/DirectoryTypes.h"
 #include "common/Error.h"
 #include "common/directory/IDirectoryClient.h"

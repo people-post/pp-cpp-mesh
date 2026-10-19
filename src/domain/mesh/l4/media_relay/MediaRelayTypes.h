@@ -2,7 +2,7 @@
 
 #include "common/media/MediaChannel.h"
 
-#include "foundation/data/Config.h"
+#include "foundation/data/MeshConfigTypes.h"
 #include "common/directory/RelayScope.h"
 #include "common/Error.h"
 #include "domain/mesh/l4/shared/L4ProtocolIds.h"
