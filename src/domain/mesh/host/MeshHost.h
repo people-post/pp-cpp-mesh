@@ -90,6 +90,8 @@ public:
   const MeshExecutors& Executors() const { return executors_; }
   /** The I/O lane mesh control runs on (Amp's io executor); null when Amp is down. */
   std::shared_ptr<pp::SerialExecutor> IoLane() const;
+  /** `task` on the io lane while the caller waits (inline without Amp). Never from the lane's own callbacks into the app. */
+  void RunOnLane(const std::function<void()>& task);
   /**
    * The host is going away (an app's quit, which it may still cancel): synchronous reach waits are
    * refused from now on, so nothing parks a thread on a mesh about to stop. Any thread.
@@ -224,6 +226,8 @@ private:
   /** Apply the gate to Amp's ch0 capability (listen multiaddrs per peer); after every Amp (re)build. */
   void ApplyAddressDisclosureToAmp();
   std::unique_ptr<AmpDhtProtocol> amp_dht_;
+  /** The DHT's self-publish io tick (0: none). */
+  pp::amp::MeshRuntime::IoTickId dht_tick_ = 0;
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;
   bool host_dht_ = false;
   bool host_directory_ = false;

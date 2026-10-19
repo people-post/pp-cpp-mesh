@@ -157,7 +157,9 @@ void MeshHost::StartOwnedThreads() {
   }
   l4_on_workers_.store(true, std::memory_order_release);
   if (!pump_.IsRunning()) {
-    pump_.Start([this]() { Tick(); });
+    // The pump is the runtime's only driver: a drive from any other thread is refused (and counted).
+    pump_.Start([this]() { Tick(); }, MeshPumpThread::kDefaultInterval, [this]() { amp_->Runtime().ClaimDriver(); },
+                [this]() { amp_->Runtime().ReleaseDriver(); });
   }
 }
 
@@ -239,6 +241,8 @@ void MeshHost::EnsureAmpL4Coordinators() {
   }
   if (!amp_dht_) {
     amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Runtime(), post_worker);
+    // Self-publish when due, on the lane with the rest of the DHT's state.
+    dht_tick_ = amp_->Runtime().AddIoTick([dht = amp_dht_.get()]() { dht->Tick(); });
   }
   if (!amp_directory_) {
     amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Runtime(), io_pump, post_worker);
@@ -280,7 +284,7 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media,
     RefreshAdvertisedListenAddrs();
   }
   if (amp_dht_ && !amp_dht_->IsStarted()) {
-    amp_dht_->Start();
+    RunOnLane([this]() { amp_dht_->Start(); });
   }
   if (amp_directory_ && !amp_directory_->IsStarted()) {
     amp_directory_->Start();
@@ -339,6 +343,9 @@ void MeshHost::StopAmp() {
   amp_dial_back_.reset();
   amp_dial_back_server_.reset();
   amp_directory_.reset();
+  if (amp_ && dht_tick_ != 0) {
+    amp_->Runtime().RemoveIoTick(std::exchange(dht_tick_, 0));  // nothing drives now: MeshPump joined
+  }
   amp_dht_.reset();
   amp_media_relay_client_.reset();
   amp_media_relay_server_.reset();
@@ -433,11 +440,17 @@ void MeshHost::Stop() {
 void MeshHost::Tick() {
   if (amp_) {
     // Sole Drive entry for this host. L4 must not call Tick to progress —
-    // exclusive Amp Drive (THREADING.md). Nested Drive is refused by MeshRuntime.
+    // exclusive Amp Drive (THREADING.md). Nested Drive is refused by MeshRuntime; under MeshPump a
+    // drive from another thread is too. The DHT's self-publish is an io tick, inside the drive.
     amp_->Runtime().Drive();
   }
-  if (amp_dht_) {
-    amp_dht_->Tick();
+}
+
+void MeshHost::RunOnLane(const std::function<void()>& task) {
+  if (auto lane = IoLane()) {
+    lane->RunAndWait(task);
+  } else {
+    task();
   }
 }
 
@@ -518,7 +531,7 @@ void MeshHost::ConfigureAmpDht(AmpDhtProtocolConfig config) {
   if (!amp_dht_) {
     return;
   }
-  amp_dht_->Configure(std::move(config));
+  RunOnLane([&]() { amp_dht_->Configure(std::move(config)); });  // its tick reads the config there
 }
 
 void MeshHost::RefreshAmpDhtHosting(const bool host_dht) {
@@ -533,7 +546,7 @@ void MeshHost::RefreshAmpDhtHosting(const bool host_dht) {
   ad_cfg.host_directory = host_directory_;
   ApplyAmpAdvertisement(ad_cfg);
   if (amp_dht_ && host_dht) {
-    amp_dht_->Tick();
+    RunOnLane([this]() { amp_dht_->Tick(); });
   }
 }
 

@@ -9,6 +9,7 @@
 #include "foundation/identity/PeerIdUtil.h"
 
 #include <gtest/gtest.h>
+#include <future>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -68,6 +69,40 @@ TEST(MeshHostThreadingTest, AttachInstallsControlWithoutPump) {
   host.Tick();
   host.Stop();
   host.Stop(); // idempotent
+}
+
+// THREADING.md § Mesh threads: MeshPump is the runtime's only driver. pp-node's main loop used to
+// Tick beside it — two drivers, and the DHT's self-publish raced the io lane. A drive from another
+// thread is now refused (counted), and the io lane's work runs on the pump.
+TEST(MeshHostThreadingTest, MeshPumpIsTheOnlyDriver) {
+  ASSERT_GE(sodium_init(), 0);
+
+  auto clock = std::make_shared<pp::adp::VirtualClock>(1'000'000);
+  auto hub = pp::adp::MemoryDatagramIo::MakeHub();
+  const auto addr = pp::adp::IpEndpoint::V4(10, 0, 0, 3, 1000);
+  auto io = std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr);
+
+  std::string peer_id;
+  auto stack = MakeTestAmpStack(clock, io, &peer_id);
+  ASSERT_NE(stack, nullptr);
+  auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
+  ASSERT_TRUE(static_cast<bool>(ma));
+
+  MeshHost host{MeshExecutors{}};
+  ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma, MeshHost::AttachDrive::MeshPump)));
+  ASSERT_TRUE(host.MeshPumpRunning());
+  auto& runtime = host.Amp()->Runtime();
+
+  std::promise<bool> on_pump;
+  host.IoLane()->Post([&]() { on_pump.set_value(host.IoLane()->RunsTasksOnCurrentThread()); });
+  auto ran = on_pump.get_future();
+  ASSERT_EQ(ran.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+  EXPECT_TRUE(ran.get()) << "the lane's work runs on the pump";
+
+  const uint64_t refused = runtime.RefusedDrives();
+  host.Tick();  // a second driver
+  EXPECT_EQ(runtime.RefusedDrives(), refused + 1);
+  host.Stop();
 }
 
 TEST(MeshPumpThreadTest, StartStopJoins) {
