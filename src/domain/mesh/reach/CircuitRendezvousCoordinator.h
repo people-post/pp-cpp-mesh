@@ -4,7 +4,7 @@
 #include "common/Module.h"
 #include "common/directory/MeshHopTypes.h"
 #include "domain/mesh/host/MeshHost.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <cstddef>
 #include <functional>
@@ -91,7 +91,7 @@ private:
   /** H011 L3.1b/c: last chosen / announced R1 PeerId for park sticky + late-reserve (IO strand). */
   std::string chosen_circuit_r1_;
   pp::amp::PeerLinkManager::PeerConnectedListenerId repark_listener_id_ = 0;
-  DeferredSelf deferred_;
+  pp::Lifetime deferred_;
 };
 
 } // namespace pbr

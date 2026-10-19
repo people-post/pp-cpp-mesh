@@ -4,7 +4,7 @@
 #include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "domain/mesh/host/MeshPorts.h"
 #include "domain/mesh/reach/MeshReachPorts.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <atomic>
 #include <chrono>
@@ -84,7 +84,7 @@ private:
   TryPunchViaIntroducerAsync try_punch_via_introducer_;
   OnRelayChosen on_relay_chosen_;
   /** AbortPending Invalidates — in-flight EnsureViaCircuit / punch cbs no-op. */
-  DeferredSelf deferred_;
+  pp::Lifetime deferred_;
   /** Active StartBridge id for this reach chain; AbortPending CancelTunnel's it (hard cancel). */
   std::atomic<uint64_t> inflight_tunnel_value_{0};
   /** Last relay that completed a bridge Install (sticky first try — H010). */

@@ -8,7 +8,7 @@
 #include "domain/mesh/reachability/punch/PunchLogic.h"
 #include "common/Logger.h"
 #include "common/ValueJson.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
 
 #include <atomic>
@@ -60,8 +60,8 @@ struct PunchServer::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
   IoPump io_pump; // AmpParkUntil only — never call from SM / PostToIo work
   std::atomic<bool> stopped{false};
-  /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
-  DeferredSelf deferred;
+  /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § Lifetime. */
+  pp::Lifetime deferred;
   std::vector<std::string>* local_addrs = nullptr;
   std::atomic<const AddressDisclosureGate*> disclosure{nullptr};
 

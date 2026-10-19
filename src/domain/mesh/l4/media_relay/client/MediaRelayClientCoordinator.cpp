@@ -9,7 +9,7 @@
 #include "domain/mesh/l4/media_relay/MediaRelayLogic.h"
 #include "common/ValueJson.h"
 #include "domain/mesh/shared/AmpChannelOpen.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <atomic>
 #include <chrono>
@@ -61,9 +61,9 @@ struct MediaRelayClientCoordinator::Impl {
   std::atomic<uint64_t> next_id{1};
   pp::amp::MeshRuntime::IoTickId io_tick_id = 0;
   /** PostIo(raw Impl*) — Invalidate on AbortInflight (Stop calls Abort). */
-  DeferredSelf deferred;
+  pp::Lifetime deferred;
   /** IoTick — Invalidate only on Stop (survives mid-life Abort). */
-  DeferredSelf lifetime;
+  pp::Lifetime lifetime;
 
   struct ClientState {
     std::shared_ptr<pp::amp::ChannelSession> channel;

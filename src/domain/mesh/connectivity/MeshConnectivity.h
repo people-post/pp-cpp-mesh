@@ -7,7 +7,7 @@
 #include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
 #include "domain/mesh/reach/MeshReachPorts.h"
 #include "domain/mesh/reach/PunchIntroducerWalk.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <atomic>
 #include <cstdint>
@@ -134,7 +134,7 @@ public:
    * Liveness of the objects handed out to consumers' async work (dial registry, circuit reach, and
    * `MeshMediaRelay`'s relay client): bumped on the owner before any of them is replaced or freed.
    */
-  DeferredSelf::Token ObjectsToken() const { return objects_.token(); }
+  pp::Lifetime::Token ObjectsToken() const { return objects_.token(); }
   uint64_t ObjectsSnapshot() const { return objects_.Snapshot(); }
   /** Owner: one of the handed-out objects is about to be replaced (`MeshMediaRelay`'s relay client). */
   void InvalidateObjects() { objects_.Invalidate(); }
@@ -189,8 +189,8 @@ private:
   ICircuitHopReach* test_circuit_reach_ = nullptr;
   PunchIntroducerWalk punch_;
   CircuitRendezvousCoordinator rendezvous_;
-  DeferredSelf deferred_;
-  DeferredSelf objects_;
+  pp::Lifetime deferred_;
+  pp::Lifetime objects_;
 };
 
 } // namespace pbr

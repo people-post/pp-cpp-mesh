@@ -7,7 +7,7 @@
 #include "amp/link/AdpMultiaddr.h"
 #include "common/Utilities.h"
 #include "common/ValueJson.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <algorithm>
 #include <atomic>
@@ -177,8 +177,8 @@ void DialAmpTargetsAsync(pp::amp::MeshRuntime& runtime, std::vector<std::string>
 struct DialBackServer::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
   std::atomic<bool> stopped{false};
-  /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
-  DeferredSelf deferred;
+  /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § Lifetime. */
+  pp::Lifetime deferred;
 
   pp::amp::PeerLinkManager& Links() { return runtime->Links(); }
   /** IO lane for InboundReply. */
@@ -275,11 +275,11 @@ struct DialBackServer::Impl {
     // `inflight` is captured by shared_ptr (not through `this`), so its entry can always be
     // cleared below even on the path where `this` (Impl) is no longer safe to touch — a plain
     // deferred.Bind would silently no-op the whole callback on that path and leak the entry.
-    const DeferredSelf::Token life_token = deferred.token();
+    const pp::Lifetime::Token life_token = deferred.token();
     const uint64_t life_snap = deferred.Snapshot();
     runtime->PostToIo([this, reply, observed = result.observed, targets = std::move(targets), timeout_ms,
                        remote_peer_id, observed_host, life_token, life_snap, inflight = inflight]() mutable {
-      if (!DeferredSelf::Alive(life_token, life_snap) || stopped.load(std::memory_order_acquire) || !runtime) {
+      if (!pp::Lifetime::Alive(life_token, life_snap) || stopped.load(std::memory_order_acquire) || !runtime) {
         ClearProbeInflight(*inflight, remote_peer_id);
         return;
       }

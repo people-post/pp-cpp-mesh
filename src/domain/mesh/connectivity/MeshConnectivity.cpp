@@ -230,7 +230,7 @@ void MeshConnectivity::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io)
       return;
     }
     AppRuntime::PostToOwnerOrRun(kOwner, [this, alive, snap, relay_peer_key]() {
-      if (!DeferredSelf::Alive(alive, snap)) {
+      if (!pp::Lifetime::Alive(alive, snap)) {
         return;
       }
       rendezvous_.NoteChosenRelay(relay_peer_key);

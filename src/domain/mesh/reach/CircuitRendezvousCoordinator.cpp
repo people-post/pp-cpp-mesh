@@ -438,7 +438,7 @@ void CircuitRendezvousCoordinator::EnsureBootstrapSeedParkedAsync(std::function<
   park->deadline_timer = AppRuntime::ScheduleCoordinatorOneShot(
       std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 12000),
       [this, park, alive = deferred_.token(), snap = deferred_.Snapshot()]() {
-        if (!DeferredSelf::Alive(alive, snap)) {
+        if (!pp::Lifetime::Alive(alive, snap)) {
           AbandonSeedPark(park);
           return;
         }
@@ -476,7 +476,7 @@ void CircuitRendezvousCoordinator::CheckSeedPark(const std::shared_ptr<SeedPark>
   case SeedParkStep::ArmGrace: {
     const uint64_t timer = AppRuntime::ScheduleCoordinatorOneShot(
         kSeedParkGrace, [this, park, alive = deferred_.token(), snap = deferred_.Snapshot()]() {
-          if (!DeferredSelf::Alive(alive, snap)) {
+          if (!pp::Lifetime::Alive(alive, snap)) {
             AbandonSeedPark(park);
             return;
           }

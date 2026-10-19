@@ -3,7 +3,7 @@
 #include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/reach/MeshReachPorts.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include "common/Error.h"
 
@@ -24,10 +24,10 @@ struct MediaRelayAttachPorts {
   IMediaRelayClient* relay = nullptr;
   IDialRegistry* dial = nullptr;
   ICircuitHopReach* service_reach = nullptr;
-  DeferredSelf::Token objects_alive;
+  pp::Lifetime::Token objects_alive;
   uint64_t objects_snap = 0;
 
-  bool Live() const { return !objects_alive || DeferredSelf::Alive(objects_alive, objects_snap); }
+  bool Live() const { return !objects_alive || pp::Lifetime::Alive(objects_alive, objects_snap); }
 };
 
 struct MediaRelayAttachRequest {

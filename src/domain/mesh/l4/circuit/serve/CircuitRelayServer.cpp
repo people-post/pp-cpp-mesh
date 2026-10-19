@@ -16,7 +16,7 @@
 #include "common/ValueJson.h"
 #include "common/Logger.h"
 #include "domain/mesh/shared/AmpChannelOpen.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <algorithm>
 #include <atomic>
@@ -142,9 +142,9 @@ struct CircuitRelayServer::Impl {
   pp::amp::MeshRuntime::IoTickId io_tick_id = 0;
   pp::amp::PeerLinkManager::PeerConnectedListenerId peer_connected_listener_id_ = 0;
   /** PostIo(raw Impl*) — Invalidate on AbortInflight (Stop calls Abort). */
-  DeferredSelf deferred;
+  pp::Lifetime deferred;
   /** IoTick / PeerConnected / protocol handler — Invalidate only on Stop (survives mid-life Abort). */
-  DeferredSelf lifetime;
+  pp::Lifetime lifetime;
 
   /** One served bridge: dialer ↔ this relay (near) spliced to this relay ↔ target (far). */
   struct Tunnel {

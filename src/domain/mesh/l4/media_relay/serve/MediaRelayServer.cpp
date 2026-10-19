@@ -11,7 +11,7 @@
 #include "domain/mesh/l4/media_relay/serve/MediaRelayAttachSm.h"
 #include "common/ValueJson.h"
 #include "common/metrics/MetricsRegistry.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <algorithm>
 #include <atomic>
@@ -104,9 +104,9 @@ struct MediaRelayServer::Impl {
   std::atomic<bool> serve_inbound{true};
   pp::amp::MeshRuntime::IoTickId io_tick_id = 0;
   /** PostIo(raw Impl*) — Invalidate on AbortInflight (Stop calls Abort). */
-  DeferredSelf deferred;
+  pp::Lifetime deferred;
   /** IoTick / protocol handler — Invalidate only on Stop (survives mid-life Abort). */
-  DeferredSelf lifetime;
+  pp::Lifetime lifetime;
 
   struct HostParticipant {
     std::string peer_id;
