@@ -5,8 +5,8 @@
 #include <string>
 
 #if defined(PP_MESH_HAS_MINIUPNPC)
-#include <miniupnpc/miniupnpc.h>
-#include <miniupnpc/upnpcommands.h>
+#include <miniupnpc.h>
+#include <upnpcommands.h>
 #endif
 
 namespace pp::mesh {
@@ -40,10 +40,17 @@ UpnpMappingResult TryUpnpPortMapping(int internal_port, int external_port, const
 
   UPNPUrls urls;
   IGDdatas data;
-  const int status = UPNP_GetValidIGD(devlist, &urls, &data, nullptr, 0);
-  if (status != 1 && status != 2) {
+  // The host's LAN address toward the IGD: the mapping's internal client.
+  char lanaddr[64] = {};
+  char wanaddr[64] = {};
+  const int status = UPNP_GetValidIGD(devlist, &urls, &data, lanaddr, sizeof(lanaddr), wanaddr, sizeof(wanaddr));
+  if (status != UPNP_CONNECTED_IGD) {
+    // A private WAN address (double NAT) would map a port nobody outside can reach.
+    if (status != UPNP_NO_IGD) {
+      FreeUPNPUrls(&urls);
+    }
     freeUPNPDevlist(devlist);
-    out.error = "no UPnP IGD found";
+    out.error = status == UPNP_PRIVATEIP_IGD ? "UPnP IGD has a private WAN address" : "no connected UPnP IGD found";
     return out;
   }
 
@@ -52,22 +59,13 @@ UpnpMappingResult TryUpnpPortMapping(int internal_port, int external_port, const
     ext_ip[0] = '\0';
   }
 
-  char int_client[64] = {};
   char int_port_str[16] = {};
   char ext_port_str[16] = {};
   snprintf(int_port_str, sizeof(int_port_str), "%d", internal_port);
   snprintf(ext_port_str, sizeof(ext_port_str), "%d", external_port);
 
-  // Bind mapping to this host's LAN address when discovery provides it.
-  char lanaddr[64] = {};
-  UPNP_GetValidIGD(devlist, &urls, &data, lanaddr, sizeof(lanaddr));
-  if (lanaddr[0] != '\0') {
-    snprintf(int_client, sizeof(int_client), "%s", lanaddr);
-  }
-
   const int map_rc = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, ext_port_str, int_port_str,
-                                         int_client[0] ? int_client : lanaddr, "pp-browser", protocol, nullptr,
-                                         "86400");
+                                         lanaddr, "pp-browser", protocol, nullptr, "86400");
   FreeUPNPUrls(&urls);
   freeUPNPDevlist(devlist);
 
@@ -105,8 +103,8 @@ void ReleaseUpnpPortMapping(int external_port, const char* protocol) {
   }
   UPNPUrls urls;
   IGDdatas data;
-  const int igd_status = UPNP_GetValidIGD(devlist, &urls, &data, nullptr, 0);
-  if (igd_status != 1 && igd_status != 2) {
+  const int igd_status = UPNP_GetValidIGD(devlist, &urls, &data, nullptr, 0, nullptr, 0);
+  if (igd_status == UPNP_NO_IGD) {
     freeUPNPDevlist(devlist);
     return;
   }
