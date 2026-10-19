@@ -32,8 +32,10 @@ public:
     return WrapPunchLinkFailure(child);
   }
 
-  explicit AmpPunchCoordinator(pp::amp::MeshRuntime& runtime, IoPump io_pump = {})
-      : server_(runtime, io_pump), client_(runtime, io_pump) {
+  /** `metrics`: where it records (its MeshHost's registry). */
+  explicit AmpPunchCoordinator(pp::amp::MeshRuntime& runtime, IoPump io_pump = {},
+                               MetricsRegistry& metrics = MetricsRegistry::Global())
+      : metrics_(metrics), server_(runtime, io_pump, metrics), client_(runtime, io_pump) {
     RegisterPunchMetrics();
   }
 
@@ -75,20 +77,20 @@ public:
   PunchRoe TryColdPunch(const std::string& introducer_peer_key, const std::string& target_peer_id,
                         const std::vector<std::string>& my_addrs, int window_ms = 2000) {
     PunchRoe result = client_.TryColdPunch(introducer_peer_key, target_peer_id, my_addrs, window_ms);
-    CountPunch("cold", result);
+    CountPunch(metrics_, "cold", result);
     return result;
   }
   PunchRoe TryUpgradePunch(const std::string& introducer_peer_key, const std::string& target_peer_id,
                            const std::vector<std::string>& my_addrs, int window_ms = 2000) {
     PunchRoe result = client_.TryUpgradePunch(introducer_peer_key, target_peer_id, my_addrs, window_ms);
-    CountPunch("upgrade", result);
+    CountPunch(metrics_, "upgrade", result);
     return result;
   }
 
 private:
   /** Every punch series exists (at 0) from the start. */
-  static void RegisterPunchMetrics() {
-    MetricsRegistry& r = MetricsRegistry::Global();
+  void RegisterPunchMetrics() {
+    MetricsRegistry& r = metrics_;
     for (const char* kind : {"cold", "upgrade", "signaling"}) {
       for (const char* result : {"ok", "failed"}) {
         (void)r.Counter("pp_punch_attempts_total", "Hole punches this node started, by kind and result.",
@@ -100,22 +102,25 @@ private:
     }
   }
   /** pp_punch_attempts_total{kind, result} (docs/contracts/NODE_METRICS.md § Reachability). */
-  static void CountPunch(const char* kind, PunchRoe& result) {
+  static void CountPunch(MetricsRegistry& metrics, const char* kind, PunchRoe& result) {
     const bool ok = result && result->ok;
-    MetricsRegistry::Global()
+    metrics
         .Counter("pp_punch_attempts_total", "Hole punches this node started, by kind and result.",
                  {{"kind", kind}, {"result", ok ? "ok" : "failed"}})
         .Inc();
   }
-  static std::function<void(PunchRoe)> Counted(const char* kind, std::function<void(PunchRoe)> on_done) {
-    return [kind, on_done = std::move(on_done)](PunchRoe result) {
-      CountPunch(kind, result);
+  /** The completion may land after this coordinator is gone: it holds the registry, not `this`. */
+  std::function<void(PunchRoe)> Counted(const char* kind, std::function<void(PunchRoe)> on_done) {
+    return [metrics = &metrics_, kind, on_done = std::move(on_done)](PunchRoe result) {
+      CountPunch(*metrics, kind, result);
       if (on_done) {
         on_done(std::move(result));
       }
     };
   }
 
+  /** Outlives the mesh (its MeshHost's registry). */
+  MetricsRegistry& metrics_;
   PunchServer server_;
   PunchClientCoordinator client_;
 };

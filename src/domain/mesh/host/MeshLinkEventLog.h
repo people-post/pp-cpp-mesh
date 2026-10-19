@@ -5,6 +5,9 @@
 
 #include <string>
 
+#include "common/metrics/MetricsRegistry.h"
+#include "common/PbrCompat.h"
+
 namespace pbr {
 
 /** `ip:port` / `[v6]:port` for log lines (not a multiaddr). */
@@ -25,6 +28,6 @@ void InstallMeshLinkEventLog(pp::amp::MeshRuntime& runtime);
  * connects, drops by reason / stage, path changes) and feed its round trips into the RTT
  * histogram. Listeners live as long as `runtime`.
  */
-void InstallMeshLinkMetrics(pp::amp::MeshRuntime& runtime);
+void InstallMeshLinkMetrics(pp::amp::MeshRuntime& runtime, MetricsRegistry& metrics);
 
 } // namespace pbr

@@ -62,7 +62,7 @@ TEST(MeshHostThreadingTest, AttachInstallsControlWithoutPump) {
   auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
-  MeshHost host{MeshExecutors{}};  // manual drive: L4 work inline
+  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()};  // manual drive: L4 work inline
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
   EXPECT_FALSE(host.MeshPumpRunning());
 
@@ -88,7 +88,7 @@ TEST(MeshHostThreadingTest, MeshPumpIsTheOnlyDriver) {
   auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
-  MeshHost host{MeshExecutors{}};
+  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()};
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma, MeshHost::AttachDrive::MeshPump)));
   ASSERT_TRUE(host.MeshPumpRunning());
   auto& runtime = host.Amp()->Runtime();

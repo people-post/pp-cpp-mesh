@@ -58,7 +58,11 @@ std::string ResolvePeerKey(pp::amp::PeerLinkManager& links, const std::string& p
 } // namespace
 
 struct PunchServer::Impl {
+  explicit Impl(MetricsRegistry& registry) : metrics(registry) {}
+
   pp::amp::MeshRuntime* runtime = nullptr;
+  /** This mesh's operator metrics (its MeshHost's registry). */
+  MetricsRegistry& metrics;
   IoPump io_pump; // AmpParkUntil only — never call from SM / PostToIo work
   std::atomic<bool> stopped{false};
   /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § Lifetime. */
@@ -329,8 +333,8 @@ struct PunchServer::Impl {
   }
 
   /** pp_punch_served_total{role} (docs/contracts/NODE_METRICS.md § Reachability). */
-  static void CountServed(const char* role) {
-    MetricsRegistry::Global()
+  void CountServed(const char* role) {
+    metrics
         .Counter("pp_punch_served_total", "Punch requests this node served, by role.", {{"role", role}})
         .Inc();
   }
@@ -423,8 +427,8 @@ struct PunchServer::Impl {
   }
 };
 
-PunchServer::PunchServer(pp::amp::MeshRuntime& runtime, IoPump io_pump)
-    : impl_(std::make_unique<Impl>()), runtime_(runtime) {
+PunchServer::PunchServer(pp::amp::MeshRuntime& runtime, IoPump io_pump, MetricsRegistry& metrics)
+    : impl_(std::make_unique<Impl>(metrics)), runtime_(runtime) {
   impl_->runtime = &runtime_;
   impl_->io_pump = std::move(io_pump);
   impl_->local_addrs = &local_addrs_;

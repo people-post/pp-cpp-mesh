@@ -20,6 +20,7 @@
 #include "domain/mesh/host/MeshPumpThread.h"
 #include "domain/mesh/reachability/ReachabilityEngine.h"
 #include "common/Error.h"
+#include "common/metrics/MetricsRegistry.h"
 
 #include <chrono>
 #include <atomic>
@@ -74,8 +75,12 @@ struct MeshHostConfig {
 
 class MeshHost {
 public:
-  /** `executors`: where this mesh hands work off its I/O lane (empty: inline — manual-drive harnesses). */
-  explicit MeshHost(MeshExecutors executors);
+  /**
+   * `executors`: where this mesh hands work off its I/O lane (empty: inline — manual-drive harnesses).
+   * `metrics`: where this mesh records its operator metrics (docs/contracts/NODE_METRICS.md); it must
+   * outlive the host. pp-node and the product pass the process's registry; tests may pass their own.
+   */
+  MeshHost(MeshExecutors executors, MetricsRegistry& metrics);
   ~MeshHost();
 
   MeshHost(const MeshHost&) = delete;
@@ -216,6 +221,7 @@ private:
   std::unique_ptr<ReachabilityEngine> reachability_;
   MeshPumpThread pump_;
   const MeshExecutors executors_;
+  MetricsRegistry& metrics_;
   std::atomic<bool> stopping_{false};
   /** Set while MeshPump drives: L4 work goes to `executors_` (MakeL4WorkerPost). */
   std::atomic<bool> l4_on_workers_{false};

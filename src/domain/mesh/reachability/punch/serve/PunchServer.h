@@ -28,7 +28,8 @@ public:
   /** Only for AmpScheduleWhenChannelOpen parks (harness sole driver). Empty when MeshPump owns Drive. */
   using IoPump = std::function<void()>;
 
-  explicit PunchServer(pp::amp::MeshRuntime& runtime, IoPump io_pump = {});
+  explicit PunchServer(pp::amp::MeshRuntime& runtime, IoPump io_pump = {},
+                       MetricsRegistry& metrics = MetricsRegistry::Global());
   ~PunchServer();
 
   PunchServer(const PunchServer&) = delete;

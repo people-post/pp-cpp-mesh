@@ -28,7 +28,8 @@ class MediaRelayServer {
 public:
   using FrameHandler = std::function<void(MediaDataFrame)>;
 
-  explicit MediaRelayServer(pp::amp::MeshRuntime& runtime);
+  /** `metrics`: where it records (its MeshHost's registry). */
+  explicit MediaRelayServer(pp::amp::MeshRuntime& runtime, MetricsRegistry& metrics = MetricsRegistry::Global());
   ~MediaRelayServer();
 
   MediaRelayServer(const MediaRelayServer&) = delete;

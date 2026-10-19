@@ -32,8 +32,8 @@ logging::Logger& MeshHostLog() {
 
 } // namespace
 
-MeshHost::MeshHost(MeshExecutors executors)
-    : reachability_(std::make_unique<ReachabilityEngine>()), executors_(std::move(executors)) {}
+MeshHost::MeshHost(MeshExecutors executors, MetricsRegistry& metrics)
+    : reachability_(std::make_unique<ReachabilityEngine>()), executors_(std::move(executors)), metrics_(metrics) {}
 
 MeshHost::~MeshHost() { Stop(); }
 
@@ -132,7 +132,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   amp_ = std::move(*stack);
   ApplyAddressDisclosureToAmp();
   InstallMeshLinkEventLog(amp_->Runtime());
-  InstallMeshLinkMetrics(amp_->Runtime());
+  InstallMeshLinkMetrics(amp_->Runtime(), metrics_);
   chat_links_ = NewAmpChatPeerLinks(amp_->Runtime());
   ApplyAmpAdvertisement(config);
   prefer_mesh_pump_ = true;
@@ -211,13 +211,13 @@ void MeshHost::EnsureAmpL4Coordinators() {
     amp_circuit_hops_ = std::make_unique<AmpCircuitHopRegistry>();
   }
   if (!amp_circuit_server_) {
-    amp_circuit_server_ = std::make_unique<CircuitRelayServer>(amp_->Runtime());
+    amp_circuit_server_ = std::make_unique<CircuitRelayServer>(amp_->Runtime(), metrics_);
   }
   if (!amp_circuit_client_) {
     amp_circuit_client_ = std::make_unique<CircuitClientCoordinator>(amp_->Runtime());
   }
   if (!amp_media_relay_server_) {
-    amp_media_relay_server_ = std::make_unique<MediaRelayServer>(amp_->Runtime());
+    amp_media_relay_server_ = std::make_unique<MediaRelayServer>(amp_->Runtime(), metrics_);
   }
   if (!amp_media_relay_client_) {
     amp_media_relay_client_ =
@@ -233,7 +233,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
     amp_dial_back_ = std::make_unique<DialBackClient>(amp_->Runtime(), io_pump);
   }
   if (!amp_punch_) {
-    amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Runtime(), io_pump);
+    amp_punch_ = std::make_unique<AmpPunchCoordinator>(amp_->Runtime(), io_pump, metrics_);
     amp_punch_->SetAddressDisclosure(address_disclosure_);
   }
   if (!amp_dht_) {
@@ -382,7 +382,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   // synthetic addrs (e.g. 10.0.0.1) with real NIC IPs.
   // Manual: no MeshPump — harnesses call Tick() (VirtualClock is not pump-safe).
   StartAmpL4Hosting(false, false, false, false, /*refresh_listen_addrs=*/false);
-  InstallMeshLinkMetrics(amp_->Runtime());
+  InstallMeshLinkMetrics(amp_->Runtime(), metrics_);
   if (drive == AttachDrive::MeshPump) {
     InstallMeshLinkEventLog(amp_->Runtime());
     StartOwnedThreads();

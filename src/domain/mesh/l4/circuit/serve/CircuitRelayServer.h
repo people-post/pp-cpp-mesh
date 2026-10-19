@@ -20,7 +20,8 @@ namespace pbr {
  */
 class CircuitRelayServer {
 public:
-  explicit CircuitRelayServer(pp::amp::MeshRuntime& runtime);
+  /** `metrics`: where it records (its MeshHost's registry). */
+  explicit CircuitRelayServer(pp::amp::MeshRuntime& runtime, MetricsRegistry& metrics = MetricsRegistry::Global());
   ~CircuitRelayServer();
 
   CircuitRelayServer(const CircuitRelayServer&) = delete;
