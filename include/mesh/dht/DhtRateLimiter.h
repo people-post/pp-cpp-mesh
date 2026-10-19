@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <deque>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Per-peer sliding-window rate limit for DHT control ops (n2-hard).
@@ -42,4 +42,4 @@ private:
   size_t grants_since_sweep_ = 0;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,6 +1,6 @@
-#include "domain/mesh/host/LocalNetworkChange.h"
+#include "mesh/host/LocalNetworkChange.h"
 
-namespace pbr {
+namespace pp::mesh {
 
 LocalNetworkReaction DecideLocalNetworkReaction(const LocalNetworkChange& change) {
   LocalNetworkReaction reaction;
@@ -13,4 +13,4 @@ LocalNetworkReaction DecideLocalNetworkReaction(const LocalNetworkChange& change
   return reaction;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

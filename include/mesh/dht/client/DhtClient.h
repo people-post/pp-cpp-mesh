@@ -1,13 +1,11 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/dht/DhtRecordStore.h"
-#include "domain/mesh/dht/DhtTypes.h"
+#include "mesh/dht/DhtRecordStore.h"
+#include "mesh/dht/DhtTypes.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
 #include "common/ValueJson.h"
-#include "common/PbrCompat.h"
-
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -17,14 +15,14 @@
 #include <unordered_map>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Client side of the Amp mesh DHT (`/pp-mesh/dht/1.0.0`): FIND_PEER fanned out to the query peers
  * (thin bootstrap, soft reputation, concurrency cap) and, when participating, the periodic signed
  * self record pushed to them. Found records land in the shared record store.
  *
- * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
+ * Errors follow pp-browser docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
  */
 class DhtClient {
 public:
@@ -44,7 +42,7 @@ public:
 
   using Failure = CodedFailure<Err>;
   using FindPeerRoe = CodedRoe<DhtFindPeerResult, Err>;
-  using RpcRoe = CodedRoe<Object, Err>;
+  using RpcRoe = CodedRoe<common::Object, Err>;
 
   struct Stats {
     uint64_t find_peer_issued = 0;
@@ -72,7 +70,7 @@ public:
   Stats OutboundStats() const;
 
 private:
-  void Rpc(const std::string& peer_key, Object request, std::function<void(RpcRoe)> on_response);
+  void Rpc(const std::string& peer_key, common::Object request, std::function<void(RpcRoe)> on_response);
   void NoteSoftReputationBad(const std::string& peer_key);
   bool SoftReputationAllows(const std::string& peer_key) const;
   std::vector<std::string> FilteredQueryPeerKeys();
@@ -98,4 +96,4 @@ private:
   std::atomic<int> inflight_lookups_{0};
 };
 
-} // namespace pbr
+} // namespace pp::mesh

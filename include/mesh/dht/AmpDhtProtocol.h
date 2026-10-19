@@ -1,19 +1,17 @@
 #pragma once
 
-#include "domain/mesh/dht/DhtRecordStore.h"
-#include "domain/mesh/dht/DhtTypes.h"
-#include "domain/mesh/dht/client/DhtClient.h"
-#include "domain/mesh/dht/serve/DhtServer.h"
+#include "mesh/dht/DhtRecordStore.h"
+#include "mesh/dht/DhtTypes.h"
+#include "mesh/dht/client/DhtClient.h"
+#include "mesh/dht/serve/DhtServer.h"
 
 #include "amp/link/MeshRuntime.h"
-#include "common/PbrCompat.h"
-
 #include <functional>
 #include <optional>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Amp L4 mesh DHT (`/pp-mesh/dht/1.0.0`) — FIND_PEER + self STORE. Owns the record store both
@@ -63,4 +61,4 @@ private:
   DhtClient client_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

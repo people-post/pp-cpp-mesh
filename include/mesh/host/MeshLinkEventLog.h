@@ -6,9 +6,7 @@
 #include <string>
 
 #include "common/metrics/MetricsRegistry.h"
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /** `ip:port` / `[v6]:port` for log lines (not a multiaddr). */
 std::string FormatLinkEndpointForLog(const pp::adp::IpEndpoint& endpoint);
@@ -24,10 +22,10 @@ std::string FormatLinkEventForLog(const pp::amp::LinkEvent& event);
 void InstallMeshLinkEventLog(pp::amp::MeshRuntime& runtime);
 
 /**
- * Count every Amp link event in the operator metrics (docs/contracts/NODE_METRICS.md § Links:
+ * Count every Amp link event in the operator metrics (pp-browser docs/contracts/NODE_METRICS.md § Links:
  * connects, drops by reason / stage, path changes) and feed its round trips into the RTT
  * histogram. Listeners live as long as `runtime`.
  */
 void InstallMeshLinkMetrics(pp::amp::MeshRuntime& runtime, MetricsRegistry& metrics);
 
-} // namespace pbr
+} // namespace pp::mesh

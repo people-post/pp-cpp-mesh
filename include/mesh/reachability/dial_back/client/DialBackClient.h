@@ -1,16 +1,14 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/reachability/dial_back/DialBackTypes.h"
+#include "mesh/reachability/dial_back/DialBackTypes.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
-#include "common/PbrCompat.h"
-
 #include <functional>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Client side of Amp dial-back (`/pp-browser/reach/1.0.0`, D8): ask a seed to dial our advertised
@@ -57,4 +55,4 @@ private:
   bool started_ = false;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

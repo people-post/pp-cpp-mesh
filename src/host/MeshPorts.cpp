@@ -1,15 +1,15 @@
-#include "domain/mesh/host/MeshPorts.h"
+#include "mesh/host/MeshPorts.h"
 
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/MeshRuntime.h"
 #include "amp/link/PeerLinkManager.h"
 #include "amp/link/Types.h"
 #include "common/Logger.h"
-#include "domain/mesh/shared/AmpChannelOpen.h"
+#include "mesh/shared/AmpChannelOpen.h"
 
 #include <chrono>
 
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -222,4 +222,4 @@ std::unique_ptr<IChatPeerLinks> NewAmpChatPeerLinks(pp::amp::MeshRuntime& runtim
   return std::make_unique<AmpChatPeerLinks>(runtime);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

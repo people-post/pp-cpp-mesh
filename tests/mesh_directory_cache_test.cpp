@@ -1,7 +1,7 @@
-#include "domain/mesh/discovery/MeshDirectoryCache.h"
-#include "domain/mesh/discovery/NameDirectory.h"
+#include "mesh/discovery/MeshDirectoryCache.h"
+#include "mesh/discovery/NameDirectory.h"
 
-#include "common/directory/DirectoryTypes.h"
+#include "mesh/types/DirectoryTypes.h"
 #include "common/ValueJson.h"
 #include "common/AtomicFileWrite.h"
 
@@ -11,9 +11,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 class FakeDirectoryClient : public IDirectoryClient {
@@ -101,7 +99,7 @@ TEST(MeshDirectoryCacheTest, SnapshotEmptyBeforeRefresh) {
   EXPECT_TRUE(cache.Snapshot().empty());
 }
 
-// THREADING.md § Mesh threads: the fetch (HTTP) runs on the mesh's `blocking` executor and the
+// docs/THREADING.md: the fetch (HTTP) runs on the mesh's `blocking` executor and the
 // result lands there, `on_updated` included — no UI delivery in the mesh.
 TEST(MeshDirectoryCacheTest, RefreshRunsAndLandsOnTheBlockingExecutor) {
   auto blocking = std::make_shared<QueueExecutor>();
@@ -159,19 +157,19 @@ TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
                                .string();
   std::filesystem::remove(path);
 
-  Object root;
+  common::Object root;
   root.set("schema_version", int64_t{1});
-  Object node;
+  common::Object node;
   node.set("peer_id", "12D3KooWCached");
   node.set("circuit_relay", true);
   node.set("media_relay", true);
-  std::vector<Value> mas;
+  std::vector<common::Value> mas;
   mas.emplace_back("/ip4/1.1.1.1/udp/443/adp/1.0.0/p2p/12D3KooWCached");
-  node.set("multiaddrs", makeArray(std::move(mas)));
-  std::vector<Value> rows;
-  rows.emplace_back(std::make_shared<Object>(std::move(node)));
-  root.set("nodes", makeArray(std::move(rows)));
-  ASSERT_TRUE(AtomicFileWrite::Write(path, DumpJson(root, 2)));
+  node.set("multiaddrs", common::makeArray(std::move(mas)));
+  std::vector<common::Value> rows;
+  rows.emplace_back(std::make_shared<common::Object>(std::move(node)));
+  root.set("nodes", common::makeArray(std::move(rows)));
+  ASSERT_TRUE(AtomicFileWrite::Write(path, common::DumpJson(root, 2)));
 
   MeshDirectoryCache cache([]() -> Roe<std::vector<MeshDirectoryNode>> { return Error("no net"); }, nullptr);
   cache.SetPersistPath(path);
@@ -227,4 +225,4 @@ TEST(NameDirectoryTest, ResolveByAccount) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

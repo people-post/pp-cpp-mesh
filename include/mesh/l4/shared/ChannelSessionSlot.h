@@ -5,7 +5,7 @@
 
 #include <memory>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Parent-owned ChannelSession slot teardown ([A027]).
@@ -27,4 +27,4 @@ inline void CloseQuietSlot(std::shared_ptr<pp::amp::ChannelSession>& slot, pp::a
   }
 }
 
-} // namespace pbr
+} // namespace pp::mesh

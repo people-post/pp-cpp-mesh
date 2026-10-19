@@ -1,4 +1,4 @@
-#include "domain/mesh/dht/DhtRateLimiter.h"
+#include "mesh/dht/DhtRateLimiter.h"
 
 #include <gtest/gtest.h>
 
@@ -6,7 +6,7 @@
 #include <string>
 #include <thread>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(DhtRateLimiterTest, AllowsUntilWindowCap) {
@@ -39,4 +39,4 @@ TEST(DhtRateLimiterTest, IdlePeersAreDropped) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

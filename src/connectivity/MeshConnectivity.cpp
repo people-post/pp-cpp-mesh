@@ -1,16 +1,14 @@
-#include "domain/mesh/connectivity/MeshConnectivity.h"
+#include "mesh/connectivity/MeshConnectivity.h"
 
-#include "domain/mesh/reach/AmpCircuitHopReach.h"
-#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
-#include "domain/mesh/reachability/Reachability.h"
+#include "mesh/reach/AmpCircuitHopReach.h"
+#include "mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "mesh/reachability/Reachability.h"
 
 #include <algorithm>
 #include <cassert>
 #include <utility>
 #include <chrono>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 std::string PeerIdFromListenMultiaddr(const std::string& ma) {
@@ -121,7 +119,7 @@ void MeshConnectivity::SetOnRelayChosen(std::function<void(const std::string&)> 
 void MeshConnectivity::Wire() {
   std::lock_guard edge(edge_mu_);
   MeshHost* m = mesh();
-  // From now on the state lives on this mesh's io lane (THREADING.md § Mesh threads).
+  // From now on the state lives on this mesh's io lane (docs/THREADING.md).
   auto lane = m ? m->IoLane() : nullptr;
   if (auto old = StateLane(); old && old != lane) {
     old->RunAndWait([this]() { deferred_.Invalidate(); });  // rewired onto another mesh unreset
@@ -485,4 +483,4 @@ void MeshConnectivity::TryEnsurePeerReachableAsync(const std::string& peer_key, 
   }
 }
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,8 +1,8 @@
-#include "domain/mesh/l4/circuit/CircuitBundleLogic.h"
+#include "mesh/l4/circuit/CircuitBundleLogic.h"
 
 #include <gtest/gtest.h>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(CircuitBundleLogicTest, AdmitAllowsEmptyContacts) {
@@ -110,4 +110,4 @@ TEST(CircuitBundleLogicTest, CloseDecisions) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

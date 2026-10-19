@@ -1,13 +1,12 @@
 #pragma once
 
-#include "foundation/data/MeshConfigTypes.h"
+#include "mesh/types/MeshConfigTypes.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 inline constexpr const char* kDhtProtocolId = "/pp-mesh/dht/1.0.0";
 inline constexpr int kDhtWireVersion = 1;
@@ -63,4 +62,4 @@ struct AmpDhtProtocolConfig {
   bool publish_media_relay = false;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

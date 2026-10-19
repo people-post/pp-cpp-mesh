@@ -6,9 +6,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_set>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Who may learn this device's network address (projects/privacy T1, P001): peers we dial or punch
@@ -80,4 +78,4 @@ inline bool AllowsDirect(const AddressDisclosureGate* gate, const std::string& p
   return !gate || gate->AllowsDirect(peer_key);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

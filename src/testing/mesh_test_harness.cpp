@@ -1,6 +1,6 @@
-#include "domain/mesh/tests/support/mesh_test_harness.h"
+#include "mesh/testing/mesh_test_harness.h"
 
-namespace pbr::test {
+namespace pp::mesh::test {
 
 pp::Roe<std::unique_ptr<AmpMeshHarness>> AmpMeshHarness::Create() {
   auto harness = std::make_unique<AmpMeshHarness>();
@@ -39,8 +39,8 @@ pp::Roe<std::unique_ptr<AmpMeshHarness>> AmpMeshHarness::Create() {
                                                           link_config);
   harness->runtime_a->Start();
   harness->runtime_b->Start();
-  harness->chat_links_a = pbr::NewAmpChatPeerLinks(*harness->runtime_a);
-  harness->chat_links_b = pbr::NewAmpChatPeerLinks(*harness->runtime_b);
+  harness->chat_links_a = pp::mesh::NewAmpChatPeerLinks(*harness->runtime_a);
+  harness->chat_links_b = pp::mesh::NewAmpChatPeerLinks(*harness->runtime_b);
 
   auto ma_b = pp::amp::FormatAdpMultiaddr(harness->addr_b, harness->peer_id_b);
   auto ma_a = pp::amp::FormatAdpMultiaddr(harness->addr_a, harness->peer_id_a);
@@ -67,4 +67,4 @@ void AmpMeshHarness::PumpUntil(const std::function<bool()>& done, const size_t m
   }
 }
 
-} // namespace pbr::test
+} // namespace pp::mesh::test

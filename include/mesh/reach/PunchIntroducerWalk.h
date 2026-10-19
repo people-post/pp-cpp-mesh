@@ -2,14 +2,12 @@
 
 #include "common/Error.h"
 #include "common/Module.h"
-#include "domain/mesh/host/MeshHost.h"
+#include "mesh/host/MeshHost.h"
 
 #include <functional>
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /** Cold-punch introducers in preference order: contacts first, then configured seeds. */
 struct MeshPunchIntroducers {
@@ -57,4 +55,4 @@ private:
   SignalingPunchFn signaling_punch_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,19 +1,18 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
-#include "domain/mesh/l4/media_relay/MediaRelayVideoLevels.h"
-#include "domain/mesh/l4/shared/RelayRuntimeStats.h"
+#include "common/metrics/MetricsRegistry.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/l4/media_relay/MediaRelayVideoLevels.h"
+#include "mesh/l4/shared/RelayRuntimeStats.h"
 
 #include "common/Error.h"
-#include "common/PbrCompat.h"
-
 #include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Serving side of `/pp-browser/datagram-relay/1.0.0` on MeshRuntime ([A022]): answers inbound
@@ -72,4 +71,4 @@ private:
   pp::amp::MeshRuntime& runtime_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

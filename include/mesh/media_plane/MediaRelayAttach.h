@@ -1,9 +1,9 @@
 #pragma once
 
-#include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
-#include "domain/mesh/reach/MeshReachPorts.h"
-#include "domain/mesh/shared/MeshExecutors.h"
+#include "mesh/l4/media_relay/client/IMediaRelayClient.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/reach/MeshReachPorts.h"
+#include "mesh/shared/MeshExecutors.h"
 #include "common/Lifetime.h"
 
 #include "common/Error.h"
@@ -12,9 +12,7 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Mesh ports an attach runs over. `service_reach` may be null (no circuit / punch fallback).
@@ -85,4 +83,4 @@ void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttac
 void QuoteMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRequest request,
                           std::function<void(Roe<MediaRelayQuote>)> on_done);
 
-} // namespace pbr
+} // namespace pp::mesh

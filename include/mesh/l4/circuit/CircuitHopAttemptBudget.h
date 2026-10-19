@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * First-connect circuit StartBridge spend limit (H010).
@@ -123,4 +123,4 @@ inline bool CircuitShouldRetryStickyOnce(const std::string& relay_key, const std
          bridges_started < kCircuitMaxStartBridgeAttempts;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

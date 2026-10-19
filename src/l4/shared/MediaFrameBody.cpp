@@ -1,11 +1,9 @@
-#include "domain/mesh/l4/shared/MediaFrameBody.h"
+#include "mesh/l4/shared/MediaFrameBody.h"
 
 #include "crypto/Aead.h"
 
 #include <cstring>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 uint32_t ReadMediaFrameSeq(const std::vector<uint8_t>& body) {
   return (static_cast<uint32_t>(body[1]) << 24) | (static_cast<uint32_t>(body[2]) << 16) |
@@ -64,4 +62,4 @@ Roe<MediaFrameOpened> OpenMediaFrameBody(const ByteVector& media_key, const std:
   return out;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

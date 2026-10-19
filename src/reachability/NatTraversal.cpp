@@ -1,19 +1,19 @@
-#include "domain/mesh/reachability/NatTraversal.h"
+#include "mesh/reachability/NatTraversal.h"
 
 #include <cstdio>
 #include <mutex>
 #include <string>
 
-#if defined(PP_BROWSER_HAS_MINIUPNPC)
+#if defined(PP_MESH_HAS_MINIUPNPC)
 #include <miniupnpc/miniupnpc.h>
 #include <miniupnpc/upnpcommands.h>
 #endif
 
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
-#if defined(PP_BROWSER_HAS_MINIUPNPC)
+#if defined(PP_MESH_HAS_MINIUPNPC)
 std::mutex g_upnp_mutex;
 int g_mapped_tcp_external_port = 0;
 int g_mapped_udp_external_port = 0;
@@ -29,7 +29,7 @@ UpnpMappingResult TryUpnpPortMapping(int internal_port, int external_port, const
     external_port = internal_port;
   }
 
-#if defined(PP_BROWSER_HAS_MINIUPNPC)
+#if defined(PP_MESH_HAS_MINIUPNPC)
   std::lock_guard lock(g_upnp_mutex);
 
   UPNPDev* devlist = upnpDiscover(2000, nullptr, nullptr, 0, 0, 2, nullptr);
@@ -93,7 +93,7 @@ UpnpMappingResult TryUpnpPortMapping(int internal_port, int external_port, const
 }
 
 void ReleaseUpnpPortMapping(int external_port, const char* protocol) {
-#if defined(PP_BROWSER_HAS_MINIUPNPC)
+#if defined(PP_MESH_HAS_MINIUPNPC)
   if (external_port <= 0) {
     return;
   }
@@ -136,4 +136,4 @@ UpnpMappingResult TryUpnpUdpPortMapping(int internal_port, int external_port) {
 
 void ReleaseUpnpUdpPortMapping(int external_port) { ReleaseUpnpPortMapping(external_port, "UDP"); }
 
-} // namespace pbr
+} // namespace pp::mesh

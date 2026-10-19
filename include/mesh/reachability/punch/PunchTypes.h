@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Reach-kind punch SM — distinct id from dial-back (`kReachProtocolId`). */
 inline constexpr const char* kAmpPunchProtocolId = "/pp-browser/reach/punch/1.0.0";
@@ -60,4 +60,4 @@ struct PunchResult {
   std::string error;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

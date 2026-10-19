@@ -1,8 +1,8 @@
-#include "domain/mesh/l4/media_relay/MediaRelayBundleLogic.h"
+#include "mesh/l4/media_relay/MediaRelayBundleLogic.h"
 
 #include <gtest/gtest.h>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(MediaRelayBundleLogicTest, AdmitAllowsEmptyContacts) {
@@ -120,4 +120,4 @@ TEST(MediaRelayQuoteBookTest, FindLeavesTheQuoteForTake) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

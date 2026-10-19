@@ -3,9 +3,9 @@
 #include "crypto/MlDsa.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/AmpStack.h"
-#include "domain/mesh/tests/support/mesh_harness_support.h"
-#include "domain/mesh/host/MeshHost.h"
-#include "domain/mesh/host/MeshPumpThread.h"
+#include "mesh/testing/mesh_harness_support.h"
+#include "mesh/host/MeshHost.h"
+#include "mesh/host/MeshPumpThread.h"
 #include "crypto/PeerId.h"
 
 #include <gtest/gtest.h>
@@ -17,7 +17,7 @@
 #include <sodium.h>
 #include <thread>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 std::unique_ptr<pp::amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<pp::adp::Clock>& clock,
@@ -39,7 +39,7 @@ std::unique_ptr<pp::amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<pp::ad
   pp::amp::AmpStack::Config cfg;
   cfg.identity = std::move(identity);
   cfg.local_peer_id = *peer_id;
-  cfg.link_config = pbr::test::AmpMeshTestLinkConfig();
+  cfg.link_config = pp::mesh::test::AmpMeshTestLinkConfig();
 
   auto stack = pp::amp::AmpStack::Create(io, clock, cfg);
   if (!stack) {
@@ -71,7 +71,7 @@ TEST(MeshHostThreadingTest, AttachInstallsControlWithoutPump) {
   host.Stop(); // idempotent
 }
 
-// THREADING.md § Mesh threads: MeshPump is the runtime's only driver. pp-node's main loop used to
+// docs/THREADING.md: MeshPump is the runtime's only driver. pp-node's main loop used to
 // Tick beside it — two drivers, and the DHT's self-publish raced the io lane. A drive from another
 // thread is now refused (counted), and the io lane's work runs on the pump.
 TEST(MeshHostThreadingTest, MeshPumpIsTheOnlyDriver) {
@@ -121,4 +121,4 @@ TEST(MeshPumpThreadTest, StartStopJoins) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

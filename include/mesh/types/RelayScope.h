@@ -4,7 +4,7 @@
 #include <string>
 #include <unordered_set>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Relay scope bands for escalate pick (N023). Bit flags.
  *  Shared vocabulary for mesh L4 + people hop policy — lives in common so domain
@@ -48,4 +48,4 @@ inline bool RelayAdmissionAllowsDialer(RelayScopeMask serve_mask, const std::str
   return RelayScopeMaskHas(serve_mask, RelayScope::Public);
 }
 
-}  // namespace pbr
+}  // namespace pp::mesh

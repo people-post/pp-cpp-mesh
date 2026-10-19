@@ -1,11 +1,11 @@
-#include "domain/mesh/dht/DhtRecordStore.h"
+#include "mesh/dht/DhtRecordStore.h"
 
-#include "domain/mesh/dht/DhtRecordCodec.h"
+#include "mesh/dht/DhtRecordCodec.h"
 
 #include <ctime>
 #include <limits>
 
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 /** Peer-controlled ttl (see AmpDhtProtocol inbound "store") — cap so a record can't outlive this. */
@@ -119,4 +119,4 @@ void DhtRecordStore::Remove(const std::string& peer_id) {
   by_peer_id_.erase(peer_id);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

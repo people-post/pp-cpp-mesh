@@ -1,10 +1,10 @@
-#include "domain/mesh/reachability/punch/PunchLogic.h"
+#include "mesh/reachability/punch/PunchLogic.h"
 
 #include <gtest/gtest.h>
 
 #include <unordered_set>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(PunchLogicTest, ConnectRoundTrip) {
@@ -15,7 +15,7 @@ TEST(PunchLogicTest, ConnectRoundTrip) {
   req.reason = "cold";
 
   const std::string json = EncodePunchConnect(req);
-  auto root = TryParseObject(json);
+  auto root = common::TryParseObject(json);
   ASSERT_TRUE(root.has_value());
   EXPECT_EQ(PunchOp(*root).value_or(""), "connect");
   auto decoded = DecodePunchConnect(*root);
@@ -76,7 +76,7 @@ TEST(PunchLogicTest, OfferRoundTrip) {
   offer.addrs = {"/ip4/10.0.0.1/udp/9/adp/1.0.0/p2p/12D3KooWInitiator"};
   offer.epoch_id = "ep-offer";
   offer.window_ms = 1500;
-  auto root = TryParseObject(EncodePunchOffer(offer));
+  auto root = common::TryParseObject(EncodePunchOffer(offer));
   ASSERT_TRUE(root);
   auto decoded = DecodePunchOffer(*root);
   ASSERT_TRUE(decoded);
@@ -90,7 +90,7 @@ TEST(PunchLogicTest, SyncAndResultRoundTrip) {
   sync.epoch_id = "ep-1";
   sync.peer_addrs = {"/ip4/10.0.0.2/udp/7/adp/1.0.0/p2p/12D3KooWC"};
   sync.window_ms = 2000;
-  auto sync_root = TryParseObject(EncodePunchSync(sync));
+  auto sync_root = common::TryParseObject(EncodePunchSync(sync));
   ASSERT_TRUE(sync_root);
   auto sync_decoded = DecodePunchSync(*sync_root);
   ASSERT_TRUE(sync_decoded);
@@ -100,7 +100,7 @@ TEST(PunchLogicTest, SyncAndResultRoundTrip) {
   result.epoch_id = "ep-1";
   result.ok = true;
   result.winner_multiaddr = sync.peer_addrs.front();
-  auto result_root = TryParseObject(EncodePunchResult(result));
+  auto result_root = common::TryParseObject(EncodePunchResult(result));
   ASSERT_TRUE(result_root);
   auto result_decoded = DecodePunchResult(*result_root);
   ASSERT_TRUE(result_decoded);
@@ -161,4 +161,4 @@ TEST(PunchLogicTest, ObservedEndpointLeadsTheCandidates) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

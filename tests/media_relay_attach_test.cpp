@@ -1,4 +1,4 @@
-#include "domain/mesh/media_plane/MediaRelayAttach.h"
+#include "mesh/media_plane/MediaRelayAttach.h"
 
 #include <gtest/gtest.h>
 
@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 constexpr const char* kHop = "12D3KooWRelayHop";
@@ -255,4 +255,4 @@ TEST_F(MediaRelayAttachTest, MissingPortsFail) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,9 +1,7 @@
-#include "domain/mesh/dht/AmpDhtProtocol.h"
+#include "mesh/dht/AmpDhtProtocol.h"
 
 #include "common/ValueJson.h"
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 AmpDhtProtocol::AmpDhtProtocol(pp::amp::MeshRuntime& runtime, WorkerPost post_worker)
     : server_(runtime, store_, std::move(post_worker)), client_(runtime, store_) {}
@@ -49,7 +47,7 @@ DhtOpsStats AmpDhtProtocol::Stats() const {
 
 std::string AmpDhtProtocol::FormatOpsStatusJson() const {
   const DhtOpsStats stats = Stats();
-  Object object;
+  common::Object object;
   object.set("started", stats.started);
   object.set("participate", stats.participate);
   object.set("cached_records", static_cast<int64_t>(stats.cached_records));
@@ -61,26 +59,26 @@ std::string AmpDhtProtocol::FormatOpsStatusJson() const {
   object.set("soft_reputation_skips", static_cast<int64_t>(stats.soft_reputation_skips));
   object.set("soft_reputation_penalized_peers",
              static_cast<int64_t>(stats.soft_reputation_penalized_peers));
-  std::vector<Value> record_rows;
+  std::vector<common::Value> record_rows;
   for (const PeerRoutingRecord& record : SnapshotRecords()) {
-    Object row;
+    common::Object row;
     row.set("peer_id", record.peer_id);
     row.set("seq", record.seq);
-    std::vector<Value> addrs;
+    std::vector<common::Value> addrs;
     for (const std::string& ma : record.multiaddrs) {
       addrs.emplace_back(ma);
     }
-    row.set("multiaddrs", makeArray(std::move(addrs)));
+    row.set("multiaddrs", common::makeArray(std::move(addrs)));
     if (record.capabilities) {
-      Object caps;
+      common::Object caps;
       caps.set("circuit_relay", record.capabilities->circuit_relay);
       caps.set("media_relay", record.capabilities->media_relay);
       row.set("capabilities", std::move(caps));
     }
-    record_rows.emplace_back(std::make_shared<Object>(std::move(row)));
+    record_rows.emplace_back(std::make_shared<common::Object>(std::move(row)));
   }
-  object.set("records", makeArray(std::move(record_rows)));
-  return DumpJson(object);
+  object.set("records", common::makeArray(std::move(record_rows)));
+  return common::DumpJson(object);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

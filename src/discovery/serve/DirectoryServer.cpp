@@ -1,17 +1,15 @@
-#include "domain/mesh/discovery/serve/DirectoryServer.h"
+#include "mesh/discovery/serve/DirectoryServer.h"
 
-#include "domain/mesh/l4/shared/InboundReply.h"
+#include "mesh/l4/shared/InboundReply.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
-#include "domain/mesh/discovery/MeshNodeHitCodec.h"
+#include "mesh/discovery/MeshNodeHitCodec.h"
 #include "common/ValueJson.h"
 #include "common/Lifetime.h"
 
 #include <atomic>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
@@ -26,8 +24,8 @@ void RunWorker(const DirectoryServer::WorkerPost& post_worker, std::function<voi
   }
 }
 
-Object MakeErrorResponse(const std::string& req_id, const std::string& code, const std::string& message) {
-  Object object;
+common::Object MakeErrorResponse(const std::string& req_id, const std::string& code, const std::string& message) {
+  common::Object object;
   object.set("op", "error");
   object.set("req_id", req_id);
   object.set("version", int64_t{kDirectoryWireVersion});
@@ -91,23 +89,23 @@ struct DirectoryServer::Impl {
                         return;
                       }
                       const std::string json_utf8(body.begin(), body.end());
-                      auto root = TryParseObject(json_utf8);
+                      auto root = common::TryParseObject(json_utf8);
                       if (!root) {
-                        Object resp = MakeErrorResponse("", "invalid_json", "invalid json");
-                        reply->Send(JsonToBody(DumpJson(resp)));
+                        common::Object resp = MakeErrorResponse("", "invalid_json", "invalid json");
+                        reply->Send(JsonToBody(common::DumpJson(resp)));
                         reply->Close();
                         return;
                       }
                       const std::string req_id = root->getString("req_id").value_or("");
                       const int version = static_cast<int>(root->getIf<int64_t>("version").value_or(0));
                       if (version != kDirectoryWireVersion) {
-                        Object resp = MakeErrorResponse(req_id, "bad_version", "unsupported version");
-                        reply->Send(JsonToBody(DumpJson(resp)));
+                        common::Object resp = MakeErrorResponse(req_id, "bad_version", "unsupported version");
+                        reply->Send(JsonToBody(common::DumpJson(resp)));
                         reply->Close();
                         return;
                       }
                       const std::string op = root->getString("op").value_or("");
-                      Object response;
+                      common::Object response;
                       if (op == "ping") {
                         response.set("op", "pong");
                         response.set("req_id", req_id);
@@ -125,7 +123,7 @@ struct DirectoryServer::Impl {
                       } else {
                         response = MakeErrorResponse(req_id, "unsupported_op", "unsupported op");
                       }
-                      reply->Send(JsonToBody(DumpJson(response)));
+                      reply->Send(JsonToBody(common::DumpJson(response)));
                       reply->Close();
                     });
           return true;
@@ -185,4 +183,4 @@ void DirectoryServer::Stop() {
   impl_->deferred.Invalidate();
 }
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,6 +1,6 @@
 #if defined(_WIN32)
 
-#include "domain/mesh/reachability/LanMdnsSocket.h"
+#include "mesh/reachability/LanMdnsSocket.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -10,7 +10,7 @@
 
 #include <cstring>
 
-namespace pbr::lan_mdns {
+namespace pp::mesh::lan_mdns {
 namespace {
 
 bool EnsureWinsock() {
@@ -119,6 +119,6 @@ void UdpMulticastSocket::Send(const uint8_t* data, size_t len, uint16_t dest_por
                reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
 }
 
-} // namespace pbr::lan_mdns
+} // namespace pp::mesh::lan_mdns
 
 #endif // defined(_WIN32)

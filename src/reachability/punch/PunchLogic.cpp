@@ -1,28 +1,26 @@
-#include "domain/mesh/reachability/punch/PunchLogic.h"
+#include "mesh/reachability/punch/PunchLogic.h"
 
 #include "amp/link/AdpMultiaddr.h"
-#include "domain/mesh/reachability/AmpObservedAddrs.h"
-#include "common/PbrCompat.h"
-
+#include "mesh/reachability/AmpObservedAddrs.h"
 #include <unordered_set>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
-Value AddrsArray(const std::vector<std::string>& addrs) {
-  std::vector<Value> items;
+common::Value AddrsArray(const std::vector<std::string>& addrs) {
+  std::vector<common::Value> items;
   items.reserve(addrs.size());
   for (const std::string& ma : addrs) {
     items.emplace_back(ma);
   }
-  return ArrayValue(std::move(items));
+  return common::ArrayValue(std::move(items));
 }
 
-std::vector<std::string> ReadAddrs(const Object& root, const char* key) {
+std::vector<std::string> ReadAddrs(const common::Object& root, const char* key) {
   std::vector<std::string> out;
-  if (const Array* arr = root.getArray(key)) {
+  if (const common::Array* arr = root.getArray(key)) {
     for (const auto& item : arr->elements) {
-      if (auto s = asString(item)) {
+      if (auto s = common::asString(item)) {
         out.push_back(*s);
       }
     }
@@ -33,61 +31,61 @@ std::vector<std::string> ReadAddrs(const Object& root, const char* key) {
 } // namespace
 
 std::string EncodePunchConnect(const PunchConnectRequest& req) {
-  Object o;
+  common::Object o;
   o.set("v", int64_t{1});
   o.set("op", "connect");
   o.set("target_peer_id", req.target_peer_id);
   o.set("addrs", AddrsArray(req.addrs));
   o.set("window_ms", int64_t{req.window_ms > 0 ? req.window_ms : 2000});
   o.set("reason", req.reason.empty() ? "cold" : req.reason);
-  return DumpJson(o);
+  return common::DumpJson(o);
 }
 
 std::string EncodePunchOffer(const PunchOffer& msg) {
-  Object o;
+  common::Object o;
   o.set("v", int64_t{1});
   o.set("op", "offer");
   o.set("initiator_peer_id", msg.initiator_peer_id);
   o.set("addrs", AddrsArray(msg.addrs));
   o.set("epoch_id", msg.epoch_id);
   o.set("window_ms", int64_t{msg.window_ms > 0 ? msg.window_ms : 2000});
-  return DumpJson(o);
+  return common::DumpJson(o);
 }
 
 std::string EncodePunchCandidates(const PunchCandidates& msg) {
-  Object o;
+  common::Object o;
   o.set("v", int64_t{1});
   o.set("op", "candidates");
   o.set("peer_id", msg.peer_id);
   o.set("addrs", AddrsArray(msg.addrs));
   o.set("nonce", msg.nonce);
-  return DumpJson(o);
+  return common::DumpJson(o);
 }
 
 std::string EncodePunchSync(const PunchSync& msg) {
-  Object o;
+  common::Object o;
   o.set("v", int64_t{1});
   o.set("op", "sync");
   o.set("epoch_id", msg.epoch_id);
   o.set("peer_addrs", AddrsArray(msg.peer_addrs));
   o.set("window_ms", int64_t{msg.window_ms > 0 ? msg.window_ms : 2000});
-  return DumpJson(o);
+  return common::DumpJson(o);
 }
 
 std::string EncodePunchResult(const PunchResult& msg) {
-  Object o;
+  common::Object o;
   o.set("v", int64_t{1});
   o.set("op", "result");
   o.set("epoch_id", msg.epoch_id);
   o.set("ok", msg.ok);
   o.set("winner_multiaddr", msg.winner_multiaddr);
   o.set("error", msg.error);
-  return DumpJson(o);
+  return common::DumpJson(o);
 }
 
-std::optional<std::string> PunchOp(const Object& root) { return root.getString("op"); }
+std::optional<std::string> PunchOp(const common::Object& root) { return root.getString("op"); }
 
-std::optional<PunchConnectRequest> DecodePunchConnect(const Object& root) {
+std::optional<PunchConnectRequest> DecodePunchConnect(const common::Object& root) {
   if (root.getString("op").value_or("") != "connect") {
     return std::nullopt;
   }
@@ -102,7 +100,7 @@ std::optional<PunchConnectRequest> DecodePunchConnect(const Object& root) {
   return req;
 }
 
-std::optional<PunchOffer> DecodePunchOffer(const Object& root) {
+std::optional<PunchOffer> DecodePunchOffer(const common::Object& root) {
   if (root.getString("op").value_or("") != "offer") {
     return std::nullopt;
   }
@@ -117,7 +115,7 @@ std::optional<PunchOffer> DecodePunchOffer(const Object& root) {
   return msg;
 }
 
-std::optional<PunchCandidates> DecodePunchCandidates(const Object& root) {
+std::optional<PunchCandidates> DecodePunchCandidates(const common::Object& root) {
   if (root.getString("op").value_or("") != "candidates") {
     return std::nullopt;
   }
@@ -128,7 +126,7 @@ std::optional<PunchCandidates> DecodePunchCandidates(const Object& root) {
   return msg;
 }
 
-std::optional<PunchSync> DecodePunchSync(const Object& root) {
+std::optional<PunchSync> DecodePunchSync(const common::Object& root) {
   if (root.getString("op").value_or("") != "sync") {
     return std::nullopt;
   }
@@ -142,7 +140,7 @@ std::optional<PunchSync> DecodePunchSync(const Object& root) {
   return msg;
 }
 
-std::optional<PunchResult> DecodePunchResult(const Object& root) {
+std::optional<PunchResult> DecodePunchResult(const common::Object& root) {
   if (root.getString("op").value_or("") != "result") {
     return std::nullopt;
   }
@@ -265,4 +263,4 @@ std::optional<std::string> PickPunchIntroducer(
   return pick(seed_peer_ids, false);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

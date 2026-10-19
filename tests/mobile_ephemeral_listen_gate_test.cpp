@@ -1,8 +1,8 @@
-#include "domain/mesh/reachability/MobileEphemeralListenGate.h"
+#include "mesh/reachability/MobileEphemeralListenGate.h"
 
 #include <gtest/gtest.h>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 MobileEphemeralListenInput EligibleInput() {
@@ -60,4 +60,4 @@ TEST(MobileEphemeralListenGateTest, DoesNotStopWhenInactive) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

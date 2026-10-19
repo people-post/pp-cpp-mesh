@@ -3,21 +3,19 @@
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/link/MeshRuntime.h"
 #include "amp/link/PeerLinkManager.h"
-#include "domain/mesh/reachability/punch/PunchBurst.h"
+#include "mesh/reachability/punch/PunchBurst.h"
 #include "common/CodedFailure.h"
 
 #include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Pieces both ends of Amp coordinated punch share: the error type, the punch JSON channel policy,
  * and how a finished burst becomes a published winner address.
- * Errors follow docs/contracts/CODED_FAILURE.md — link failures are wrapped at this layer.
+ * Errors follow pp-browser docs/contracts/CODED_FAILURE.md — link failures are wrapped at this layer.
  */
 enum class PunchErr : int32_t {
   Ok = 0,
@@ -51,4 +49,4 @@ PunchBurstResult ToPunchBurst(pp::amp::BurstDialResult r);
 void PublishIfPunchConnected(pp::amp::PeerLinkManager& links, const std::string& known_peer_id,
                              PunchBurstResult& burst);
 
-} // namespace pbr
+} // namespace pp::mesh

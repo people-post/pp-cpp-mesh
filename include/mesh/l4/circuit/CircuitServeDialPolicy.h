@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * H010 dual-NAT ServeDial / nested call-media policy (single home).
@@ -80,4 +80,4 @@ inline bool ShouldSkipPrivatePreferredDialAfterSeedPark(const bool seed_park_ok,
   return seed_park_ok && !dial_public_direct;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

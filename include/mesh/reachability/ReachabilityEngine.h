@@ -1,6 +1,6 @@
 #pragma once
 
-#include "domain/mesh/reachability/Reachability.h"
+#include "mesh/reachability/Reachability.h"
 #include "common/Lifetime.h"
 #include "common/SerialExecutor.h"
 
@@ -16,7 +16,7 @@ namespace pp::amp {
 class PeerLinkManager;
 }
 
-namespace pbr {
+namespace pp::mesh {
 
 class DialBackClient;
 
@@ -40,7 +40,7 @@ struct AmpReachabilityProbeDeps {
 };
 
 /**
- * Async reachability probe orchestration (THREADING.md § Mesh threads). The probe's steps, its
+ * Async reachability probe orchestration (docs/THREADING.md). The probe's steps, its
  * result and `on_updated` run on the mesh's io lane (inline without one); UPnP discovery (a blocking
  * ~2 s socket wait) is a `blocking` step that hops back. Snapshot reads are thread-safe. Destroy from
  * off the lane: the destructor drops queued steps and waits for one running.
@@ -92,4 +92,4 @@ private:
   pp::Lifetime self_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

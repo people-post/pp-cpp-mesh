@@ -1,15 +1,13 @@
 #pragma once
 
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include "common/Error.h"
 
 #include <cstdint>
 #include <functional>
 #include <string>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Client surface of the `media_relay` L4 protocol (quote, attach, subscribe, send). Feature-
@@ -101,4 +99,4 @@ public:
   virtual MediaRelayClientHealth HealthSnapshot() const { return {}; }
 };
 
-} // namespace pbr
+} // namespace pp::mesh

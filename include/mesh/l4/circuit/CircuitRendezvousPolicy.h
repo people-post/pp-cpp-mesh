@@ -1,13 +1,13 @@
 #pragma once
 
-#include "domain/mesh/l4/circuit/CircuitHopAttemptBudget.h"
+#include "mesh/l4/circuit/CircuitHopAttemptBudget.h"
 
 #include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * H011 Circuit R1 rendezvous — answerer park coverage for the shared surface.
@@ -97,4 +97,4 @@ inline bool RendezvousParkCoverageMet(const std::size_t covered_members,
   return covered_members >= need;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

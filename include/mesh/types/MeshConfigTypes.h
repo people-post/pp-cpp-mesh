@@ -1,14 +1,14 @@
 #pragma once
 
 // Configuration types the mesh owns (capabilities, DHT, media relay, pricing, directory rows). Pure
-// data with no app dependencies: the mesh library takes them without the app's Config, which embeds
-// them in MeshConfig (pp-cpp-mesh extraction, docs/architecture/MESH.md).
+// data on pp-cpp-common only: an app embeds them in its own config (pp-browser's MeshConfig) without
+// depending on Amp.
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 struct MeshCapabilities {
   /**
@@ -60,7 +60,7 @@ struct MediaRelayBudgetConfig {
 
 /**
  * Which video levels this node's media_relay carries per publisher (peer-scoped-broadcast B009).
- * Levels are opaque ordered integers (docs/contracts/MEDIA_CHANNELS.md).
+ * Levels are opaque ordered integers (pp-browser docs/contracts/MEDIA_CHANNELS.md).
  */
 struct MediaRelayVideoConfig {
   /** Levels served; empty = any. */
@@ -99,4 +99,4 @@ struct MeshDirectoryNode {
   std::string nickname;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

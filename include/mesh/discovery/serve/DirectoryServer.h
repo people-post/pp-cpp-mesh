@@ -1,17 +1,15 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/dht/DhtRateLimiter.h"
-#include "domain/mesh/discovery/DirectoryTypes.h"
-#include "common/PbrCompat.h"
-
+#include "mesh/dht/DhtRateLimiter.h"
+#include "mesh/discovery/DirectoryTypes.h"
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Serving side of the Amp directory twin (`/pp-mesh/directory/1.0.0`): answers `ping` and
@@ -43,4 +41,4 @@ private:
   bool started_ = false;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

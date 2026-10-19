@@ -1,6 +1,6 @@
 #if !defined(_WIN32)
 
-#include "domain/mesh/reachability/LanMdnsSocket.h"
+#include "mesh/reachability/LanMdnsSocket.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -10,7 +10,7 @@
 
 #include <cstring>
 
-namespace pbr::lan_mdns {
+namespace pp::mesh::lan_mdns {
 
 struct UdpMulticastSocket::Impl {
   int fd = -1;
@@ -102,6 +102,6 @@ void UdpMulticastSocket::Send(const uint8_t* data, size_t len, uint16_t dest_por
   (void)sendto(impl_->fd, data, len, 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
 }
 
-} // namespace pbr::lan_mdns
+} // namespace pp::mesh::lan_mdns
 
 #endif // !defined(_WIN32)

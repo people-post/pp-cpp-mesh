@@ -1,13 +1,11 @@
-#include "domain/mesh/host/MeshLinkEventLog.h"
+#include "mesh/host/MeshLinkEventLog.h"
 
 #include "common/Logger.h"
 #include "common/metrics/MetricsRegistry.h"
-#include "common/PbrCompat.h"
-
 #include <cstdio>
 #include <sstream>
 
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -28,7 +26,7 @@ const char* PathKindName(const pp::amp::LinkPathKind kind) {
   return "direct";
 }
 
-/** Operator metrics (docs/contracts/NODE_METRICS.md § Links): lifecycle counts, no peer identities. */
+/** Operator metrics (pp-browser docs/contracts/NODE_METRICS.md § Links): lifecycle counts, no peer identities. */
 void CountLinkEvent(MetricsRegistry& r, const pp::amp::LinkEvent& event) {
   switch (event.kind) {
   case pp::amp::LinkEvent::Kind::Connected:
@@ -114,4 +112,4 @@ void InstallMeshLinkMetrics(pp::amp::MeshRuntime& runtime, MetricsRegistry& metr
   });
 }
 
-} // namespace pbr
+} // namespace pp::mesh

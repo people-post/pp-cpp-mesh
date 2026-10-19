@@ -1,12 +1,10 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/reachability/dial_back/DialBackTypes.h"
-#include "common/PbrCompat.h"
-
+#include "mesh/reachability/dial_back/DialBackTypes.h"
 #include <memory>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Serving side of Amp dial-back (`/pp-browser/reach/1.0.0`, D8): a seed answers `op=probe` by
@@ -32,4 +30,4 @@ private:
   bool started_ = false;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

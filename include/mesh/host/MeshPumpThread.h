@@ -7,7 +7,7 @@
 #include <mutex>
 #include <thread>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Joinable Amp UDP drain thread. Owns the ~5ms MeshHost::Tick / MeshRuntime::Drive loop — the
@@ -49,4 +49,4 @@ private:
   bool stop_requested_ = false;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

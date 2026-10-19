@@ -1,6 +1,6 @@
-#include "domain/mesh/tests/support/mesh_triple_harness.h"
+#include "mesh/testing/mesh_triple_harness.h"
 
-namespace pbr::test {
+namespace pp::mesh::test {
 
 pp::Roe<std::unique_ptr<AmpMeshTripleHarness>> AmpMeshTripleHarness::Create() {
   auto harness = std::make_unique<AmpMeshTripleHarness>();
@@ -82,4 +82,4 @@ void AmpMeshTripleHarness::PumpUntil(const std::function<bool()>& done, const si
   }
 }
 
-} // namespace pbr::test
+} // namespace pp::mesh::test

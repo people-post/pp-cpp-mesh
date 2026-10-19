@@ -1,19 +1,17 @@
-#include "domain/mesh/dht/serve/DhtServer.h"
+#include "mesh/dht/serve/DhtServer.h"
 
-#include "domain/mesh/l4/shared/InboundReply.h"
+#include "mesh/l4/shared/InboundReply.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
-#include "domain/mesh/dht/DhtRecordCodec.h"
+#include "mesh/dht/DhtRecordCodec.h"
 #include "common/ValueJson.h"
 #include "common/Lifetime.h"
 
 #include <atomic>
 #include <ctime>
 #include <mutex>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
@@ -28,8 +26,8 @@ void RunWorker(const DhtServer::WorkerPost& post_worker, std::function<void()> t
   }
 }
 
-Object MakeErrorResponse(const std::string& req_id, const std::string& code, const std::string& message) {
-  Object object;
+common::Object MakeErrorResponse(const std::string& req_id, const std::string& code, const std::string& message) {
+  common::Object object;
   object.set("op", "error");
   object.set("req_id", req_id);
   object.set("version", int64_t{kDhtWireVersion});
@@ -38,13 +36,13 @@ Object MakeErrorResponse(const std::string& req_id, const std::string& code, con
   return object;
 }
 
-Value RecordsToJsonArray(const std::vector<PeerRoutingRecord>& records) {
-  std::vector<Value> elements;
+common::Value RecordsToJsonArray(const std::vector<PeerRoutingRecord>& records) {
+  std::vector<common::Value> elements;
   elements.reserve(records.size());
   for (const PeerRoutingRecord& record : records) {
-    elements.emplace_back(std::make_shared<Object>(PeerRoutingRecordToObject(record)));
+    elements.emplace_back(std::make_shared<common::Object>(PeerRoutingRecordToObject(record)));
   }
-  return makeArray(std::move(elements));
+  return common::makeArray(std::move(elements));
 }
 
 } // namespace
@@ -94,23 +92,23 @@ struct DhtServer::Impl {
               return;
             }
             const std::string json_utf8(body.begin(), body.end());
-            auto root = TryParseObject(json_utf8);
+            auto root = common::TryParseObject(json_utf8);
             if (!root) {
-              Object resp = MakeErrorResponse("", "invalid_json", "invalid json");
-              reply->Send(JsonToBody(DumpJson(resp)));
+              common::Object resp = MakeErrorResponse("", "invalid_json", "invalid json");
+              reply->Send(JsonToBody(common::DumpJson(resp)));
               reply->Close();
               return;
             }
             const std::string req_id = root->getString("req_id").value_or("");
             const int version = static_cast<int>(root->getIf<int64_t>("version").value_or(0));
             if (version != kDhtWireVersion) {
-              Object resp = MakeErrorResponse(req_id, "bad_version", "unsupported version");
-              reply->Send(JsonToBody(DumpJson(resp)));
+              common::Object resp = MakeErrorResponse(req_id, "bad_version", "unsupported version");
+              reply->Send(JsonToBody(common::DumpJson(resp)));
               reply->Close();
               return;
             }
             const std::string op = root->getString("op").value_or("");
-            Object response;
+            common::Object response;
             if (op == "ping") {
               response.set("op", "pong");
               response.set("req_id", req_id);
@@ -138,7 +136,7 @@ struct DhtServer::Impl {
                             records.push_back(*local);
                           }
                           response.set("records", RecordsToJsonArray(records));
-                          response.set("closer_peers", makeArray(std::vector<Value>{}));
+                          response.set("closer_peers", common::makeArray(std::vector<common::Value>{}));
                         } else {
                           {
                             std::lock_guard lock(stats_mutex);
@@ -146,7 +144,7 @@ struct DhtServer::Impl {
                           }
                           std::string reject_code;
                           bool ok = false;
-                          if (const Object* record_obj = root->getObject("record")) {
+                          if (const common::Object* record_obj = root->getObject("record")) {
                             if (auto parsed = PeerRoutingRecordFromObject(*record_obj)) {
                               if (parsed->peer_id != remote_peer) {
                                 reject_code = "not_self";
@@ -190,7 +188,7 @@ struct DhtServer::Impl {
                       } else {
                         response = MakeErrorResponse(req_id, "unsupported_op", "unsupported op");
                       }
-                      reply->Send(JsonToBody(DumpJson(response)));
+                      reply->Send(JsonToBody(common::DumpJson(response)));
                       reply->Close();
                     });
           return true;
@@ -243,4 +241,4 @@ DhtServer::Stats DhtServer::InboundStats() const {
   return impl_->stats;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

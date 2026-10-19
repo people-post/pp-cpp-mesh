@@ -1,14 +1,14 @@
-#include "domain/mesh/reachability/ReachabilityNetIf.h"
-#include "domain/mesh/reachability/AmpObservedAddrs.h"
-#include "domain/mesh/host/MeshHost.h"
-#include "domain/mesh/host/AmpLinkConfig.h"
-#include "domain/mesh/host/MeshLinkEventLog.h"
-#include "domain/mesh/reachability/dial_back/DialBackTypes.h"
-#include "domain/mesh/reachability/punch/PunchTypes.h"
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
-#include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
+#include "mesh/reachability/ReachabilityNetIf.h"
+#include "mesh/reachability/AmpObservedAddrs.h"
+#include "mesh/host/MeshHost.h"
+#include "mesh/host/AmpLinkConfig.h"
+#include "mesh/host/MeshLinkEventLog.h"
+#include "mesh/reachability/dial_back/DialBackTypes.h"
+#include "mesh/reachability/punch/PunchTypes.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/l4/circuit/CircuitRelayTypes.h"
 
-#include "domain/mesh/host/MeshPorts.h"
+#include "mesh/host/MeshPorts.h"
 
 #include <utility>
 
@@ -19,9 +19,7 @@
 #include "amp/link/AdpMultiaddr.h"
 #include "crypto/PeerId.h"
 #include "common/Logger.h"
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -437,7 +435,7 @@ void MeshHost::Stop() {
 void MeshHost::Tick() {
   if (amp_) {
     // Sole Drive entry for this host. L4 must not call Tick to progress —
-    // exclusive Amp Drive (THREADING.md). Nested Drive is refused by MeshRuntime; under MeshPump a
+    // exclusive Amp Drive (docs/THREADING.md). Nested Drive is refused by MeshRuntime; under MeshPump a
     // drive from another thread is too. The DHT's self-publish is an io tick, inside the drive.
     amp_->Runtime().Drive();
   }
@@ -692,4 +690,4 @@ void MeshHost::AbortInflightCircuitRequests() {
   }
 }
 
-} // namespace pbr
+} // namespace pp::mesh

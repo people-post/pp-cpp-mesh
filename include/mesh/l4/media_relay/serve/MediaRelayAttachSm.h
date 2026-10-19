@@ -1,11 +1,11 @@
 #pragma once
 
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Per-inbound-stream attach handshake SM (N026 / MEDIA_RELAY_ATTACH.md).
@@ -25,4 +25,4 @@ struct MediaRelayAttachSm {
   bool Apply(MediaRelayAttachEvent ev);
 };
 
-} // namespace pbr
+} // namespace pp::mesh

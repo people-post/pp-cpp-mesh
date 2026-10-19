@@ -1,11 +1,11 @@
 #pragma once
 
-#include "domain/mesh/reachability/Reachability.h"
+#include "mesh/reachability/Reachability.h"
 
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** True when `ma` is a parseable ADP multiaddr with a dialable host (not wildcard/loopback/link-local). */
 bool IsUsableAdpListen(const std::string& ma);
@@ -31,4 +31,4 @@ AmpObservedAddrSet CollectAmpObservedAddrs(const std::string& amp_listen_multiad
                                            const std::string& local_peer_id,
                                            const ReachabilitySnapshot& snapshot);
 
-} // namespace pbr
+} // namespace pp::mesh

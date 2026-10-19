@@ -4,7 +4,7 @@
 
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 
 struct UpnpMappingResult {
   bool ok = false;
@@ -19,4 +19,4 @@ UpnpMappingResult TryUpnpUdpPortMapping(int internal_port, int external_port = 0
 /** Remove a prior UPnP UDP mapping (best-effort). */
 void ReleaseUpnpUdpPortMapping(int external_port);
 
-} // namespace pbr
+} // namespace pp::mesh

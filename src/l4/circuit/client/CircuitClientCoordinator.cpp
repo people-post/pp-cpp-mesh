@@ -1,12 +1,12 @@
-#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
 
-#include "domain/mesh/l4/circuit/CircuitChannelPolicy.h"
+#include "mesh/l4/circuit/CircuitChannelPolicy.h"
 
-#include "domain/mesh/l4/shared/ChannelSessionSlot.h"
-#include "domain/mesh/l4/shared/ProductChannelPolicies.h"
+#include "mesh/l4/shared/ChannelSessionSlot.h"
+#include "mesh/l4/shared/ProductChannelPolicies.h"
 #include "amp/link/PeerLink.h"
 #include "common/ValueJson.h"
-#include "domain/mesh/shared/AmpChannelOpen.h"
+#include "mesh/shared/AmpChannelOpen.h"
 #include "common/Lifetime.h"
 
 #include <algorithm>
@@ -15,9 +15,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -230,7 +228,7 @@ struct CircuitClientCoordinator::Impl {
 
   /** Requires `mu`. The relay's ack to our bridge / reserve request. */
   bool HandleAck(Tunnel& tunnel, const std::vector<uint8_t>& frame) {
-    auto root = TryParseObject(BodyToJson(frame));
+    auto root = common::TryParseObject(BodyToJson(frame));
     if (!root) {
       TearDown(tunnel, false, false, "invalid circuit-relay ack");
       return false;
@@ -320,7 +318,7 @@ struct CircuitClientCoordinator::Impl {
   }
 
   std::string RequestJson(const Tunnel& tunnel) const {
-    Object request;
+    common::Object request;
     request.set("v", int64_t{1});
     request.set("op", tunnel.is_reserve ? "reserve" : "bridge");
     request.set("timeout_ms",
@@ -338,7 +336,7 @@ struct CircuitClientCoordinator::Impl {
         request.set("standby_priority", std::string(standby));
       }
     }
-    return DumpJson(request);
+    return common::DumpJson(request);
   }
 
   void BeginOutbound(Tunnel& tunnel) {
@@ -574,4 +572,4 @@ std::shared_ptr<pp::amp::ChannelSession> CircuitClientCoordinator::Session(const
   return nullptr;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -6,9 +6,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 using ByteVector = std::vector<uint8_t>;
 
@@ -36,4 +34,4 @@ Roe<MediaFrameOpened> OpenMediaFrameBody(const ByteVector& media_key, const std:
                                          uint32_t seq, uint8_t mark, size_t header_bytes,
                                          const std::vector<uint8_t>& body);
 
-} // namespace pbr
+} // namespace pp::mesh

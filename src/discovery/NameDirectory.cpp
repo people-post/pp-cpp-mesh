@@ -1,8 +1,8 @@
-#include "domain/mesh/discovery/NameDirectory.h"
+#include "mesh/discovery/NameDirectory.h"
 
-#include "foundation/data/MeshConfigTypes.h"
+#include "mesh/types/MeshConfigTypes.h"
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 std::string PreferAccountName(const DirectoryHit& hit) {
@@ -177,4 +177,4 @@ Roe<std::vector<NameRecord>> DirectoryClientNameDirectory::ListService(const std
   return NameRecordsFromMeshNodeHits(*hits);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

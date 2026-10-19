@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Reply side of an inbound request channel whose handler runs off the Amp IO strand.
@@ -85,4 +85,4 @@ inline std::shared_ptr<InboundReply> MakeInboundReply(std::shared_ptr<pp::amp::C
   return std::make_shared<InboundReply>(std::move(session), std::move(post_io));
 }
 
-} // namespace pbr
+} // namespace pp::mesh

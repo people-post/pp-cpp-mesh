@@ -1,9 +1,9 @@
 #pragma once
 
-#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
-#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
-#include "domain/mesh/host/MeshPorts.h"
-#include "domain/mesh/reach/MeshReachPorts.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/host/MeshPorts.h"
+#include "mesh/reach/MeshReachPorts.h"
 #include "common/Lifetime.h"
 
 #include <atomic>
@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * ICircuitHopReach over Amp CircuitClientCoordinator + AmpCircuitHopRegistry ([A020]).
@@ -95,4 +95,4 @@ private:
   std::string last_good_relay_peer_key_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

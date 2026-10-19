@@ -1,13 +1,13 @@
 #pragma once
 
-#include "domain/mesh/dht/DhtTypes.h"
+#include "mesh/dht/DhtTypes.h"
 
 #include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Thread-safe peer_routing record cache (best seq wins per peer_id). */
 class DhtRecordStore {
@@ -33,4 +33,4 @@ private:
   std::unordered_map<std::string, StoredRecord> by_peer_id_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

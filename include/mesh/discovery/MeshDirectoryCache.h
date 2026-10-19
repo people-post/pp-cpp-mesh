@@ -1,7 +1,7 @@
 #pragma once
 
-#include "foundation/data/MeshConfigTypes.h"
-#include "common/directory/DirectoryTypes.h"
+#include "mesh/types/MeshConfigTypes.h"
+#include "mesh/types/DirectoryTypes.h"
 #include "common/Error.h"
 #include "common/Executor.h"
 #include "common/Lifetime.h"
@@ -11,16 +11,14 @@
 #include <memory>
 #include <mutex>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Periodic cache of Brief mesh_node listings (n-dir).
  * Fetcher is injected so base/mesh stays free of HTTP client wiring.
  *
  * A refresh runs on `blocking` (the sync fetcher waits on HTTP; persisting writes a file) and lands
- * there: `on_updated` runs on that thread — the app moves its own work to its thread (THREADING.md
+ * there: `on_updated` runs on that thread — the app moves its own work to its thread (docs/THREADING.md
  * § Mesh threads, rule 2). Destruction drops a refresh still in flight.
  */
 class MeshDirectoryCache {
@@ -79,4 +77,4 @@ private:
 /** Flatten Brief mesh_node hits into per-endpoint rows for hop policy. */
 std::vector<MeshDirectoryNode> MeshDirectoryNodesFromHits(const std::vector<MeshNodeHit>& hits);
 
-} // namespace pbr
+} // namespace pp::mesh

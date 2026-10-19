@@ -6,7 +6,7 @@
 #include "amp/link/MeshPump.h"
 #include "amp/link/PeerLinkManager.h"
 #include "crypto/MlDsa.h"
-#include "domain/mesh/reachability/Reachability.h"
+#include "mesh/reachability/Reachability.h"
 
 #include <gtest/gtest.h>
 #include <sodium.h>
@@ -15,7 +15,7 @@
 #include <memory>
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(AmpIpv6DialTest, PreferGlobalIpv6WhenRegisteringMixedAddrs) {
@@ -123,4 +123,4 @@ TEST(AmpIpv6DialTest, EnsureAssociationOverMemoryIoIpv6) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

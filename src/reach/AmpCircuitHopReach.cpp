@@ -1,12 +1,12 @@
-#include "domain/mesh/reach/AmpCircuitHopReach.h"
-#include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
-#include "domain/mesh/l4/circuit/CircuitHopAttemptBudget.h"
+#include "mesh/reach/AmpCircuitHopReach.h"
+#include "mesh/l4/circuit/CircuitRelayTypes.h"
+#include "mesh/l4/circuit/CircuitHopAttemptBudget.h"
 
 #include "amp/link/PeerLink.h"
 #include "amp/link/Types.h"
-#include "common/directory/MeshHopDial.h"
-#include "domain/mesh/l4/shared/L4ProtocolIds.h"
-#include "domain/mesh/shared/AmpParkUntil.h"
+#include "mesh/types/MeshHopDial.h"
+#include "mesh/l4/shared/L4ProtocolIds.h"
+#include "mesh/shared/AmpParkUntil.h"
 #include "common/SettledWait.h"
 #include "common/Logger.h"
 
@@ -14,9 +14,7 @@
 #include <chrono>
 #include <memory>
 #include <optional>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -684,4 +682,4 @@ void AmpCircuitHopReach::TryUpgradeToDirectAsync(const std::string& peer_key,
                             });
 }
 
-} // namespace pbr
+} // namespace pp::mesh

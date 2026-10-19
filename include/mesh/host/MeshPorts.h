@@ -3,12 +3,10 @@
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/LinkIdentity.h"
-#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
-#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
-#include "common/PbrCompat.h"
-
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -22,7 +20,7 @@ class MeshRuntime;
 struct PeerLinkSnapshot;
 } // namespace pp::amp
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Mesh-layer aliases for link UX (avoids feature → amp/link/Types.h). */
 enum class MeshPeerLinkPhase {
@@ -66,7 +64,7 @@ struct MeshIoContext {
  * Affinity: PeerLinkManager mutations run under MeshRuntime::io_mu_ (Drive/PostToIo).
  * AmpChatPeerLinks takes the same lock via WithIoLock for every call — Coordinator/UI
  * may read IsConnected safely. Prefer post_io for multi-step dial/circuit work; never
- * call Tick/Drive from L4 (exclusive Amp Drive — THREADING.md).
+ * call Tick/Drive from L4 (exclusive Amp Drive — docs/THREADING.md).
  *
  * Prefer BindChannel / WhenChannelOpen / SnapshotByPeerId / IsReachable over raw PeerLink*.
  */
@@ -97,7 +95,7 @@ public:
   using ProtocolHandler =
       std::function<void(pp::amp::LinkHandle handle, const std::string& remote_peer_id, uint32_t channel_id)>;
 
-  /** Stable codes mirror `PeerLinkManager::Err` — see docs/contracts/AMP-LINK-ERRORS.md. */
+  /** Stable codes mirror `PeerLinkManager::Err` — see pp-browser docs/contracts/AMP-LINK-ERRORS.md. */
   static bool IsAssociationNotReady(const Failure& failure) {
     return failure.GetCode() == Err::AssociationNotReady;
   }
@@ -200,4 +198,4 @@ std::optional<uint16_t> UdpPortFromAdpMultiaddr(const std::string& multiaddr);
 /** Wrap Amp MeshRuntime Links() under WithIoLock for feature-layer chat/circuit ports. */
 std::unique_ptr<IChatPeerLinks> NewAmpChatPeerLinks(pp::amp::MeshRuntime& runtime);
 
-} // namespace pbr
+} // namespace pp::mesh

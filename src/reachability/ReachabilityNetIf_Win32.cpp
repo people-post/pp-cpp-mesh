@@ -7,12 +7,12 @@
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
 
-#include "domain/mesh/reachability/ReachabilityNetIf.h"
+#include "mesh/reachability/ReachabilityNetIf.h"
 
 #include <cstdint>
 #include <vector>
 
-namespace pbr::reachability_netif {
+namespace pp::mesh::reachability_netif {
 
 std::vector<std::string> GlobalIpv6Addresses() {
   return {};
@@ -67,6 +67,6 @@ std::vector<LanIpv4If> LanIpv4Interfaces() {
   return out;
 }
 
-} // namespace pbr::reachability_netif
+} // namespace pp::mesh::reachability_netif
 
 #endif // defined(_WIN32)

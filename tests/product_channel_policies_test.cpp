@@ -3,8 +3,8 @@
 // these legs is legitimately silent on one side for long stretches; their coordinators own
 // handshake deadlines and liveness instead.
 
-#include "domain/mesh/l4/circuit/CircuitChannelPolicy.h"
-#include "domain/mesh/l4/shared/ProductChannelPolicies.h"
+#include "mesh/l4/circuit/CircuitChannelPolicy.h"
+#include "mesh/l4/shared/ProductChannelPolicies.h"
 
 #include <gtest/gtest.h>
 
@@ -29,8 +29,8 @@ TEST(ProductChannelPoliciesTest, MediaRelayLegsNeverIdleReset) {
 // Circuit: reservations wait silently for their TTL; spliced tunnels carry one-way media.
 TEST(ProductChannelPoliciesTest, CircuitLegsNeverIdleReset) {
   EXPECT_EQ(pp::amp::CircuitTunnelChannelPolicy().read_timeout, kNever);
-  EXPECT_EQ(pbr::CircuitTargetChannelPolicy(pp::amp::kAmpCircuitCarrierProtocolId).read_timeout, kNever);
-  EXPECT_EQ(pbr::CircuitTargetChannelPolicy("/pp-browser/media-relay/1.0.0").read_timeout, kNever);
+  EXPECT_EQ(pp::mesh::CircuitTargetChannelPolicy(pp::amp::kAmpCircuitCarrierProtocolId).read_timeout, kNever);
+  EXPECT_EQ(pp::mesh::CircuitTargetChannelPolicy("/pp-browser/media-relay/1.0.0").read_timeout, kNever);
 }
 
 } // namespace

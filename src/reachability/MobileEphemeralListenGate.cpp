@@ -1,6 +1,6 @@
-#include "domain/mesh/reachability/MobileEphemeralListenGate.h"
+#include "mesh/reachability/MobileEphemeralListenGate.h"
 
-namespace pbr {
+namespace pp::mesh {
 
 bool ShouldStartMobileEphemeralListen(const MobileEphemeralListenInput& in) {
   if (in.ephemeral_active) {
@@ -18,4 +18,4 @@ bool ShouldStopMobileEphemeralListen(const MobileEphemeralListenInput& in) {
          !in.foreground || !in.active_local_call;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

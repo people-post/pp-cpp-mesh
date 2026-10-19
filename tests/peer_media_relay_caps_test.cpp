@@ -1,8 +1,8 @@
-#include "domain/mesh/reach/PeerMediaRelayCaps.h"
+#include "mesh/reach/PeerMediaRelayCaps.h"
 
 #include <gtest/gtest.h>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 // V030: unknown peers are not relay-capable; only a new capable ad reports "learned".
@@ -23,4 +23,4 @@ TEST(PeerMediaRelayCapsTest, LearnsCapableAdsAndFailsClosed) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

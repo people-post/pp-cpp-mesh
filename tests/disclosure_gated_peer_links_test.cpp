@@ -1,12 +1,12 @@
-#include "domain/mesh/host/DisclosureGatedPeerLinks.h"
+#include "mesh/host/DisclosureGatedPeerLinks.h"
 
-#include "domain/mesh/tests/support/mesh_test_harness.h"
+#include "mesh/testing/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
 
 #include <optional>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 using Links = IChatPeerLinks;
@@ -78,4 +78,4 @@ TEST(DisclosureGatedPeerLinksTest, AllowedPeerDialsAsBefore) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

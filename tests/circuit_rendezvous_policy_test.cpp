@@ -1,4 +1,4 @@
-#include "domain/mesh/l4/circuit/CircuitRendezvousPolicy.h"
+#include "mesh/l4/circuit/CircuitRendezvousPolicy.h"
 
 #include <gtest/gtest.h>
 
@@ -9,7 +9,7 @@
 TEST(CircuitRendezvousPolicyTest, ParkOrderConnectedFirstStable) {
   const std::vector<std::string> in = {"a", "b", "c", "d"};
   const std::unordered_set<std::string> connected = {"c", "a"};
-  const auto out = pbr::OrderRendezvousParkAttempts(in, [&](const std::string& key) {
+  const auto out = pp::mesh::OrderRendezvousParkAttempts(in, [&](const std::string& key) {
     return connected.count(key) > 0;
   });
   ASSERT_EQ(out.size(), 4u);
@@ -22,7 +22,7 @@ TEST(CircuitRendezvousPolicyTest, ParkOrderConnectedFirstStable) {
 TEST(CircuitRendezvousPolicyTest, ParkOrderStickyThenConnected) {
   const std::vector<std::string> in = {"a", "b", "c", "d"};
   const std::unordered_set<std::string> connected = {"c"};
-  const auto out = pbr::OrderRendezvousParkAttempts(in, "b", [&](const std::string& key) {
+  const auto out = pp::mesh::OrderRendezvousParkAttempts(in, "b", [&](const std::string& key) {
     return connected.count(key) > 0;
   });
   ASSERT_EQ(out.size(), 4u);
@@ -34,7 +34,7 @@ TEST(CircuitRendezvousPolicyTest, ParkOrderStickyThenConnected) {
 
 TEST(CircuitRendezvousPolicyTest, ParkOrderWithoutConnectedKeepsInputOrder) {
   const std::vector<std::string> in = {"a", "b", "c"};
-  const auto out = pbr::OrderRendezvousParkAttempts(in, [](const std::string&) { return false; });
+  const auto out = pp::mesh::OrderRendezvousParkAttempts(in, [](const std::string&) { return false; });
   ASSERT_EQ(out.size(), 3u);
   EXPECT_EQ(out[0], "a");
   EXPECT_EQ(out[1], "b");
@@ -42,41 +42,41 @@ TEST(CircuitRendezvousPolicyTest, ParkOrderWithoutConnectedKeepsInputOrder) {
 }
 
 TEST(CircuitRendezvousPolicyTest, CoverageKMatchesStartBridgeBudget) {
-  EXPECT_EQ(pbr::kCircuitRendezvousParkCoverage, pbr::kCircuitMaxStartBridgeAttempts);
+  EXPECT_EQ(pp::mesh::kCircuitRendezvousParkCoverage, pp::mesh::kCircuitMaxStartBridgeAttempts);
 }
 
 TEST(CircuitRendezvousPolicyTest, ColdDialCoverAllRemaining) {
-  EXPECT_EQ(pbr::RendezvousColdDialLimit(5, 2, pbr::kCircuitRendezvousParkCoverage, true), 3u);
-  EXPECT_EQ(pbr::RendezvousColdDialLimit(2, 2, pbr::kCircuitRendezvousParkCoverage, true), 0u);
-  EXPECT_EQ(pbr::RendezvousColdDialLimit(0, 0, pbr::kCircuitRendezvousParkCoverage, true), 0u);
+  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(5, 2, pp::mesh::kCircuitRendezvousParkCoverage, true), 3u);
+  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(2, 2, pp::mesh::kCircuitRendezvousParkCoverage, true), 0u);
+  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(0, 0, pp::mesh::kCircuitRendezvousParkCoverage, true), 0u);
 }
 
 TEST(CircuitRendezvousPolicyTest, ColdDialMinimumCoverageOnly) {
   // K=4: 1 Connected → cold-dial 3 more.
-  EXPECT_EQ(pbr::RendezvousColdDialLimit(6, 1, 4, false), 3u);
+  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(6, 1, 4, false), 3u);
   // Already covered by Connected.
-  EXPECT_EQ(pbr::RendezvousColdDialLimit(6, 4, 4, false), 0u);
+  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(6, 4, 4, false), 0u);
   // Surface smaller than K → cold all remaining.
-  EXPECT_EQ(pbr::RendezvousColdDialLimit(3, 1, 4, false), 2u);
+  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(3, 1, 4, false), 2u);
 }
 
 TEST(CircuitRendezvousPolicyTest, ParkCoverageMet) {
-  EXPECT_TRUE(pbr::RendezvousParkCoverageMet(4, 6, 4));
-  EXPECT_TRUE(pbr::RendezvousParkCoverageMet(3, 3, 4)); // surface < K
-  EXPECT_FALSE(pbr::RendezvousParkCoverageMet(2, 6, 4));
-  EXPECT_FALSE(pbr::RendezvousParkCoverageMet(0, 0, 4));
+  EXPECT_TRUE(pp::mesh::RendezvousParkCoverageMet(4, 6, 4));
+  EXPECT_TRUE(pp::mesh::RendezvousParkCoverageMet(3, 3, 4)); // surface < K
+  EXPECT_FALSE(pp::mesh::RendezvousParkCoverageMet(2, 6, 4));
+  EXPECT_FALSE(pp::mesh::RendezvousParkCoverageMet(0, 0, 4));
 }
 
 TEST(CircuitRendezvousPolicyTest, DialerTopKCoveredByParkPrefix) {
   // Shared surface order (BuildCircuitHopList). Dialer may sticky-reorder, but answerer
   // covering the full surface (or ≥K) contains any dialer top-K after Connected band.
   const std::vector<std::string> surface = {"s1", "s2", "c1", "c2", "c3"};
-  const auto park = pbr::OrderRendezvousParkAttempts(surface, [](const std::string& key) {
+  const auto park = pp::mesh::OrderRendezvousParkAttempts(surface, [](const std::string& key) {
     return key == "s2";
   });
-  ASSERT_GE(park.size(), pbr::kCircuitRendezvousParkCoverage);
+  ASSERT_GE(park.size(), pp::mesh::kCircuitRendezvousParkCoverage);
   std::unordered_set<std::string> parked;
-  for (std::size_t i = 0; i < pbr::kCircuitRendezvousParkCoverage; ++i) {
+  for (std::size_t i = 0; i < pp::mesh::kCircuitRendezvousParkCoverage; ++i) {
     parked.insert(park[i]);
   }
   // Connected s2 is first; prefix of K includes s2 plus next surface members.
@@ -87,8 +87,8 @@ TEST(CircuitRendezvousPolicyTest, DialerTopKCoveredByParkPrefix) {
 // call-path-resilience k2: one unreachable seed used to hold the answerer's Accept for the whole
 // 12 s park deadline. Now ≥1 Connected arms a short grace; all Connected settles at once.
 TEST(SeedParkStepTest, OneSeedConnectedArmsGraceInsteadOfWaitingTheDeadline) {
-  using pbr::DecideSeedParkStep;
-  using pbr::SeedParkStep;
+  using pp::mesh::DecideSeedParkStep;
+  using pp::mesh::SeedParkStep;
   EXPECT_EQ(DecideSeedParkStep(/*all=*/false, /*any=*/true, /*at_deadline=*/false, /*grace_armed=*/false),
             SeedParkStep::ArmGrace);
   EXPECT_EQ(DecideSeedParkStep(false, true, false, /*grace_armed=*/true), SeedParkStep::Wait) << "grace armed once";
@@ -96,8 +96,8 @@ TEST(SeedParkStepTest, OneSeedConnectedArmsGraceInsteadOfWaitingTheDeadline) {
 }
 
 TEST(SeedParkStepTest, AllConnectedSettlesAndNoneWaitsUntilTheDeadline) {
-  using pbr::DecideSeedParkStep;
-  using pbr::SeedParkStep;
+  using pp::mesh::DecideSeedParkStep;
+  using pp::mesh::SeedParkStep;
   EXPECT_EQ(DecideSeedParkStep(true, true, false, false), SeedParkStep::SettleOk);
   EXPECT_EQ(DecideSeedParkStep(false, false, false, false), SeedParkStep::Wait);
   EXPECT_EQ(DecideSeedParkStep(false, false, true, false), SeedParkStep::SettleFail);

@@ -1,6 +1,6 @@
 #if !defined(_WIN32)
 
-#include "domain/mesh/reachability/ReachabilityNetIf.h"
+#include "mesh/reachability/ReachabilityNetIf.h"
 
 #include <algorithm>
 #include <arpa/inet.h>
@@ -9,7 +9,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-namespace pbr::reachability_netif {
+namespace pp::mesh::reachability_netif {
 namespace {
 
 bool IsIpv6LinkLocal(const in6_addr& addr) {
@@ -108,6 +108,6 @@ std::vector<LanIpv4If> LanIpv4Interfaces() {
   return out;
 }
 
-} // namespace pbr::reachability_netif
+} // namespace pp::mesh::reachability_netif
 
 #endif // !defined(_WIN32)

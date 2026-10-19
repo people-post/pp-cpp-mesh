@@ -1,13 +1,11 @@
-#include "domain/mesh/media_plane/MediaRelayAttach.h"
+#include "mesh/media_plane/MediaRelayAttach.h"
 
 
 #include "common/Logger.h"
 
 #include <memory>
 #include <utility>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 constexpr int kQuoteTimeoutMs = 5000;
@@ -149,4 +147,4 @@ void QuoteMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRe
   });
 }
 
-} // namespace pbr
+} // namespace pp::mesh

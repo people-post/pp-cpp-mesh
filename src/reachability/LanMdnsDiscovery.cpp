@@ -1,5 +1,5 @@
-#include "domain/mesh/reachability/LanMdnsDiscovery.h"
-#include "domain/mesh/reachability/LanMdnsSocket.h"
+#include "mesh/reachability/LanMdnsDiscovery.h"
+#include "mesh/reachability/LanMdnsSocket.h"
 
 #include <algorithm>
 #include <cctype>
@@ -7,9 +7,7 @@
 #include <cstring>
 #include <string_view>
 #include <unordered_map>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 constexpr uint16_t kDnsTypePtr = 12;
@@ -559,4 +557,4 @@ void LanMdnsDiscovery::HandlePacket(const uint8_t* data, size_t len) {
   }
 }
 
-} // namespace pbr
+} // namespace pp::mesh

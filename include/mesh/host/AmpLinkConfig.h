@@ -4,7 +4,7 @@
 
 #include <chrono>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Keepalive cadences (call-path-resilience K008). Amp ≥ keepalive v2 announces the cadence to the
@@ -19,4 +19,4 @@ inline constexpr std::chrono::milliseconds kProductWarmKeepaliveInterval{25'000}
 /** PeerLinkConfig for the product mesh (MeshHost) — tests use the same config. */
 pp::amp::PeerLinkConfig MakeProductAmpLinkConfig();
 
-} // namespace pbr
+} // namespace pp::mesh

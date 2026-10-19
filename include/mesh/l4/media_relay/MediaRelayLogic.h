@@ -1,13 +1,13 @@
 #pragma once
 
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Result of applying a client attach event to the current phase (pure). */
 enum class MediaRelayClientPhaseDecision {
@@ -43,4 +43,4 @@ bool MediaRelayCallScopedAdmit(bool session_exists_for_call, bool peer_passes_co
 bool MediaRelayCanOpenHostSession(size_t current_sessions, size_t max_sessions);
 bool MediaRelayCanAddParticipant(size_t current_participants, size_t max_participants);
 
-} // namespace pbr
+} // namespace pp::mesh

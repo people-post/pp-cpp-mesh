@@ -1,24 +1,22 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/discovery/DirectoryTypes.h"
+#include "mesh/discovery/DirectoryTypes.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
 #include "common/ValueJson.h"
-#include "common/PbrCompat.h"
-
 #include <atomic>
 #include <functional>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Client side of the Amp directory twin (`/pp-mesh/directory/1.0.0`): `list_mesh_nodes` fanned
  * out to the configured query peers, first success wins.
  *
- * Errors follow docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
+ * Errors follow pp-browser docs/contracts/CODED_FAILURE.md — wrap PeerLinkManager failures at this owning layer.
  */
 class DirectoryClient {
 public:
@@ -37,7 +35,7 @@ public:
 
   using Failure = CodedFailure<Err>;
   using ListRoe = CodedRoe<std::vector<MeshNodeHit>, Err>;
-  using RpcRoe = CodedRoe<Object, Err>;
+  using RpcRoe = CodedRoe<common::Object, Err>;
   using IoPump = std::function<void()>;
 
   static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
@@ -59,7 +57,7 @@ public:
   void ListMeshNodesAsync(std::function<void(ListRoe)> on_done);
 
 private:
-  void Rpc(const std::string& peer_key, Object request, std::function<void(RpcRoe)> on_response);
+  void Rpc(const std::string& peer_key, common::Object request, std::function<void(RpcRoe)> on_response);
 
   pp::amp::MeshRuntime& runtime_;
   IoPump io_pump_;
@@ -67,4 +65,4 @@ private:
   std::atomic<bool> stopped_{true};
 };
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,8 +1,8 @@
-#include "domain/mesh/dht/DhtRateLimiter.h"
+#include "mesh/dht/DhtRateLimiter.h"
 
 #include <iterator>
 
-namespace pbr {
+namespace pp::mesh {
 
 DhtRateLimiter::DhtRateLimiter(const int max_ops_per_window, const int window_seconds) {
   Configure(max_ops_per_window, window_seconds);
@@ -53,4 +53,4 @@ void DhtRateLimiter::Clear() {
   by_peer_.clear();
 }
 
-} // namespace pbr
+} // namespace pp::mesh

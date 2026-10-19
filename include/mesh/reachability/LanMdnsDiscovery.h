@@ -11,9 +11,7 @@
 #include <thread>
 #include <unordered_set>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 namespace lan_mdns {
 class UdpMulticastSocket;
@@ -83,4 +81,4 @@ private:
   std::thread thread_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

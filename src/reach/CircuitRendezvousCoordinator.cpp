@@ -1,18 +1,16 @@
-#include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
+#include "mesh/reach/CircuitRendezvousCoordinator.h"
 
-#include "common/directory/MeshHopDial.h"
-#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
-#include "domain/mesh/l4/circuit/CircuitRendezvousPolicy.h"
-#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/types/MeshHopDial.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/l4/circuit/CircuitRendezvousPolicy.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <unordered_map>
 #include <unordered_set>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 /**
@@ -572,4 +570,4 @@ void CircuitRendezvousCoordinator::PostIoOrRun(std::function<void()> task) const
   }
 }
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,17 +1,17 @@
-#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
-#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
-#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
-#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
-#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/l4/circuit/serve/CircuitRelayServer.h"
 
-#include "domain/mesh/tests/support/mesh_triple_harness.h"
+#include "mesh/testing/mesh_triple_harness.h"
 
 #include <gtest/gtest.h>
 
 #include <atomic>
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 /**
@@ -20,7 +20,7 @@ namespace {
 class AmpCircuitMediaRelayComposeTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    auto created = pbr::test::AmpMeshTripleHarness::Create();
+    auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
     ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
     harness_ = std::move(*created);
 
@@ -79,13 +79,13 @@ protected:
       };
     }
 
-    void PumpUntilDone(pbr::test::AmpMeshTripleHarness& harness, const size_t max_rounds = 1200) {
+    void PumpUntilDone(pp::mesh::test::AmpMeshTripleHarness& harness, const size_t max_rounds = 1200) {
       harness.PumpUntil([this] { return done.load(std::memory_order_acquire); }, max_rounds);
       ASSERT_TRUE(done.load(std::memory_order_acquire));
     }
   };
 
-  std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness_;
+  std::unique_ptr<pp::mesh::test::AmpMeshTripleHarness> harness_;
   std::unique_ptr<AmpCircuitHopRegistry> hops_;
   std::unique_ptr<CircuitRelayServer> circuit_r_;
   std::unique_ptr<CircuitClientCoordinator> circuit_a_;
@@ -133,4 +133,4 @@ TEST_F(AmpCircuitMediaRelayComposeTest, CircuitBackedQuoteAndAttach) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

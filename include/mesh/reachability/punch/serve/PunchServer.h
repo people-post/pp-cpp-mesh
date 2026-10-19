@@ -1,17 +1,16 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "common/privacy/AddressDisclosure.h"
-#include "domain/mesh/reachability/punch/PunchLinkOps.h"
-#include "domain/mesh/reachability/punch/PunchTypes.h"
-#include "common/PbrCompat.h"
-
+#include "common/metrics/MetricsRegistry.h"
+#include "mesh/types/AddressDisclosure.h"
+#include "mesh/reachability/punch/PunchLinkOps.h"
+#include "mesh/reachability/punch/PunchTypes.h"
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Serving side of Amp coordinated punch (`kAmpPunchProtocolId`, H009 / L3.25a–c), both inbound
@@ -20,7 +19,7 @@ namespace pbr {
  *   candidates, then `sync` both ends (each led by the address this node observes for it);
  * - target: an introducer's `offer` → reply with our candidates, then on `sync` burst-dial the
  *   initiator and report the winner.
- * Strand model as AmpPunchCoordinator (THREADING.md): frame handlers only PostToIo; teardown via
+ * Strand model as AmpPunchCoordinator (docs/THREADING.md): frame handlers only PostToIo; teardown via
  * PostDeferred; never Tick / Drive from SM work.
  */
 class PunchServer {
@@ -56,4 +55,4 @@ private:
   bool started_ = false;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

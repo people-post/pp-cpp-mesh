@@ -1,10 +1,10 @@
-#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
-#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/l4/circuit/serve/CircuitRelayServer.h"
 
-#include "domain/mesh/l4/shared/ProductChannelPolicies.h"
+#include "mesh/l4/shared/ProductChannelPolicies.h"
 #include "amp/L3/ChannelSession.h"
-#include "domain/mesh/tests/support/mesh_triple_harness.h"
-#include "common/directory/RelayScope.h"
+#include "mesh/testing/mesh_triple_harness.h"
+#include "mesh/types/RelayScope.h"
 
 #include <gtest/gtest.h>
 
@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 inline constexpr const char* kAmpBridgeTargetProtocol = "/pp-browser/circuit-relay-bridge-test/1.0.0";
@@ -21,7 +21,7 @@ inline constexpr const char* kAmpBridgeTargetProtocol = "/pp-browser/circuit-rel
 class CircuitRelayServerClientTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    auto created = pbr::test::AmpMeshTripleHarness::Create();
+    auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
     ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
     harness_ = std::move(*created);
 
@@ -89,13 +89,13 @@ protected:
       };
     }
 
-    void PumpUntilDone(pbr::test::AmpMeshTripleHarness& harness, const size_t max_rounds = 800) {
+    void PumpUntilDone(pp::mesh::test::AmpMeshTripleHarness& harness, const size_t max_rounds = 800) {
       harness.PumpUntil([this] { return done.load(std::memory_order_acquire); }, max_rounds);
       ASSERT_TRUE(done.load(std::memory_order_acquire)) << "bridge completion timed out";
     }
   };
 
-  std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness_;
+  std::unique_ptr<pp::mesh::test::AmpMeshTripleHarness> harness_;
   std::unique_ptr<CircuitRelayServer> relay_;
   std::unique_ptr<CircuitClientCoordinator> client_;
   std::unique_ptr<CircuitClientCoordinator> client_b_;
@@ -400,4 +400,4 @@ TEST_F(CircuitRelayServerClientTest, StopRejectsNewStartReserve) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

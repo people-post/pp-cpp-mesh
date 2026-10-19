@@ -1,4 +1,4 @@
-#include "domain/mesh/dht/DhtRecordCodec.h"
+#include "mesh/dht/DhtRecordCodec.h"
 
 #include "amp/link/PeerId.h"
 #include "common/Utilities.h"
@@ -9,7 +9,7 @@
 #include <limits>
 #include <string_view>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 void AppendU32Be(std::vector<uint8_t>& out, uint32_t value) {
@@ -49,22 +49,22 @@ std::vector<uint8_t> BuildPeerRoutingSignBytes(const PeerRoutingRecord& record) 
   return out;
 }
 
-Object PeerRoutingRecordToObject(const PeerRoutingRecord& record) {
-  Object object;
+common::Object PeerRoutingRecordToObject(const PeerRoutingRecord& record) {
+  common::Object object;
   object.set("type", "peer_routing");
   object.set("version", int64_t{kDhtWireVersion});
   object.set("peer_id", record.peer_id);
   object.set("seq", record.seq);
   object.set("ttl_seconds", record.ttl_seconds);
   object.set("issued_at", record.issued_at);
-  std::vector<Value> mas;
+  std::vector<common::Value> mas;
   mas.reserve(record.multiaddrs.size());
   for (const std::string& ma : record.multiaddrs) {
     mas.emplace_back(ma);
   }
-  object.set("multiaddrs", makeArray(std::move(mas)));
+  object.set("multiaddrs", common::makeArray(std::move(mas)));
   if (record.capabilities) {
-    Object caps;
+    common::Object caps;
     caps.set("circuit_relay", record.capabilities->circuit_relay);
     caps.set("media_relay", record.capabilities->media_relay);
     object.set("capabilities", caps);
@@ -74,7 +74,7 @@ Object PeerRoutingRecordToObject(const PeerRoutingRecord& record) {
   return object;
 }
 
-Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const Object& object) {
+Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const common::Object& object) {
   PeerRoutingRecord record;
   if (object.getString("type").value_or("") != "peer_routing") {
     return Error("invalid dht record type");
@@ -88,9 +88,9 @@ Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const Object& object) {
   record.issued_at = object.getIf<int64_t>("issued_at").value_or(0);
   record.signature_b64 = object.getString("signature_b64").value_or("");
   record.signature_alg = object.getString("signature_alg").value_or("ml-dsa-65");
-  if (const Array* mas = object.getArray("multiaddrs")) {
-    for (const Value& item : mas->elements) {
-      if (auto ma = asString(item)) {
+  if (const common::Array* mas = object.getArray("multiaddrs")) {
+    for (const common::Value& item : mas->elements) {
+      if (auto ma = common::asString(item)) {
         record.multiaddrs.push_back(*ma);
       }
     }
@@ -103,7 +103,7 @@ Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const Object& object) {
       return Error("multiaddr peer_id mismatch");
     }
   }
-  if (const Object* caps = object.getObject("capabilities")) {
+  if (const common::Object* caps = object.getObject("capabilities")) {
     PeerRoutingCapabilities parsed_caps;
     parsed_caps.circuit_relay = caps->getIf<bool>("circuit_relay").value_or(false);
     parsed_caps.media_relay = caps->getIf<bool>("media_relay").value_or(false);
@@ -188,4 +188,4 @@ std::vector<MeshDirectoryNode> MeshDirectoryNodesFromDhtRecords(
   return nodes;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

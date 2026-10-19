@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Which mesh peers (by PeerId) advertised serving media_relay — learned from their caps ads (invite /
@@ -40,4 +40,4 @@ private:
   std::unordered_map<std::string, bool> caps_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

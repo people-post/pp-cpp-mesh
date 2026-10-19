@@ -1,24 +1,24 @@
 #pragma once
 
-#include "foundation/data/MeshConfigTypes.h"
+#include "mesh/types/MeshConfigTypes.h"
 #include "amp/link/AmpStack.h"
-#include "domain/mesh/host/LocalNetworkChange.h"
-#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
-#include "domain/mesh/dht/AmpDhtProtocol.h"
-#include "domain/mesh/discovery/AmpDirectoryProtocol.h"
-#include "domain/mesh/reachability/dial_back/client/DialBackClient.h"
-#include "domain/mesh/reachability/dial_back/serve/DialBackServer.h"
-#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
-#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
-#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
-#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
-#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
-#include "domain/mesh/host/MeshIdentityConfig.h"
-#include "domain/mesh/host/MeshPorts.h"
-#include "domain/mesh/shared/MeshExecutors.h"
+#include "mesh/host/LocalNetworkChange.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/dht/AmpDhtProtocol.h"
+#include "mesh/discovery/AmpDirectoryProtocol.h"
+#include "mesh/reachability/dial_back/client/DialBackClient.h"
+#include "mesh/reachability/dial_back/serve/DialBackServer.h"
+#include "mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "mesh/host/MeshIdentityConfig.h"
+#include "mesh/host/MeshPorts.h"
+#include "mesh/shared/MeshExecutors.h"
 #include "common/SerialExecutor.h"
-#include "domain/mesh/host/MeshPumpThread.h"
-#include "domain/mesh/reachability/ReachabilityEngine.h"
+#include "mesh/host/MeshPumpThread.h"
+#include "mesh/reachability/ReachabilityEngine.h"
 #include "common/Error.h"
 #include "common/metrics/MetricsRegistry.h"
 
@@ -30,9 +30,7 @@
 #include <optional>
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Amp-only mesh host (A017/D10): owns AmpStack + Amp L4 coordinators + reachability.
@@ -77,7 +75,7 @@ class MeshHost {
 public:
   /**
    * `executors`: where this mesh hands work off its I/O lane (empty: inline — manual-drive harnesses).
-   * `metrics`: where this mesh records its operator metrics (docs/contracts/NODE_METRICS.md); it must
+   * `metrics`: where this mesh records its operator metrics (pp-browser docs/contracts/NODE_METRICS.md); it must
    * outlive the host. pp-node and the product pass the process's registry; tests may pass their own.
    */
   MeshHost(MeshExecutors executors, MetricsRegistry& metrics);
@@ -261,4 +259,4 @@ private:
   std::vector<std::string> bootstrap_peers_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

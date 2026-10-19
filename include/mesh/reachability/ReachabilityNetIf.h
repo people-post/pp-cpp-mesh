@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace pbr::reachability_netif {
+namespace pp::mesh::reachability_netif {
 
 /** Global (non-link-local, non-ULA, non-loopback) IPv6 addresses. Empty on Win32. */
 std::vector<std::string> GlobalIpv6Addresses();
@@ -20,4 +20,4 @@ struct LanIpv4If {
 /** IPv4 unicast addresses with interface metadata for call-scoped LAN advertise. */
 std::vector<LanIpv4If> LanIpv4Interfaces();
 
-} // namespace pbr::reachability_netif
+} // namespace pp::mesh::reachability_netif

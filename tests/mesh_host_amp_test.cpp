@@ -1,4 +1,4 @@
-#include "common/privacy/AddressDisclosure.h"
+#include "mesh/types/AddressDisclosure.h"
 #include "amp/L1/Clock.h"
 #include "amp/L1/LossyDatagramIo.h"
 #include "amp/L1/MemoryDatagramIo.h"
@@ -6,25 +6,23 @@
 #include "crypto/MlDsa.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/AmpStack.h"
-#include "domain/mesh/tests/support/mesh_harness_support.h"
-#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
-#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
-#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
-#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
-#include "domain/mesh/host/LocalNetworkChange.h"
-#include "domain/mesh/connectivity/MeshConnectivity.h"
-#include "domain/mesh/host/MeshHost.h"
+#include "mesh/testing/mesh_harness_support.h"
+#include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "mesh/host/LocalNetworkChange.h"
+#include "mesh/connectivity/MeshConnectivity.h"
+#include "mesh/host/MeshHost.h"
 #include "common/metrics/MetricsRegistry.h"
-#include "domain/mesh/media_plane/MeshMediaRelay.h"
+#include "mesh/media_plane/MeshMediaRelay.h"
 #include "crypto/PeerId.h"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <sodium.h>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 std::unique_ptr<pp::amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<pp::adp::Clock>& clock,
@@ -46,7 +44,7 @@ std::unique_ptr<pp::amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<pp::ad
   pp::amp::AmpStack::Config cfg;
   cfg.identity = std::move(identity);
   cfg.local_peer_id = *peer_id;
-  cfg.link_config = pbr::test::AmpMeshTestLinkConfig();
+  cfg.link_config = pp::mesh::test::AmpMeshTestLinkConfig();
 
   auto stack = pp::amp::AmpStack::Create(io, clock, cfg);
   if (!stack) {
@@ -422,4 +420,4 @@ TEST(LocalNetworkReactionTest, OnlyAMoveOnlineProbes) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

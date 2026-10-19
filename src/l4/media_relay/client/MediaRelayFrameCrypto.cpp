@@ -1,8 +1,5 @@
-#include "domain/mesh/l4/media_relay/client/MediaRelayFrameCrypto.h"
-
-#include "common/PbrCompat.h"
-
-namespace pbr {
+#include "mesh/l4/media_relay/client/MediaRelayFrameCrypto.h"
+namespace pp::mesh {
 
 std::string BuildMediaRelayFrameAad(const std::string& context, uint32_t media_epoch, uint32_t stream_id,
                                     uint32_t seq, uint8_t channel) {
@@ -31,4 +28,4 @@ Roe<MediaFrameOpened> OpenMediaRelayFrame(const ByteVector& media_key, const std
                             channel, seq, body[5], kMediaFrameV2HeaderBytes, body);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,15 +1,13 @@
 #pragma once
 
-#include "domain/mesh/l4/shared/RelayRuntimeStats.h"
+#include "mesh/l4/shared/RelayRuntimeStats.h"
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
-
-#include "common/PbrCompat.h"
-
+#include "common/metrics/MetricsRegistry.h"
+#include "mesh/l4/circuit/CircuitRelayTypes.h"
 #include <cstddef>
 #include <memory>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Serving side of `/pp-browser/circuit/1.0.0` on MeshRuntime ([A022]): a relay that answers
@@ -49,4 +47,4 @@ private:
   pp::amp::MeshRuntime& runtime_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

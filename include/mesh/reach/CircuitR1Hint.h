@@ -3,7 +3,7 @@
 #include <functional>
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * H011: the rendezvous relay (R1) our circuit reach chose, told to the peer so its late reserve
@@ -51,4 +51,4 @@ private:
   std::string pending_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,18 +1,16 @@
 #pragma once
 
 #include "amp/L3/ChannelSession.h"
-#include "domain/mesh/l4/circuit/CircuitBundleLogic.h"
+#include "mesh/l4/circuit/CircuitBundleLogic.h"
 
 #include "common/Error.h"
-#include "common/PbrCompat.h"
-
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Amp analogue of PeerSessionManager circuit hop table ([A020] / D9 step 5c).
@@ -46,4 +44,4 @@ private:
   std::unordered_map<std::string, Hop> hops_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

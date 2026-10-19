@@ -1,10 +1,10 @@
-#include "domain/mesh/reachability/ReachabilityEngine.h"
+#include "mesh/reachability/ReachabilityEngine.h"
 
 #include "amp/link/AdpMultiaddr.h"
-#include "domain/mesh/reachability/dial_back/client/DialBackClient.h"
-#include "domain/mesh/reachability/NatTraversal.h"
-#include "domain/mesh/reachability/ReachabilityNetIf.h"
-#include "domain/mesh/shared/AmpParkUntil.h"
+#include "mesh/reachability/dial_back/client/DialBackClient.h"
+#include "mesh/reachability/NatTraversal.h"
+#include "mesh/reachability/ReachabilityNetIf.h"
+#include "mesh/shared/AmpParkUntil.h"
 #include "common/ValueJson.h"
 
 #include <cassert>
@@ -12,9 +12,7 @@
 #include <memory>
 #include <optional>
 #include <thread>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -298,7 +296,7 @@ void ReachabilityEngine::ProbeSeed(AmpReachabilityProbeDeps deps, ReachabilitySn
 
 std::string ReachabilityEngine::FormatOpsStatusJson() const {
   const ReachabilitySnapshot snap = Snapshot();
-  Object j;
+  common::Object j;
   j.set("status", ReachabilityStatusKey(snap.status));
   j.set("seed_dial_ok", snap.signals.seed_dial_ok);
   j.set("dial_back_ok", snap.signals.dial_back_ok);
@@ -319,7 +317,7 @@ std::string ReachabilityEngine::FormatOpsStatusJson() const {
   if (!snap.signals.dial_back_error.empty()) {
     j.set("dial_back_error", snap.signals.dial_back_error);
   }
-  return DumpJson(j);
+  return common::DumpJson(j);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

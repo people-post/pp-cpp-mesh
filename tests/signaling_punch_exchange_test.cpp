@@ -1,5 +1,5 @@
-#include "domain/mesh/reach/CircuitR1Hint.h"
-#include "domain/mesh/reach/SignalingPunchExchange.h"
+#include "mesh/reach/CircuitR1Hint.h"
+#include "mesh/reach/SignalingPunchExchange.h"
 
 #include <gtest/gtest.h>
 
@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 /** Two sides whose carrier is a queue: offers / answers are delivered when the test pumps. */
@@ -220,4 +220,4 @@ TEST(CircuitR1HintTest, KeepsTheR1UntilACarrierExists) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

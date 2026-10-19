@@ -3,7 +3,7 @@
 #include <optional>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Device ML-DSA identity for Amp PeerId (historically shared with Libp2pHost). */
 struct MeshIdentityConfig {
@@ -11,4 +11,4 @@ struct MeshIdentityConfig {
   std::optional<std::vector<uint8_t>> device_ml_dsa_public_key;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

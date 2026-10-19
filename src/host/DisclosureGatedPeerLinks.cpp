@@ -1,8 +1,5 @@
-#include "domain/mesh/host/DisclosureGatedPeerLinks.h"
-
-#include "common/PbrCompat.h"
-
-namespace pbr {
+#include "mesh/host/DisclosureGatedPeerLinks.h"
+namespace pp::mesh {
 namespace {
 
 constexpr const char* kNotDisclosed = "address not disclosed to this peer (privacy: direct connections)";
@@ -116,4 +113,4 @@ std::shared_ptr<pp::amp::ChannelSession> DisclosureGatedPeerLinks::BindChannel(
   return inner_.BindChannel(peer_key, channel_id, std::move(policy), std::move(on_frame), std::move(on_closed));
 }
 
-} // namespace pbr
+} // namespace pp::mesh

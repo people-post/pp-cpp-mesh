@@ -1,13 +1,11 @@
 #pragma once
 
 #include <cstdint>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * A media frame's channel: track kind in the high nibble, level in the low nibble
- * (docs/contracts/MEDIA_CHANNELS.md). Audio has no level; video levels are opaque ordered
+ * (pp-browser docs/contracts/MEDIA_CHANNELS.md). Audio has no level; video levels are opaque ordered
  * integers (higher = more bits) whose meaning is the sending client's.
  */
 enum class MediaTrackKind : uint8_t { Audio = 0, Video = 1 };
@@ -41,4 +39,4 @@ constexpr uint8_t VideoLevelOf(const uint16_t channel) {
   return IsVideoChannel(channel) ? static_cast<uint8_t>(channel & 0x0F) : 0;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

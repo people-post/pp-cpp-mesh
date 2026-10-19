@@ -1,14 +1,12 @@
 #pragma once
 
 #include "common/Module.h"
-#include "domain/mesh/connectivity/MeshConnectivity.h"
-#include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
-#include "domain/mesh/media_plane/MediaRelayAttach.h"
+#include "mesh/connectivity/MeshConnectivity.h"
+#include "mesh/l4/media_relay/client/IMediaRelayClient.h"
+#include "mesh/media_plane/MediaRelayAttach.h"
 
 #include <memory>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * The media_relay client shared by calls (group hop) and broadcast (media-client-layers L015),
@@ -50,4 +48,4 @@ private:
   IMediaRelayClient* test_relay_ = nullptr;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

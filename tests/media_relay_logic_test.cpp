@@ -1,10 +1,10 @@
-#include "domain/mesh/l4/media_relay/serve/MediaRelayAttachSm.h"
-#include "domain/mesh/l4/media_relay/MediaRelayLogic.h"
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/l4/media_relay/serve/MediaRelayAttachSm.h"
+#include "mesh/l4/media_relay/MediaRelayLogic.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include <gtest/gtest.h>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(MediaRelayAttachSmTest, QuoteAcceptAttachHappyPath) {
@@ -117,4 +117,4 @@ TEST(MediaRelayLogicTest, CallScopedAdmitAndCaps) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

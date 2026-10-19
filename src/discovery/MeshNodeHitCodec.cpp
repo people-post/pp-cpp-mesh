@@ -1,13 +1,11 @@
-#include "domain/mesh/discovery/MeshNodeHitCodec.h"
+#include "mesh/discovery/MeshNodeHitCodec.h"
 
 #include "common/ValueJson.h"
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
-Object CapabilitiesToObject(const MeshCapabilitiesAd& caps) {
-  Object object;
+common::Object CapabilitiesToObject(const MeshCapabilitiesAd& caps) {
+  common::Object object;
   object.set("circuit_relay", caps.circuit_relay);
   object.set("media_relay", caps.media_relay);
   object.set("dht", caps.dht);
@@ -15,7 +13,7 @@ Object CapabilitiesToObject(const MeshCapabilitiesAd& caps) {
   return object;
 }
 
-MeshCapabilitiesAd CapabilitiesFromObject(const Object& object) {
+MeshCapabilitiesAd CapabilitiesFromObject(const common::Object& object) {
   MeshCapabilitiesAd caps;
   if (auto circuit = object.getIf<bool>("circuit_relay")) {
     caps.circuit_relay = *circuit;
@@ -32,23 +30,23 @@ MeshCapabilitiesAd CapabilitiesFromObject(const Object& object) {
   return caps;
 }
 
-Object EndpointToObject(const DirectoryEndpoint& endpoint) {
-  Object object;
+common::Object EndpointToObject(const DirectoryEndpoint& endpoint) {
+  common::Object object;
   object.set("peer_id", endpoint.peer_id);
   object.set("updated_at", endpoint.updated_at);
-  std::vector<Value> addrs;
+  std::vector<common::Value> addrs;
   addrs.reserve(endpoint.multiaddrs.size());
   for (const std::string& ma : endpoint.multiaddrs) {
     addrs.emplace_back(ma);
   }
-  object.set("multiaddrs", makeArray(std::move(addrs)));
+  object.set("multiaddrs", common::makeArray(std::move(addrs)));
   return object;
 }
 
 } // namespace
 
-Object MeshNodeHitToObject(const MeshNodeHit& hit) {
-  Object object;
+common::Object MeshNodeHitToObject(const MeshNodeHit& hit) {
+  common::Object object;
   object.set("relay_user_id", hit.relay_user_id);
   if (hit.account_id) {
     object.set("account_id", *hit.account_id);
@@ -68,16 +66,16 @@ Object MeshNodeHitToObject(const MeshNodeHit& hit) {
     object.set("kem_public_key_b64", *hit.kem_public_key_b64);
   }
   object.set("capabilities", CapabilitiesToObject(hit.capabilities));
-  std::vector<Value> endpoints;
+  std::vector<common::Value> endpoints;
   endpoints.reserve(hit.endpoints.size());
   for (const DirectoryEndpoint& ep : hit.endpoints) {
-    endpoints.emplace_back(std::make_shared<Object>(EndpointToObject(ep)));
+    endpoints.emplace_back(std::make_shared<common::Object>(EndpointToObject(ep)));
   }
-  object.set("endpoints", makeArray(std::move(endpoints)));
+  object.set("endpoints", common::makeArray(std::move(endpoints)));
   return object;
 }
 
-Roe<MeshNodeHit> MeshNodeHitFromObject(const Object& object) {
+Roe<MeshNodeHit> MeshNodeHitFromObject(const common::Object& object) {
   MeshNodeHit hit;
   if (auto relay = object.getString("relay_user_id")) {
     hit.relay_user_id = *relay;
@@ -109,12 +107,12 @@ Roe<MeshNodeHit> MeshNodeHitFromObject(const Object& object) {
   if (auto kem = object.getString("kem_public_key_b64")) {
     hit.kem_public_key_b64 = *kem;
   }
-  if (const Object* caps = object.getObject("capabilities")) {
+  if (const common::Object* caps = object.getObject("capabilities")) {
     hit.capabilities = CapabilitiesFromObject(*caps);
   }
-  if (const Array* endpoints = object.getArray("endpoints")) {
-    for (const Value& ep_val : endpoints->elements) {
-      const Object* ep = asObject(ep_val);
+  if (const common::Array* endpoints = object.getArray("endpoints")) {
+    for (const common::Value& ep_val : endpoints->elements) {
+      const common::Object* ep = common::asObject(ep_val);
       if (!ep) {
         continue;
       }
@@ -128,9 +126,9 @@ Roe<MeshNodeHit> MeshNodeHitFromObject(const Object& object) {
       if (auto updated = ep->getIf<int64_t>("updated_at")) {
         row.updated_at = *updated;
       }
-      if (const Array* mas = ep->getArray("multiaddrs")) {
-        for (const Value& ma : mas->elements) {
-          if (auto s = asString(ma)) {
+      if (const common::Array* mas = ep->getArray("multiaddrs")) {
+        for (const common::Value& ma : mas->elements) {
+          if (auto s = common::asString(ma)) {
             row.multiaddrs.push_back(*s);
           }
         }
@@ -141,20 +139,20 @@ Roe<MeshNodeHit> MeshNodeHitFromObject(const Object& object) {
   return hit;
 }
 
-Value MeshNodeHitsToJsonArray(const std::vector<MeshNodeHit>& hits) {
-  std::vector<Value> elements;
+common::Value MeshNodeHitsToJsonArray(const std::vector<MeshNodeHit>& hits) {
+  std::vector<common::Value> elements;
   elements.reserve(hits.size());
   for (const MeshNodeHit& hit : hits) {
-    elements.emplace_back(std::make_shared<Object>(MeshNodeHitToObject(hit)));
+    elements.emplace_back(std::make_shared<common::Object>(MeshNodeHitToObject(hit)));
   }
-  return makeArray(std::move(elements));
+  return common::makeArray(std::move(elements));
 }
 
-Roe<std::vector<MeshNodeHit>> MeshNodeHitsFromJsonArray(const Array& nodes) {
+Roe<std::vector<MeshNodeHit>> MeshNodeHitsFromJsonArray(const common::Array& nodes) {
   std::vector<MeshNodeHit> out;
   out.reserve(nodes.elements.size());
-  for (const Value& item : nodes.elements) {
-    const Object* obj = asObject(item);
+  for (const common::Value& item : nodes.elements) {
+    const common::Object* obj = common::asObject(item);
     if (!obj) {
       continue;
     }
@@ -165,4 +163,4 @@ Roe<std::vector<MeshNodeHit>> MeshNodeHitsFromJsonArray(const Array& nodes) {
   return out;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

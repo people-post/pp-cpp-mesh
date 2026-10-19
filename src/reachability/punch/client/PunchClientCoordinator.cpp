@@ -1,18 +1,16 @@
-#include "domain/mesh/reachability/punch/client/PunchClientCoordinator.h"
+#include "mesh/reachability/punch/client/PunchClientCoordinator.h"
 
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/PeerLink.h"
-#include "domain/mesh/reachability/punch/PunchLogic.h"
+#include "mesh/reachability/punch/PunchLogic.h"
 #include "common/SettledWait.h"
 #include "common/ValueJson.h"
-#include "domain/mesh/shared/AmpParkUntil.h"
+#include "mesh/shared/AmpParkUntil.h"
 
 #include <atomic>
 #include <chrono>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -214,7 +212,7 @@ void PunchClientCoordinator::RunPunchAsync(const std::string& introducer_peer_ke
                                 Failure::Of(Err::ProtocolError, "punch: failed to read introducer frame")));
                             return false;
                           }
-                          auto root = TryParseObject(std::string(frame->begin(), frame->end()));
+                          auto root = common::TryParseObject(std::string(frame->begin(), frame->end()));
                           if (!root) {
                             (*finish)(PunchRoe::error(
                                 Failure::Of(Err::ProtocolError, "punch: invalid introducer frame")));
@@ -302,4 +300,4 @@ void PunchClientCoordinator::RunPunchAsync(const std::string& introducer_peer_ke
       });
 }
 
-} // namespace pbr
+} // namespace pp::mesh

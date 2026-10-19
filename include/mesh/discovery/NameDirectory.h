@@ -1,15 +1,15 @@
 #pragma once
 
-#include "foundation/data/MeshConfigTypes.h"
-#include "common/directory/DirectoryTypes.h"
+#include "mesh/types/MeshConfigTypes.h"
+#include "mesh/types/DirectoryTypes.h"
 #include "common/Error.h"
-#include "common/directory/IDirectoryClient.h"
+#include "mesh/types/IDirectoryClient.h"
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Normalized phone-book capabilities (N029).
@@ -80,4 +80,4 @@ private:
   IDirectoryClient& directory_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,13 +1,13 @@
 #pragma once
 
-#include "common/directory/DirectoryTypes.h"
+#include "mesh/types/DirectoryTypes.h"
 
 #include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 inline constexpr const char* kDirectoryProtocolId = "/pp-mesh/directory/1.0.0";
 inline constexpr int kDirectoryWireVersion = 1;
@@ -25,4 +25,4 @@ struct AmpDirectoryProtocolConfig {
 /** Snapshot source for inbound list_mesh_nodes (pp-node / Node host). */
 using AmpDirectoryNodesProvider = std::function<std::vector<MeshNodeHit>()>;
 
-} // namespace pbr
+} // namespace pp::mesh

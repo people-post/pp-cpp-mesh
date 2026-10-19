@@ -6,9 +6,7 @@
 
 #include <cstdint>
 #include <string>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 inline constexpr const char* kReachProtocolId = "/pp-browser/reach/1.0.0";
 inline constexpr const char* kDialBackProtocolId = kReachProtocolId;
@@ -25,7 +23,7 @@ struct DialBackProbeResult {
   std::string error;
 };
 
-/** Errors follow docs/contracts/CODED_FAILURE.md — link failures are wrapped at this layer. */
+/** Errors follow pp-browser docs/contracts/CODED_FAILURE.md — link failures are wrapped at this layer. */
 enum class DialBackErr : int32_t {
   Ok = 0,
   NotStarted,
@@ -56,4 +54,4 @@ DialBackFailure WrapDialBackLinkFailure(const pp::amp::PeerLinkManager::Failure&
  */
 bool DialBackTargetAllowed(const pp::adp::IpEndpoint& target, const pp::adp::IpEndpoint& observed);
 
-} // namespace pbr
+} // namespace pp::mesh

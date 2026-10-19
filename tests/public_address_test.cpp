@@ -1,11 +1,11 @@
-#include "common/net/PublicAddress.h"
+#include "mesh/types/PublicAddress.h"
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cstdint>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 uint32_t V4(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
@@ -45,4 +45,4 @@ TEST(PublicAddressTest, IPv6LocalRangesAndEmbeddedIPv4) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

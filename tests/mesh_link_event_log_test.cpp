@@ -1,4 +1,4 @@
-#include "domain/mesh/host/MeshLinkEventLog.h"
+#include "mesh/host/MeshLinkEventLog.h"
 
 #include <gtest/gtest.h>
 
@@ -16,7 +16,7 @@ TEST(MeshLinkEventLogTest, FormatsDroppedWithReasonAndAge) {
   event.reason = pp::amp::LinkDropReason::CarrierClosed;
   event.was_connected = true;
 
-  EXPECT_EQ(pbr::FormatLinkEventForLog(event),
+  EXPECT_EQ(pp::mesh::FormatLinkEventForLog(event),
             "link dropped key=carrier:QmRelay:3 peer=QmCaller path=carrier dir=in id=7.2 "
             "reason=carrier-closed was_connected=1");
 }
@@ -36,7 +36,7 @@ TEST(MeshLinkEventLogTest, FormatsPathChangeEndpoints) {
   v6[15] = 0x01;
   event.remote = pp::adp::IpEndpoint::V6(v6, 4002);
 
-  EXPECT_EQ(pbr::FormatLinkEventForLog(event),
+  EXPECT_EQ(pp::mesh::FormatLinkEventForLog(event),
             "link path-changed key=QmPeer peer=- path=punched dir=out id=0.0 from=203.0.113.5:4001 "
             "to=[2001:db8:0:0:0:0:0:1]:4002");
 }

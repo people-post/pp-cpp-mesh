@@ -8,7 +8,7 @@
 #include <functional>
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Convert a steady_clock wall deadline to an absolute Amp-clock deadline for
@@ -38,4 +38,4 @@ inline void AmpWhenChannelOpenOnLink(pp::amp::PeerLinkManager& links, const pp::
   links.WhenChannelOpenOnLink(link, channel_id, AmpDeadlineFromSteady(links, deadline), std::move(done));
 }
 
-} // namespace pbr
+} // namespace pp::mesh

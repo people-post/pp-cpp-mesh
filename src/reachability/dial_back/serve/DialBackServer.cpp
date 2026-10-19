@@ -1,6 +1,6 @@
-#include "domain/mesh/reachability/dial_back/serve/DialBackServer.h"
+#include "mesh/reachability/dial_back/serve/DialBackServer.h"
 
-#include "domain/mesh/l4/shared/InboundReply.h"
+#include "mesh/l4/shared/InboundReply.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
@@ -15,9 +15,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -217,13 +215,13 @@ struct DialBackServer::Impl {
   std::shared_ptr<InflightProbes> inflight = std::make_shared<InflightProbes>();
 
   static void SendProbeResult(const std::shared_ptr<InboundReply>& reply, const DialBackProbeResult& result) {
-    Object response;
+    common::Object response;
     response.set("v", int64_t{1});
     response.set("ok", result.ok);
     response.set("dialed", result.dialed);
     response.set("observed", result.observed);
     response.set("error", result.error);
-    reply->Send(JsonToBody(DumpJson(response)));
+    reply->Send(JsonToBody(common::DumpJson(response)));
   }
 
   /** Frame handler (IO): parse, then walk the targets from a fresh IO task (mux stack unwound). */
@@ -232,7 +230,7 @@ struct DialBackServer::Impl {
     DialBackProbeResult result;
     result.observed = ObservedMultiaddrOnIo(remote_peer_id);
     const std::string json_utf8(body.begin(), body.end());
-    auto root = TryParseObject(json_utf8);
+    auto root = common::TryParseObject(json_utf8);
     if (!root) {
       result.error = "invalid dial-back json";
       SendProbeResult(reply, result);
@@ -255,12 +253,12 @@ struct DialBackServer::Impl {
     // filtering could let a requester pad the request with kMaxDialBackTargets non-matching
     // decoys ahead of its one real (matching) target and have that legitimate target dropped.
     std::vector<std::string> targets;
-    if (const Array* addrs = root->getArray("target_multiaddrs")) {
+    if (const common::Array* addrs = root->getArray("target_multiaddrs")) {
       for (const auto& item : addrs->elements) {
         if (targets.size() >= kMaxDialBackTargets) {
           break;
         }
-        auto s = asString(item);
+        auto s = common::asString(item);
         if (!s) {
           continue;
         }
@@ -343,4 +341,4 @@ void DialBackServer::Stop() {
   impl_->deferred.Invalidate();
 }
 
-} // namespace pbr
+} // namespace pp::mesh

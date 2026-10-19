@@ -6,15 +6,15 @@
 #include "crypto/MlDsa.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/host/MeshPorts.h"
-#include "domain/mesh/tests/support/mesh_harness_support.h"
+#include "mesh/host/MeshPorts.h"
+#include "mesh/testing/mesh_harness_support.h"
 
 #include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
 
-namespace pbr::test {
+namespace pp::mesh::test {
 
 /** Two-peer MemoryDatagramIo harness for AMP L4 protocol tests. */
 struct AmpMeshHarness {
@@ -34,13 +34,13 @@ struct AmpMeshHarness {
   std::string peer_id_b;
   std::string ma_a;
   std::string ma_b;
-  std::unique_ptr<pbr::IChatPeerLinks> chat_links_a;
-  std::unique_ptr<pbr::IChatPeerLinks> chat_links_b;
+  std::unique_ptr<pp::mesh::IChatPeerLinks> chat_links_a;
+  std::unique_ptr<pp::mesh::IChatPeerLinks> chat_links_b;
 
   pp::amp::PeerLinkManager& mgr_a() { return runtime_a->Links(); }
   pp::amp::PeerLinkManager& mgr_b() { return runtime_b->Links(); }
-  pbr::IChatPeerLinks& chat_a() { return *chat_links_a; }
-  pbr::IChatPeerLinks& chat_b() { return *chat_links_b; }
+  pp::mesh::IChatPeerLinks& chat_a() { return *chat_links_a; }
+  pp::mesh::IChatPeerLinks& chat_b() { return *chat_links_b; }
 
   /** MeshRuntime::PostToIo / PostAfter binders for L4 transport harnesses. */
   std::function<void(std::function<void()>)> MakePostIoA() {
@@ -78,4 +78,4 @@ struct AmpMeshHarness {
   void PumpUntil(const std::function<bool()>& done, size_t max_rounds = 500);
 };
 
-} // namespace pbr::test
+} // namespace pp::mesh::test

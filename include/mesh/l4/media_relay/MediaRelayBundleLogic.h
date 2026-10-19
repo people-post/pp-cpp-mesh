@@ -1,7 +1,7 @@
 #pragma once
 
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
-#include "common/directory/RelayScope.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/types/RelayScope.h"
 
 #include <chrono>
 #include <cstddef>
@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace pbr {
+namespace pp::mesh {
 
 struct MediaRelaySessionId {
   uint64_t value = 0;
@@ -162,4 +162,4 @@ private:
   std::unordered_map<std::string, size_t> per_requester_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

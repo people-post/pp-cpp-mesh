@@ -1,11 +1,11 @@
-#include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
+#include "mesh/l4/circuit/CircuitRelayTypes.h"
 #include "amp/link/Types.h"
-#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
-#include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
-#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
-#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
-#include "domain/mesh/reachability/punch/PunchLogic.h"
-#include "domain/mesh/tests/support/mesh_triple_harness.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "mesh/reachability/punch/PunchLogic.h"
+#include "mesh/testing/mesh_triple_harness.h"
 #include "common/metrics/MetricsRegistry.h"
 
 #include <gtest/gtest.h>
@@ -15,9 +15,7 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 /**
@@ -27,7 +25,7 @@ namespace {
 class AmpPunchCircuitUpgradeTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    auto created = pbr::test::AmpMeshTripleHarness::Create();
+    auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
     ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
     harness_ = std::move(*created);
 
@@ -113,7 +111,7 @@ protected:
       };
     }
 
-    void PumpUntilDone(pbr::test::AmpMeshTripleHarness& harness, const size_t max_rounds = 2500) {
+    void PumpUntilDone(pp::mesh::test::AmpMeshTripleHarness& harness, const size_t max_rounds = 2500) {
       harness.PumpUntil([this] { return done.load(std::memory_order_acquire); }, max_rounds);
       ASSERT_TRUE(done.load(std::memory_order_acquire));
     }
@@ -150,7 +148,7 @@ protected:
     return Roe<CircuitTunnelId>{tunnel_id};
   }
 
-  std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness_;
+  std::unique_ptr<pp::mesh::test::AmpMeshTripleHarness> harness_;
   std::unique_ptr<AmpCircuitHopRegistry> hops_;
   std::unique_ptr<CircuitClientCoordinator> circuit_a_;
   std::unique_ptr<CircuitRelayServer> circuit_r_;
@@ -230,7 +228,7 @@ TEST_F(AmpPunchCircuitUpgradeTest, UpgradePunchUsesUpgradeReason) {
   req.window_ms = 1500;
   req.reason = "upgrade";
   const std::string json = EncodePunchConnect(req);
-  auto root = TryParseObject(json);
+  auto root = common::TryParseObject(json);
   ASSERT_TRUE(root.has_value());
   auto decoded = DecodePunchConnect(*root);
   ASSERT_TRUE(decoded.has_value());
@@ -238,4 +236,4 @@ TEST_F(AmpPunchCircuitUpgradeTest, UpgradePunchUsesUpgradeReason) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

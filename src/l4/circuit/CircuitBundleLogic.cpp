@@ -1,6 +1,6 @@
-#include "domain/mesh/l4/circuit/CircuitBundleLogic.h"
+#include "mesh/l4/circuit/CircuitBundleLogic.h"
 
-namespace pbr {
+namespace pp::mesh {
 
 CircuitAdmitDecision DecideCircuitAdmit(const CircuitAdmitContext& ctx) {
   if (!ctx.service_started || ctx.stopping) {
@@ -69,4 +69,4 @@ bool CircuitTunnelPhaseIsActive(const CircuitTunnelPhase phase) {
   return false;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

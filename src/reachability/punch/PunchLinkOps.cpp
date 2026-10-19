@@ -1,11 +1,9 @@
-#include "domain/mesh/reachability/punch/PunchLinkOps.h"
+#include "mesh/reachability/punch/PunchLinkOps.h"
 
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/PeerLink.h"
-#include "domain/mesh/reachability/punch/PunchLogic.h"
-#include "common/PbrCompat.h"
-
-namespace pbr {
+#include "mesh/reachability/punch/PunchLogic.h"
+namespace pp::mesh {
 
 pp::amp::ChannelPolicy PunchJsonChannelPolicy(std::chrono::milliseconds read_timeout) {
   auto policy = pp::amp::ControlJsonChannelPolicy(read_timeout);
@@ -96,4 +94,4 @@ PunchFailure WrapPunchLinkFailure(
   }
 }
 
-} // namespace pbr
+} // namespace pp::mesh

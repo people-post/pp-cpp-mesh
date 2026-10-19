@@ -1,11 +1,11 @@
-#include "domain/mesh/reachability/AmpObservedAddrs.h"
+#include "mesh/reachability/AmpObservedAddrs.h"
 
 #include "amp/link/AdpMultiaddr.h"
 
 #include <algorithm>
 #include <unordered_set>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 void AppendUnique(std::vector<std::string>& out, std::unordered_set<std::string>& seen,
@@ -120,4 +120,4 @@ AmpObservedAddrSet CollectAmpObservedAddrs(const std::string& amp_listen_multiad
   return out;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

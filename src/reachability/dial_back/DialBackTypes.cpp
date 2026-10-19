@@ -1,10 +1,10 @@
-#include "domain/mesh/reachability/dial_back/DialBackTypes.h"
+#include "mesh/reachability/dial_back/DialBackTypes.h"
 
-#include "common/net/PublicAddress.h"
+#include "mesh/types/PublicAddress.h"
 
 #include <cstring>
 
-namespace pbr {
+namespace pp::mesh {
 
 DialBackFailure WrapDialBackLinkFailure(const pp::amp::PeerLinkManager::Failure& child) {
   using Err = DialBackErr;
@@ -53,4 +53,4 @@ bool DialBackTargetAllowed(const pp::adp::IpEndpoint& target, const pp::adp::IpE
   return std::memcmp(target.addr.data(), observed.addr.data(), n) == 0;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

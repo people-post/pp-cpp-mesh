@@ -2,17 +2,15 @@
 
 #include "common/metrics/MetricsRegistry.h"
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/reachability/punch/PunchLinkOps.h"
-#include "domain/mesh/reachability/punch/PunchTypes.h"
-#include "domain/mesh/reachability/punch/client/PunchClientCoordinator.h"
-#include "domain/mesh/reachability/punch/serve/PunchServer.h"
-#include "common/PbrCompat.h"
-
+#include "mesh/reachability/punch/PunchLinkOps.h"
+#include "mesh/reachability/punch/PunchTypes.h"
+#include "mesh/reachability/punch/client/PunchClientCoordinator.h"
+#include "mesh/reachability/punch/serve/PunchServer.h"
 #include <functional>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Amp Coordinated Punch L4 (`/pp-browser/reach/1.0.0` family, `kAmpPunchProtocolId`) — H009 /
@@ -101,7 +99,7 @@ private:
       (void)r.Counter("pp_punch_served_total", "Punch requests this node served, by role.", {{"role", role}});
     }
   }
-  /** pp_punch_attempts_total{kind, result} (docs/contracts/NODE_METRICS.md § Reachability). */
+  /** pp_punch_attempts_total{kind, result} (pp-browser docs/contracts/NODE_METRICS.md § Reachability). */
   static void CountPunch(MetricsRegistry& metrics, const char* kind, PunchRoe& result) {
     const bool ok = result && result->ok;
     metrics
@@ -125,4 +123,4 @@ private:
   PunchClientCoordinator client_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

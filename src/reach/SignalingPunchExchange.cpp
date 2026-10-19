@@ -1,11 +1,9 @@
-#include "domain/mesh/reach/SignalingPunchExchange.h"
+#include "mesh/reach/SignalingPunchExchange.h"
 
 #include "common/Utilities.h"
 
 #include <utility>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 SignalingPunchExchange::SignalingPunchExchange() {
   redirectLogger("SignalingPunchExchange");
@@ -115,4 +113,4 @@ Roe<void> SignalingPunchExchange::OnAnswer(const PunchSignal& answer) {
   return {};
 }
 
-} // namespace pbr
+} // namespace pp::mesh

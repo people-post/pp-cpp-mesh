@@ -1,11 +1,11 @@
 #pragma once
 
-#include "common/directory/MeshHopTypes.h"
+#include "mesh/types/MeshHopTypes.h"
 
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** True when both multiaddrs share the same IPv4 /24 (v1 link scope inference). */
 bool IsSameIpv4Subnet24(const std::string& multiaddr_a, const std::string& multiaddr_b);
@@ -56,4 +56,4 @@ std::vector<MeshHopCandidate> PreferLocalMediaHop(std::vector<MeshHopCandidate> 
                                                   const std::string& local_peer_id,
                                                   const std::string& local_multiaddr = {});
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,13 +1,11 @@
-#include "domain/mesh/l4/media_relay/MediaRelayVideoLevels.h"
+#include "mesh/l4/media_relay/MediaRelayVideoLevels.h"
 
-#include "common/media/MediaChannel.h"
+#include "mesh/types/MediaChannel.h"
 
 #include <algorithm>
 #include <cstdlib>
 #include <functional>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 /** Valid levels, unique, highest first. */
@@ -68,21 +66,21 @@ Roe<std::vector<uint8_t>> ChooseCarriedVideoLevels(const MediaRelayVideoOffer& o
   return carried;
 }
 
-Value VideoLevelsToJson(const std::vector<uint8_t>& levels) {
-  std::vector<Value> out;
+common::Value VideoLevelsToJson(const std::vector<uint8_t>& levels) {
+  std::vector<common::Value> out;
   for (const uint8_t level : levels) {
     out.emplace_back(int64_t{level});
   }
-  return makeArray(std::move(out));
+  return common::makeArray(std::move(out));
 }
 
-std::vector<uint8_t> VideoLevelsFromJson(const Object& json, const char* key) {
+std::vector<uint8_t> VideoLevelsFromJson(const common::Object& json, const char* key) {
   std::vector<uint8_t> out;
-  const Array* arr = json.getArray(key);
+  const common::Array* arr = json.getArray(key);
   if (!arr) {
     return out;
   }
-  for (const Value& row : arr->elements) {
+  for (const common::Value& row : arr->elements) {
     if (const auto* level = std::get_if<int64_t>(&row); level && IsVideoLevel(static_cast<int>(*level))) {
       out.push_back(static_cast<uint8_t>(*level));
     }
@@ -100,4 +98,4 @@ uint8_t PublishVideoLevel(const std::vector<uint8_t>& offered, const std::vector
   return level;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

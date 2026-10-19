@@ -1,7 +1,7 @@
 #pragma once
 
-#include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
-#include "domain/mesh/reach/MeshReachPorts.h"
+#include "mesh/l4/circuit/CircuitBridgeTarget.h"
+#include "mesh/reach/MeshReachPorts.h"
 
 #include "common/Module.h"
 #include "common/SerialExecutor.h"
@@ -14,9 +14,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /** Kind of mesh link a reach settled on. */
 enum class PeerLinkKind : uint8_t {
@@ -77,7 +75,7 @@ using PeerReachId = uint64_t;
 
 /**
  * What a reach dials through, and the lane it runs on: the mesh's io lane (`MeshConnectivity::Lane`;
- * THREADING.md § Mesh threads), or a test's. Null lane: no mesh — every reach fails at once.
+ * docs/THREADING.md), or a test's. Null lane: no mesh — every reach fails at once.
  */
 struct PeerReachPorts {
   IDialRegistry* dial = nullptr;
@@ -202,4 +200,4 @@ private:
   std::shared_ptr<std::atomic<bool>> alive_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,11 +1,11 @@
-#include "common/media/MediaChannel.h"
+#include "mesh/types/MediaChannel.h"
 
 #include <gtest/gtest.h>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
-// docs/contracts/MEDIA_CHANNELS.md: one byte, kind in the high nibble, level in the low one.
+// pp-browser docs/contracts/MEDIA_CHANNELS.md: one byte, kind in the high nibble, level in the low one.
 TEST(MediaChannelTest, KindAndLevelShareOneByte) {
   EXPECT_EQ(kMediaChannelAudio, 0x00);
   EXPECT_EQ(VideoChannel(1), 0x11);
@@ -28,4 +28,4 @@ TEST(MediaChannelTest, OnlyLevelsOneToFifteenAreVideo) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

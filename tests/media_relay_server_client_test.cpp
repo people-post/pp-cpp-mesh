@@ -1,8 +1,8 @@
-#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
-#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
-#include "domain/mesh/tests/support/mesh_test_harness.h"
-#include "common/directory/RelayScope.h"
-#include "domain/mesh/l4/shared/ProductChannelPolicies.h"
+#include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/testing/mesh_test_harness.h"
+#include "mesh/types/RelayScope.h"
+#include "mesh/l4/shared/ProductChannelPolicies.h"
 
 #include <gtest/gtest.h>
 
@@ -12,13 +12,13 @@
 #include <string>
 #include <thread>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 class MediaRelayServerClientTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    auto created = pbr::test::AmpMeshHarness::Create();
+    auto created = pp::mesh::test::AmpMeshHarness::Create();
     ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
     harness_ = std::move(*created);
     ASSERT_TRUE(static_cast<bool>(harness_->mgr_a().RegisterEndpoint("hop", harness_->ma_b)));
@@ -61,13 +61,13 @@ protected:
       };
     }
 
-    void PumpUntilDone(pbr::test::AmpMeshHarness& harness, const size_t max_rounds = 800) {
+    void PumpUntilDone(pp::mesh::test::AmpMeshHarness& harness, const size_t max_rounds = 800) {
       harness.PumpUntil([this] { return done.load(std::memory_order_acquire); }, max_rounds);
       ASSERT_TRUE(done.load(std::memory_order_acquire)) << "media-relay completion timed out";
     }
   };
 
-  std::unique_ptr<pbr::test::AmpMeshHarness> harness_;
+  std::unique_ptr<pp::mesh::test::AmpMeshHarness> harness_;
   std::unique_ptr<MediaRelayServer> hop_;
   std::unique_ptr<MediaRelayClientCoordinator> hop_client_;
   std::unique_ptr<MediaRelayClientCoordinator> client_;
@@ -296,9 +296,9 @@ TEST_F(MediaRelayServerClientTest, StrictRelayRefusesAPublisherWithoutItsLevel) 
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 class AmpMediaRelayClientLossTest : public MediaRelayServerClientTest {
@@ -455,4 +455,4 @@ TEST_F(AmpMediaRelayClientLossTest, AWriteThatFailsTheChannelDoesNotDeadlockTheS
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

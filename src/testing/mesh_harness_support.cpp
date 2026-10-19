@@ -1,9 +1,9 @@
-#include "domain/mesh/tests/support/mesh_harness_support.h"
+#include "mesh/testing/mesh_harness_support.h"
 
-#include "domain/mesh/host/AmpLinkConfig.h"
+#include "mesh/host/AmpLinkConfig.h"
 #include "crypto/PeerId.h"
 
-namespace pbr::test {
+namespace pp::mesh::test {
 
 pp::Roe<std::string> DeriveTestPeerId(const pp::amp::ByteVector& identity_public_key) {
   return pp::PeerIdFromMlDsaPublicKey(identity_public_key);
@@ -14,4 +14,4 @@ pp::amp::PeerLinkConfig AmpMeshTestLinkConfig() {
   return MakeProductAmpLinkConfig();
 }
 
-} // namespace pbr::test
+} // namespace pp::mesh::test

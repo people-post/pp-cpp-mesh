@@ -1,16 +1,14 @@
-#include "domain/mesh/discovery/AmpDirectoryProtocol.h"
+#include "mesh/discovery/AmpDirectoryProtocol.h"
 
 #include "common/SettledWait.h"
-#include "domain/mesh/tests/support/mesh_test_harness.h"
+#include "mesh/testing/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(AmpDirectoryProtocolTest, ListMeshNodesReturnsSeedSnapshot) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -80,4 +78,4 @@ TEST(AmpDirectoryProtocolTest, WrapLinkFailureMapsCodes) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

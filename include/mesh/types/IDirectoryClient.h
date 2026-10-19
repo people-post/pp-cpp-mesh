@@ -1,13 +1,11 @@
 #pragma once
 
-#include "common/directory/DirectoryTypes.h"
+#include "mesh/types/DirectoryTypes.h"
 #include "common/Error.h"
 
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /** Abstract directory / phone-book client (HTTP, Amp, failover, mocks). */
 class IDirectoryClient {
@@ -22,4 +20,4 @@ public:
   }
 };
 
-}  // namespace pbr
+}  // namespace pp::mesh

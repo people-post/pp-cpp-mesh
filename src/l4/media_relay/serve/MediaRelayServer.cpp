@@ -1,14 +1,14 @@
-#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/l4/media_relay/serve/MediaRelayServer.h"
 
-#include "domain/mesh/l4/shared/ChannelSessionSlot.h"
-#include "domain/mesh/l4/shared/ProductChannelPolicies.h"
+#include "mesh/l4/shared/ChannelSessionSlot.h"
+#include "mesh/l4/shared/ProductChannelPolicies.h"
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/PeerLink.h"
-#include "domain/mesh/l4/media_relay/MediaRelayBundleLogic.h"
-#include "domain/mesh/l4/media_relay/MediaRelayFrames.h"
-#include "domain/mesh/l4/media_relay/MediaRelayLogic.h"
-#include "domain/mesh/l4/media_relay/MediaRelayVideoLevels.h"
-#include "domain/mesh/l4/media_relay/serve/MediaRelayAttachSm.h"
+#include "mesh/l4/media_relay/MediaRelayBundleLogic.h"
+#include "mesh/l4/media_relay/MediaRelayFrames.h"
+#include "mesh/l4/media_relay/MediaRelayLogic.h"
+#include "mesh/l4/media_relay/MediaRelayVideoLevels.h"
+#include "mesh/l4/media_relay/serve/MediaRelayAttachSm.h"
 #include "common/ValueJson.h"
 #include "common/metrics/MetricsRegistry.h"
 #include "common/Lifetime.h"
@@ -22,9 +22,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -51,7 +49,7 @@ std::string MakeSessionToken() {
 
 namespace {
 
-/** Operator metrics (docs/contracts/NODE_METRICS.md § Media relay). */
+/** Operator metrics (pp-browser docs/contracts/NODE_METRICS.md § Media relay). */
 struct MediaRelayMetrics {
   MetricCounter& frames_received;
   MetricCounter& bytes_received;
@@ -292,16 +290,16 @@ struct MediaRelayServer::Impl {
   }
 
   static void SendAck(pp::amp::ChannelSession& channel, const char* op) {
-    Object ack;
+    common::Object ack;
     ack.set("v", int64_t{1});
     ack.set("ok", true);
     ack.set("op", op);
-    channel.EnqueueOutbound(JsonToBody(DumpJson(ack)));
+    channel.EnqueueOutbound(JsonToBody(common::DumpJson(ack)));
   }
 
   /** Requires `mu` held. */
   bool HandleParticipantControl(const std::shared_ptr<HostSession>& session,
-                                const std::shared_ptr<HostParticipant>& part, const Object& root) {
+                                const std::shared_ptr<HostParticipant>& part, const common::Object& root) {
     const std::string op = root.getString("op").value_or("");
     const uint32_t stream_id = static_cast<uint32_t>(root.getNonNegInt("stream_id").value_or(0));
     const uint16_t channel_id = static_cast<uint16_t>(root.getNonNegInt("channel_id").value_or(0));
@@ -337,7 +335,7 @@ struct MediaRelayServer::Impl {
       return true;
     }
     if (body[0] == '{') {
-      auto root = TryParseObject(BodyToJson(body));
+      auto root = common::TryParseObject(BodyToJson(body));
       if (!root) {
         return true;
       }
@@ -395,11 +393,11 @@ struct MediaRelayServer::Impl {
 
   void Reject(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const std::string& error,
               const MediaRelayAttachEvent ev) {
-    Object err;
+    common::Object err;
     err.set("v", int64_t{1});
     err.set("ok", false);
     err.set("error", error);
-    channel.EnqueueOutbound(JsonToBody(DumpJson(err)));
+    channel.EnqueueOutbound(JsonToBody(common::DumpJson(err)));
     (void)sm.Apply(ev);
     channel.Close();
   }
@@ -469,7 +467,7 @@ struct MediaRelayServer::Impl {
   }
 
   /** Requires `mu`. */
-  bool HandleQuote(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const Object& root,
+  bool HandleQuote(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const common::Object& root,
                    const MediaRelayOpAdmitContext& admit) {
     const auto decision = DecideMediaRelayOpAdmit(admit);
     if (decision != MediaRelayOpAdmitDecision::Allow) {
@@ -502,7 +500,7 @@ struct MediaRelayServer::Impl {
       return false;
     }
     metrics.quotes_issued.Inc();
-    Object quote_resp;
+    common::Object quote_resp;
     quote_resp.set("v", int64_t{1});
     quote_resp.set("ok", true);
     quote_resp.set("op", "quote");
@@ -516,13 +514,13 @@ struct MediaRelayServer::Impl {
     quote_resp.set("ceiling_bytes", q.ceiling_bytes);
     quote_resp.set("ceiling_amount", q.ceiling_amount);
     quote_resp.set("video_levels", VideoLevelsToJson(q.video_levels));
-    channel.EnqueueOutbound(JsonToBody(DumpJson(quote_resp)));
+    channel.EnqueueOutbound(JsonToBody(common::DumpJson(quote_resp)));
     (void)sm.Apply(MediaRelayAttachEvent::OpQuote);
     return true;
   }
 
   /** Requires `mu`. */
-  bool HandleAccept(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const Object& root,
+  bool HandleAccept(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const common::Object& root,
                     MediaRelayOpAdmitContext admit) {
     if (sm.phase != MediaRelayAttachPhase::Control && sm.phase != MediaRelayAttachPhase::Quoted) {
       Reject(channel, sm, "accept not allowed in phase", MediaRelayAttachEvent::OpAccept);
@@ -547,20 +545,20 @@ struct MediaRelayServer::Impl {
     quotes.Take(quote_id, now);
     sm.accepted_quote_id = quote_id;
     sm.session_token = MakeSessionToken();
-    Object accept_resp;
+    common::Object accept_resp;
     accept_resp.set("v", int64_t{1});
     accept_resp.set("ok", true);
     accept_resp.set("op", "accept");
     accept_resp.set("session_token", sm.session_token);
     accept_resp.set("quote_id", sm.accepted_quote_id);
-    channel.EnqueueOutbound(JsonToBody(DumpJson(accept_resp)));
+    channel.EnqueueOutbound(JsonToBody(common::DumpJson(accept_resp)));
     (void)sm.Apply(MediaRelayAttachEvent::OpAccept);
     return true;
   }
 
   /** Requires `mu`. */
   bool HandleAttach(const std::shared_ptr<pp::amp::ChannelSession>& channel, MediaRelayAttachSm& sm,
-                    const Object& root, MediaRelayOpAdmitContext admit) {
+                    const common::Object& root, MediaRelayOpAdmitContext admit) {
     if (!sm.Apply(MediaRelayAttachEvent::OpAttach)) {
       metrics.attaches_refused.Inc();
       Reject(*channel, sm, "attach not allowed in phase", MediaRelayAttachEvent::OpAttach);
@@ -610,7 +608,7 @@ struct MediaRelayServer::Impl {
   /** Control JSON on an inbound channel: quote → accept → attach, then participant control. */
   bool HandleInboundControl(const std::shared_ptr<pp::amp::ChannelSession>& channel, MediaRelayAttachSm& sm,
                             const std::vector<uint8_t>& frame) {
-    auto root = TryParseObject(BodyToJson(frame));
+    auto root = common::TryParseObject(BodyToJson(frame));
     if (!root) {
       Reject(*channel, sm, "invalid media-relay json", MediaRelayAttachEvent::Cancel);
       return false;
@@ -864,4 +862,4 @@ bool MediaRelayServer::SendLocal(const MediaDataFrame& frame) {
   return true;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

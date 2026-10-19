@@ -2,7 +2,7 @@
 
 #include <chrono>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * The device's network attachment changed (k5). Mesh vocabulary only: the platform's monitor
@@ -33,4 +33,4 @@ LocalNetworkReaction DecideLocalNetworkReaction(const LocalNetworkChange& change
 /** Re-probe reachability once link probing settled (past Amp's 2 s network-change grace). */
 inline constexpr std::chrono::milliseconds kReachabilityReprobeAfterNetworkChange{2500};
 
-} // namespace pbr
+} // namespace pp::mesh

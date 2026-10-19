@@ -1,6 +1,6 @@
 #pragma once
 
-#include "domain/mesh/dht/DhtTypes.h"
+#include "mesh/dht/DhtTypes.h"
 
 #include "common/Error.h"
 #include "common/Value.h"
@@ -9,14 +9,12 @@
 #include <span>
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 std::vector<uint8_t> BuildPeerRoutingSignBytes(const PeerRoutingRecord& record);
 
-Object PeerRoutingRecordToObject(const PeerRoutingRecord& record);
-Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const Object& object);
+common::Object PeerRoutingRecordToObject(const PeerRoutingRecord& record);
+Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const common::Object& object);
 
 Roe<PeerRoutingRecord> SignPeerRoutingRecord(PeerRoutingRecord record,
                                              std::span<const uint8_t> device_signing_secret);
@@ -32,4 +30,4 @@ MeshDirectoryNode MeshDirectoryNodeFromDhtRecord(const PeerRoutingRecord& record
 std::vector<MeshDirectoryNode> MeshDirectoryNodesFromDhtRecords(
     const std::vector<PeerRoutingRecord>& records);
 
-} // namespace pbr
+} // namespace pp::mesh

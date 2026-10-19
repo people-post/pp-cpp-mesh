@@ -1,22 +1,20 @@
-#include "domain/mesh/reachability/punch/serve/PunchServer.h"
+#include "mesh/reachability/punch/serve/PunchServer.h"
 
 #include "common/metrics/MetricsRegistry.h"
 
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/PeerLink.h"
-#include "domain/mesh/reachability/punch/PunchLogic.h"
+#include "mesh/reachability/punch/PunchLogic.h"
 #include "common/Logger.h"
 #include "common/ValueJson.h"
 #include "common/Lifetime.h"
-#include "domain/mesh/shared/AmpParkUntil.h"
+#include "mesh/shared/AmpParkUntil.h"
 
 #include <atomic>
 #include <chrono>
 #include <optional>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 logging::Logger& AmpPunchLog() {
@@ -256,7 +254,7 @@ struct PunchServer::Impl {
                                   PunchFailure::Of(PunchErr::ProtocolError, "punch: failed to read target candidates")));
                               return false;
                             }
-                            auto root = TryParseObject(std::string(frame->begin(), frame->end()));
+                            auto root = common::TryParseObject(std::string(frame->begin(), frame->end()));
                             if (!root) {
                               finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
                                   PunchFailure::Of(PunchErr::ProtocolError, "punch: invalid target candidates json")));
@@ -332,7 +330,7 @@ struct PunchServer::Impl {
                        [complete](pp::amp::BurstDialResult r) { (*complete)(ToPunchBurst(std::move(r))); });
   }
 
-  /** pp_punch_served_total{role} (docs/contracts/NODE_METRICS.md § Reachability). */
+  /** pp_punch_served_total{role} (pp-browser docs/contracts/NODE_METRICS.md § Reachability). */
   void CountServed(const char* role) {
     metrics
         .Counter("pp_punch_served_total", "Punch requests this node served, by role.", {{"role", role}})
@@ -346,7 +344,7 @@ struct PunchServer::Impl {
     if (stopped.load(std::memory_order_acquire) || !runtime || !session) {
       return;
     }
-    auto root = TryParseObject(json_utf8);
+    auto root = common::TryParseObject(json_utf8);
     if (!root) {
       return;
     }
@@ -469,4 +467,4 @@ void PunchServer::Stop() {
   impl_->deferred.Invalidate();
 }
 
-} // namespace pbr
+} // namespace pp::mesh

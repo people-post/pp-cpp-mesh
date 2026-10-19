@@ -1,12 +1,12 @@
-#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
-#include "domain/mesh/reachability/punch/PunchLogic.h"
-#include "domain/mesh/reachability/punch/PunchTypes.h"
+#include "mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "mesh/reachability/punch/PunchLogic.h"
+#include "mesh/reachability/punch/PunchTypes.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/link/PeerLink.h"
 #include "common/SettledWait.h"
-#include "domain/mesh/tests/support/mesh_test_harness.h"
-#include "domain/mesh/tests/support/mesh_triple_harness.h"
+#include "mesh/testing/mesh_test_harness.h"
+#include "mesh/testing/mesh_triple_harness.h"
 
 #include <gtest/gtest.h>
 
@@ -14,19 +14,17 @@
 #include <functional>
 #include <optional>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 /** Shared prelude for SyncWindowExpiry stage tests: A↔R↔B associated, no A↔B. */
 struct PunchExpiryStageFixture {
-  std::unique_ptr<pbr::test::AmpMeshTripleHarness> harness;
+  std::unique_ptr<pp::mesh::test::AmpMeshTripleHarness> harness;
   std::string blackhole_a;
   std::string blackhole_b;
 
   static testing::AssertionResult Create(PunchExpiryStageFixture* out) {
-    auto created = pbr::test::AmpMeshTripleHarness::Create();
+    auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
     if (!created) {
       return testing::AssertionFailure() << created.error().message;
     }
@@ -61,12 +59,12 @@ struct PunchExpiryStageFixture {
 };
 
 /** Shared IoPump for AmpParkUntil: exclusive Drive via harness PumpAll (no nested Tick from SM). */
-std::function<void()> MakeTriplePunchPump(pbr::test::AmpMeshTripleHarness& harness) {
+std::function<void()> MakeTriplePunchPump(pp::mesh::test::AmpMeshTripleHarness& harness) {
   return [&harness]() { harness.PumpAll(); };
 }
 
 TEST(AmpPunchCoordinatorTest, NotStartedReturnsCodedFailure) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -77,7 +75,7 @@ TEST(AmpPunchCoordinatorTest, NotStartedReturnsCodedFailure) {
 }
 
 TEST(AmpPunchCoordinatorTest, StartedRequiresIntroducerEndpoint) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -91,7 +89,7 @@ TEST(AmpPunchCoordinatorTest, StartedRequiresIntroducerEndpoint) {
 }
 
 TEST(AmpPunchCoordinatorTest, SeedIntroducerColdPunchConnectsAToB) {
-  auto created = pbr::test::AmpMeshTripleHarness::Create();
+  auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -214,7 +212,7 @@ TEST(AmpPunchCoordinatorTest, TargetDeclinesAnInitiatorOutsideItsAudience) {
 }
 
 TEST(AmpPunchCoordinatorTest, ContactIntroducerColdPunchConnectsAToB) {
-  auto created = pbr::test::AmpMeshTripleHarness::Create();
+  auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -283,7 +281,7 @@ TEST(AmpPunchCoordinatorTest, ContactIntroducerColdPunchConnectsAToB) {
  * Connected Session for the same PeerId (A027 parent-only drop).
  */
 TEST(AmpPunchCoordinatorTest, DualDialRaceElectsSingleConnectedSession) {
-  auto created = pbr::test::AmpMeshTripleHarness::Create();
+  auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -547,7 +545,7 @@ struct BlackholePunchOutcome {
 
 BlackholePunchOutcome RunBlackholeCandidatePunch(const bool a_b_reachable) {
   BlackholePunchOutcome out;
-  auto created = pbr::test::AmpMeshTripleHarness::Create();
+  auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
   EXPECT_TRUE(static_cast<bool>(created)) << created.error().message;
   if (!created) {
     return out;
@@ -631,7 +629,7 @@ TEST(AmpPunchCoordinatorTest, IntroducerObservedEndpointsLetThePunchLand) {
 } // namespace
 
 TEST(AmpPunchCoordinatorTest, PublishPunchWinnerAddrsUpsertsPeerIdEndpoint) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -642,4 +640,4 @@ TEST(AmpPunchCoordinatorTest, PublishPunchWinnerAddrsUpsertsPeerIdEndpoint) {
   EXPECT_EQ(*harness->mgr_a().PreferredMultiaddr(harness->peer_id_b), harness->ma_b);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

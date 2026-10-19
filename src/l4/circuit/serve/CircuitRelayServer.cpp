@@ -1,21 +1,21 @@
-#include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "mesh/l4/circuit/serve/CircuitRelayServer.h"
 
-#include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
+#include "mesh/l4/circuit/CircuitBridgeTarget.h"
 #include "common/metrics/MetricsRegistry.h"
-#include "domain/mesh/l4/circuit/CircuitBundleLogic.h"
-#include "domain/mesh/l4/circuit/CircuitChannelPolicy.h"
-#include "domain/mesh/l4/circuit/CircuitServeDialPolicy.h"
+#include "mesh/l4/circuit/CircuitBundleLogic.h"
+#include "mesh/l4/circuit/CircuitChannelPolicy.h"
+#include "mesh/l4/circuit/CircuitServeDialPolicy.h"
 
 #include "amp/L3/ChannelBridge.h"
 #include "amp/L3/ChannelSession.h"
-#include "domain/mesh/l4/shared/ChannelSessionSlot.h"
-#include "domain/mesh/l4/shared/ProductChannelPolicies.h"
+#include "mesh/l4/shared/ChannelSessionSlot.h"
+#include "mesh/l4/shared/ProductChannelPolicies.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/PeerLink.h"
 #include "amp/link/Types.h"
 #include "common/ValueJson.h"
 #include "common/Logger.h"
-#include "domain/mesh/shared/AmpChannelOpen.h"
+#include "mesh/shared/AmpChannelOpen.h"
 #include "common/Lifetime.h"
 
 #include <algorithm>
@@ -24,9 +24,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -46,11 +44,11 @@ std::string BodyToJson(const std::vector<uint8_t>& body) {
 }
 
 std::vector<uint8_t> ErrorBody(const std::string& message) {
-  Object err;
+  common::Object err;
   err.set("v", int64_t{1});
   err.set("ok", false);
   err.set("error", message);
-  return JsonToBody(DumpJson(err));
+  return JsonToBody(common::DumpJson(err));
 }
 
 /**
@@ -97,7 +95,7 @@ int64_t SteadyMs(const Clock::time_point t) {
 
 namespace {
 
-/** Operator metrics (docs/contracts/NODE_METRICS.md § Circuit relay). */
+/** Operator metrics (pp-browser docs/contracts/NODE_METRICS.md § Circuit relay). */
 struct CircuitRelayMetrics {
   MetricCounter& bridge_accepted;
   MetricCounter& bridge_refused_admission;
@@ -497,11 +495,11 @@ struct CircuitRelayServer::Impl {
     tunnel.far_session->Bind(*target_link.Mux(), channel_id, CircuitTargetChannelPolicy(tunnel.target.target_protocol),
                              [](Roe<std::vector<uint8_t>>) { return true; });
 
-    Object response;
+    common::Object response;
     response.set("v", int64_t{1});
     response.set("ok", true);
     response.set("resolved_multiaddr", tunnel.resolved_multiaddr);
-    if (!tunnel.near_session->EnqueueOutbound(JsonToBody(DumpJson(response)))) {
+    if (!tunnel.near_session->EnqueueOutbound(JsonToBody(common::DumpJson(response)))) {
       TearDown(tunnel, false, "failed to ack bridge");
       return;
     }
@@ -675,7 +673,7 @@ struct CircuitRelayServer::Impl {
 
   /** Off-IO continuation of an inbound request (op=reserve or op=bridge). */
   void HandleRequest(const std::shared_ptr<pp::amp::ChannelSession>& near_session, const std::string& remote,
-                     const Object& root) {
+                     const common::Object& root) {
     const std::string op = root.getString("op").value_or("");
     CircuitAdmitContext admit;
     admit.service_started = started.load(std::memory_order_acquire) && serve_inbound.load(std::memory_order_acquire);
@@ -749,7 +747,7 @@ struct CircuitRelayServer::Impl {
 
   template <typename Refuse>
   void HandleReserve(const std::shared_ptr<pp::amp::ChannelSession>& near_session, const std::string& remote,
-                     const Object& root, Refuse& refuse) {
+                     const common::Object& root, Refuse& refuse) {
     if (remote.empty()) {
       metrics.reserve_refused.Inc();
       CircuitTunnelLog().warning << "circuit reserve refused: remote peer id unknown";
@@ -766,11 +764,11 @@ struct CircuitRelayServer::Impl {
     }
     metrics.reserve_accepted.Inc();
     CircuitTunnelLog().info << "circuit reserve key=" << remote << " timeout_ms=" << timeout_ms;
-    Object ack;
+    common::Object ack;
     ack.set("v", int64_t{1});
     ack.set("ok", true);
     ack.set("op", "reserve");
-    near_session->EnqueueOutbound(JsonToBody(DumpJson(ack)));
+    near_session->EnqueueOutbound(JsonToBody(common::DumpJson(ack)));
     // Answerer park may complete after the dialer already armed a ServeDial wait.
     NotifyFarLegReady(remote);
   }
@@ -795,7 +793,7 @@ struct CircuitRelayServer::Impl {
                          if (started_req->exchange(true, std::memory_order_acq_rel)) {
                            return true;  // superseded once tunnel Bind/Bridge takes over
                          }
-                         auto root = TryParseObject(BodyToJson(*frame));
+                         auto root = common::TryParseObject(BodyToJson(*frame));
                          if (!root) {
                            near_session->EnqueueOutbound(ErrorBody("invalid circuit-relay json"));
                            return false;
@@ -923,4 +921,4 @@ void CircuitRelayServer::AbortInflight() {
   impl_->deferred.Invalidate();
 }
 
-} // namespace pbr
+} // namespace pp::mesh

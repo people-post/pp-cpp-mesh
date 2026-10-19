@@ -1,13 +1,13 @@
 #pragma once
 
-#include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
-#include "common/directory/RelayScope.h"
+#include "mesh/l4/circuit/CircuitBridgeTarget.h"
+#include "mesh/types/RelayScope.h"
 
 #include <cstdint>
 #include <string>
 #include <unordered_set>
 
-namespace pbr {
+namespace pp::mesh {
 
 struct CircuitTunnelId {
   uint64_t value = 0;
@@ -96,4 +96,4 @@ CircuitTunnelCloseDecision DecideCircuitTunnelClose(const CircuitTunnelCloseCont
 
 bool CircuitTunnelPhaseIsActive(CircuitTunnelPhase phase);
 
-} // namespace pbr
+} // namespace pp::mesh

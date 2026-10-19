@@ -1,8 +1,8 @@
-#include "domain/mesh/host/AmpLinkConfig.h"
+#include "mesh/host/AmpLinkConfig.h"
 
 #include "amp/link/PeerId.h"
 
-namespace pbr {
+namespace pp::mesh {
 
 pp::amp::PeerLinkConfig MakeProductAmpLinkConfig() {
   pp::amp::PeerLinkConfig config;
@@ -12,4 +12,4 @@ pp::amp::PeerLinkConfig MakeProductAmpLinkConfig() {
   return config;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

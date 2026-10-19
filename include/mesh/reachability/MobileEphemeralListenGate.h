@@ -1,6 +1,6 @@
 #pragma once
 
-namespace pbr {
+namespace pp::mesh {
 
 struct MobileEphemeralListenInput {
   bool is_mobile = false;
@@ -16,4 +16,4 @@ struct MobileEphemeralListenInput {
 bool ShouldStartMobileEphemeralListen(const MobileEphemeralListenInput& in);
 bool ShouldStopMobileEphemeralListen(const MobileEphemeralListenInput& in);
 
-} // namespace pbr
+} // namespace pp::mesh

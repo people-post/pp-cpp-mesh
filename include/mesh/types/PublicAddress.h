@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Public-routable host checks for the post-DNS SSRF guard on peer-supplied URLs (`HttpClient`
@@ -20,4 +20,4 @@ bool IsPublicIPv4(uint32_t host_order_addr);
  */
 bool IsPublicIPv6(const uint8_t* addr);
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,12 +1,10 @@
-#include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
-#include "domain/mesh/reach/PunchIntroducerWalk.h"
+#include "mesh/reach/CircuitRendezvousCoordinator.h"
+#include "mesh/reach/PunchIntroducerWalk.h"
 
 #include <gtest/gtest.h>
 #include <optional>
 #include <string>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 // No mesh (before start / after stop): the punch step answers at once instead of hanging reach.
@@ -40,4 +38,4 @@ TEST(CircuitRendezvousCoordinatorTest, WithoutAMeshNothingIsDialableAndParkingAn
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

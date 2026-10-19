@@ -4,7 +4,7 @@
 
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Adapter from MeshRuntime::BurstDialResult for ACP result publish. */
 struct PunchBurstResult {
@@ -16,4 +16,4 @@ struct PunchBurstResult {
 /** True when Connected ADP exists for peer_id (not carrier). */
 bool PeerAlreadyConnectedDirect(pp::amp::PeerLinkManager& links, const std::string& peer_id);
 
-} // namespace pbr
+} // namespace pp::mesh

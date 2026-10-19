@@ -1,14 +1,12 @@
-#include "domain/mesh/l4/media_relay/client/AmpMediaRelayClient.h"
+#include "mesh/l4/media_relay/client/AmpMediaRelayClient.h"
 
 #include "common/SettledWait.h"
-#include "domain/mesh/shared/AmpParkUntil.h"
+#include "mesh/shared/AmpParkUntil.h"
 
 #include <atomic>
 #include <chrono>
 #include <memory>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -161,4 +159,4 @@ double AmpMediaRelayClient::PathPressure() const { return coordinator_.PathPress
 
 MediaRelayClientHealth AmpMediaRelayClient::HealthSnapshot() const { return coordinator_.HealthSnapshot(); }
 
-} // namespace pbr
+} // namespace pp::mesh

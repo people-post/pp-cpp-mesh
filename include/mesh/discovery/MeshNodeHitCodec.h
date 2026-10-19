@@ -1,14 +1,13 @@
 #pragma once
 
-#include "common/directory/DirectoryTypes.h"
+#include "mesh/types/DirectoryTypes.h"
 #include "common/Error.h"
-#include "common/PbrCompat.h"
+#include "common/Value.h"
+namespace pp::mesh {
 
-namespace pbr {
+common::Object MeshNodeHitToObject(const MeshNodeHit& hit);
+Roe<MeshNodeHit> MeshNodeHitFromObject(const common::Object& object);
+common::Value MeshNodeHitsToJsonArray(const std::vector<MeshNodeHit>& hits);
+Roe<std::vector<MeshNodeHit>> MeshNodeHitsFromJsonArray(const common::Array& nodes);
 
-Object MeshNodeHitToObject(const MeshNodeHit& hit);
-Roe<MeshNodeHit> MeshNodeHitFromObject(const Object& object);
-Value MeshNodeHitsToJsonArray(const std::vector<MeshNodeHit>& hits);
-Roe<std::vector<MeshNodeHit>> MeshNodeHitsFromJsonArray(const Array& nodes);
-
-} // namespace pbr
+} // namespace pp::mesh

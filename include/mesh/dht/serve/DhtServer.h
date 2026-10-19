@@ -1,16 +1,14 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/dht/DhtRateLimiter.h"
-#include "domain/mesh/dht/DhtRecordStore.h"
-#include "domain/mesh/dht/DhtTypes.h"
-#include "common/PbrCompat.h"
-
+#include "mesh/dht/DhtRateLimiter.h"
+#include "mesh/dht/DhtRecordStore.h"
+#include "mesh/dht/DhtTypes.h"
 #include <cstdint>
 #include <functional>
 #include <memory>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Serving side of the Amp mesh DHT (`/pp-mesh/dht/1.0.0`): answers `ping`, `find_peer` from the
@@ -49,4 +47,4 @@ private:
   bool started_ = false;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

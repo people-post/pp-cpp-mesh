@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Active helper load aggregates for ambient chrome (network-status-chrome s3 / S008–S009). */
 struct CircuitRelayRuntimeStats {
@@ -36,4 +36,4 @@ struct RelayRuntimeStats {
   bool media_serving = false;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,15 +1,13 @@
 #pragma once
 
 #include "common/Error.h"
-#include "domain/mesh/l4/shared/MediaFrameBody.h"
+#include "mesh/l4/shared/MediaFrameBody.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * AEAD AAD for an end-to-end encrypted `media_relay` frame: `<context>|epoch|stream_id|seq|channel`.
@@ -29,4 +27,4 @@ Roe<MediaFrameOpened> OpenMediaRelayFrame(const ByteVector& media_key, const std
                                           uint32_t media_epoch, uint32_t stream_id, uint8_t channel,
                                           const std::vector<uint8_t>& body);
 
-} // namespace pbr
+} // namespace pp::mesh

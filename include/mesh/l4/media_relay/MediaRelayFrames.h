@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** N021 media data frame wire constants (shared by encode/decode + length-prefixed IO). */
 inline constexpr uint8_t kMediaDataVersion = 1;
@@ -15,4 +15,4 @@ inline uint64_t MediaRelaySubKey(const uint32_t stream_id, const uint16_t channe
   return (static_cast<uint64_t>(stream_id) << 16) | channel_id;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

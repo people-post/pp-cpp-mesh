@@ -1,13 +1,11 @@
 #pragma once
 
-#include "common/directory/RelayScope.h"
-#include "domain/mesh/l4/shared/L4ProtocolIds.h"
-#include "common/PbrCompat.h"
-
+#include "mesh/types/RelayScope.h"
+#include "mesh/l4/shared/L4ProtocolIds.h"
 #include <string>
 #include <unordered_set>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Provider admission (nf / N023): scope mask + contact PeerIds. */
 struct CircuitRelayAdmissionPolicy {
@@ -24,4 +22,4 @@ struct CircuitRelayBridgeResult {
   std::string resolved_multiaddr;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

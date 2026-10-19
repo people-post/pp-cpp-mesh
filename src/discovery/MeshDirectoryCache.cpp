@@ -1,22 +1,20 @@
-#include "domain/mesh/discovery/MeshDirectoryCache.h"
+#include "mesh/discovery/MeshDirectoryCache.h"
 
-#include "domain/mesh/discovery/NameDirectory.h"
+#include "mesh/discovery/NameDirectory.h"
 #include "common/AtomicFileWrite.h"
-#include "domain/mesh/shared/MeshExecutors.h"
+#include "mesh/shared/MeshExecutors.h"
 #include "common/ValueJson.h"
 
 #include <fstream>
 #include <memory>
 #include <optional>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 constexpr int kMeshDirectoryCacheSchemaVersion = 1;
 
-Object NodeToObject(const MeshDirectoryNode& node) {
-  Object o;
+common::Object NodeToObject(const MeshDirectoryNode& node) {
+  common::Object o;
   o.set("peer_id", node.peer_id);
   o.set("account_id", node.account_id);
   o.set("nickname", node.nickname);
@@ -27,16 +25,16 @@ Object NodeToObject(const MeshDirectoryNode& node) {
   o.set("media_relay", node.media_relay);
   o.set("dht", node.dht);
   o.set("ledger_gateway", node.ledger_gateway);
-  std::vector<Value> mas;
+  std::vector<common::Value> mas;
   mas.reserve(node.multiaddrs.size());
   for (const std::string& ma : node.multiaddrs) {
     mas.emplace_back(ma);
   }
-  o.set("multiaddrs", makeArray(std::move(mas)));
+  o.set("multiaddrs", common::makeArray(std::move(mas)));
   return o;
 }
 
-std::optional<MeshDirectoryNode> NodeFromObject(const Object& o) {
+std::optional<MeshDirectoryNode> NodeFromObject(const common::Object& o) {
   MeshDirectoryNode node;
   node.peer_id = o.getString("peer_id").value_or("");
   if (node.peer_id.empty()) {
@@ -51,9 +49,9 @@ std::optional<MeshDirectoryNode> NodeFromObject(const Object& o) {
   node.media_relay = o.getIf<bool>("media_relay").value_or(false);
   node.dht = o.getIf<bool>("dht").value_or(false);
   node.ledger_gateway = o.getIf<bool>("ledger_gateway").value_or(false);
-  if (const Array* mas = o.getArray("multiaddrs")) {
-    for (const Value& v : mas->elements) {
-      if (auto s = asString(v)) {
+  if (const common::Array* mas = o.getArray("multiaddrs")) {
+    for (const common::Value& v : mas->elements) {
+      if (auto s = common::asString(v)) {
         if (!s->empty()) {
           node.multiaddrs.push_back(*s);
         }
@@ -111,7 +109,7 @@ void MeshDirectoryCache::LoadPersisted() {
     return;
   }
   const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  auto root = TryParseObject(body);
+  auto root = common::TryParseObject(body);
   if (!root) {
     return;
   }
@@ -119,14 +117,14 @@ void MeshDirectoryCache::LoadPersisted() {
   if (version != kMeshDirectoryCacheSchemaVersion) {
     return;
   }
-  const Array* arr = root->getArray("nodes");
+  const common::Array* arr = root->getArray("nodes");
   if (!arr) {
     return;
   }
   std::vector<MeshDirectoryNode> loaded;
   loaded.reserve(arr->elements.size());
-  for (const Value& v : arr->elements) {
-    const Object* o = asObject(v);
+  for (const common::Value& v : arr->elements) {
+    const common::Object* o = common::asObject(v);
     if (!o) {
       continue;
     }
@@ -171,15 +169,15 @@ void MeshDirectoryCache::PersistLocked() const {
   if (persist_path_.empty() || nodes_.empty()) {
     return;
   }
-  Object root;
+  common::Object root;
   root.set("schema_version", int64_t{kMeshDirectoryCacheSchemaVersion});
-  std::vector<Value> rows;
+  std::vector<common::Value> rows;
   rows.reserve(nodes_.size());
   for (const MeshDirectoryNode& node : nodes_) {
-    rows.emplace_back(std::make_shared<Object>(NodeToObject(node)));
+    rows.emplace_back(std::make_shared<common::Object>(NodeToObject(node)));
   }
-  root.set("nodes", makeArray(std::move(rows)));
-  (void)AtomicFileWrite::Write(persist_path_, DumpJson(root, 2));
+  root.set("nodes", common::makeArray(std::move(rows)));
+  (void)AtomicFileWrite::Write(persist_path_, common::DumpJson(root, 2));
 }
 
 void MeshDirectoryCache::ApplyRefreshResult(Roe<std::vector<MeshDirectoryNode>> result) {
@@ -236,4 +234,4 @@ std::vector<MeshDirectoryNode> MeshDirectoryNodesFromHits(const std::vector<Mesh
   return MeshDirectoryNodesFromNameRecords(NameRecordsFromMeshNodeHits(hits));
 }
 
-} // namespace pbr
+} // namespace pp::mesh

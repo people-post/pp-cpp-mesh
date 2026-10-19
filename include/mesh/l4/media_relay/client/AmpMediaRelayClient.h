@@ -1,13 +1,13 @@
 #pragma once
 
-#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
-#include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
+#include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "mesh/l4/media_relay/client/IMediaRelayClient.h"
 
 #include <chrono>
 #include <functional>
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * IMediaRelayClient over MediaRelayClientCoordinator ([A020]).
@@ -62,4 +62,4 @@ private:
   std::string local_peer_id_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

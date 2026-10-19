@@ -5,13 +5,11 @@
 
 #include <cstdint>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Which video levels a relay carries (operator config; peer-scoped-broadcast B009). Levels are
- * opaque ordered integers (docs/contracts/MEDIA_CHANNELS.md).
+ * opaque ordered integers (pp-browser docs/contracts/MEDIA_CHANNELS.md).
  */
 struct MediaRelayVideoPolicy {
   /** Levels this relay serves; empty = any. */
@@ -44,8 +42,8 @@ Roe<std::vector<uint8_t>> ChooseCarriedVideoLevels(const MediaRelayVideoOffer& o
 uint8_t PublishVideoLevel(const std::vector<uint8_t>& offered, const std::vector<uint8_t>& carried);
 
 /** Levels as a JSON array of integers (quote offer / answer). */
-Value VideoLevelsToJson(const std::vector<uint8_t>& levels);
+common::Value VideoLevelsToJson(const std::vector<uint8_t>& levels);
 /** Valid levels in `key`'s array (others skipped); empty when absent. */
-std::vector<uint8_t> VideoLevelsFromJson(const Object& json, const char* key);
+std::vector<uint8_t> VideoLevelsFromJson(const common::Object& json, const char* key);
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,13 +1,11 @@
 #pragma once
 
-#include "common/privacy/AddressDisclosure.h"
-#include "domain/mesh/host/MeshPorts.h"
+#include "mesh/types/AddressDisclosure.h"
+#include "mesh/host/MeshPorts.h"
 
 #include <memory>
 #include <string>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Peer links for product transports that talk to people (chat, attachments, history), limited to the
@@ -54,4 +52,4 @@ private:
   const AddressDisclosureGate& gate_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

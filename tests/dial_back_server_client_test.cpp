@@ -1,8 +1,8 @@
-#include "domain/mesh/reachability/dial_back/client/DialBackClient.h"
-#include "domain/mesh/reachability/dial_back/serve/DialBackServer.h"
+#include "mesh/reachability/dial_back/client/DialBackClient.h"
+#include "mesh/reachability/dial_back/serve/DialBackServer.h"
 
-#include "domain/mesh/reachability/dial_back/DialBackTypes.h"
-#include "domain/mesh/tests/support/mesh_test_harness.h"
+#include "mesh/reachability/dial_back/DialBackTypes.h"
+#include "mesh/testing/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
 
@@ -11,11 +11,11 @@
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(DialBackServerClientTest, ProbeRoundTripOk) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -42,7 +42,7 @@ TEST(DialBackServerClientTest, ProbeRoundTripOk) {
 }
 
 TEST(DialBackServerClientTest, ProbeNotStartedReturnsCodedFailure) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -77,7 +77,7 @@ TEST(DialBackServerClientTest, WrapLinkFailureMapsCodes) {
 }
 
 TEST(DialBackServerClientTest, ProbeRejectsNonAdpTarget) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -103,7 +103,7 @@ TEST(DialBackServerClientTest, ProbeRejectsNonAdpTarget) {
 }
 
 TEST(DialBackServerClientTest, ProbeRejectsTargetNotMatchingObservedHost) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -135,7 +135,7 @@ TEST(DialBackServerClientTest, ProbeFiltersToObservedHostBeforeCappingTargetCoun
   // kMaxDialBackTargets (4). Capping first would let a requester pad the request with 4+
   // non-matching decoys ahead of the one real (matching) target and have that legitimate
   // target dropped before the host filter ever saw it.
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -203,7 +203,7 @@ TEST(DialBackTargetAllowedTest, OwnHostOwnPrefixOrPublicAcrossFamilies) {
 // Review regression: a client whose link to the seed runs over IPv4 still gets its global IPv6
 // target dialed (it used to be filtered out, so the client looked unreachable over IPv6).
 TEST(DialBackServerClientTest, GlobalV6TargetIsDialedOverAV4Link) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -229,4 +229,4 @@ TEST(DialBackServerClientTest, GlobalV6TargetIsDialedOverAV4Link) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

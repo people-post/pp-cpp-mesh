@@ -1,6 +1,6 @@
-#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 
-namespace pbr {
+namespace pp::mesh {
 
 std::string AmpCircuitHopRegistry::Key(const std::string& peer_key, const std::string& target_protocol) {
   return peer_key + '\x1f' + target_protocol;
@@ -72,4 +72,4 @@ void AmpCircuitHopRegistry::ClearAll() {
   hops_.clear();
 }
 
-} // namespace pbr
+} // namespace pp::mesh

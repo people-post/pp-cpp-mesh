@@ -1,6 +1,6 @@
 #pragma once
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * The mesh's own Amp L4 protocol ids. Kept apart from each protocol's types so layers below a
@@ -12,4 +12,4 @@ inline constexpr const char* kCircuitRelayProtocolId = kCircuitProtocolId;
 inline constexpr const char* kDatagramRelayProtocolId = "/pp-browser/datagram-relay/1.0.0";
 inline constexpr const char* kMediaRelayProtocolId = kDatagramRelayProtocolId;
 
-} // namespace pbr
+} // namespace pp::mesh

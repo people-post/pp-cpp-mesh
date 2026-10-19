@@ -1,9 +1,7 @@
-#include "domain/mesh/l4/media_relay/serve/MediaRelayAttachSm.h"
+#include "mesh/l4/media_relay/serve/MediaRelayAttachSm.h"
 
 #include "common/Logger.h"
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -114,4 +112,4 @@ bool MediaRelayAttachSm::Apply(const MediaRelayAttachEvent ev) {
   return false;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

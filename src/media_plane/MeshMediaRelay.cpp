@@ -1,11 +1,9 @@
-#include "domain/mesh/media_plane/MeshMediaRelay.h"
+#include "mesh/media_plane/MeshMediaRelay.h"
 
-#include "domain/mesh/l4/media_relay/client/AmpMediaRelayClient.h"
+#include "mesh/l4/media_relay/client/AmpMediaRelayClient.h"
 
 #include <utility>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 MeshMediaRelay::MeshMediaRelay(MeshConnectivity& connectivity) : connectivity_(connectivity) {
   redirectLogger("MeshMediaRelay");
 }
@@ -69,4 +67,4 @@ MediaRelayAttachPorts MeshMediaRelay::RelayAttachPorts() const {
   return ports;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

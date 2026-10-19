@@ -1,16 +1,14 @@
-#include "domain/mesh/dht/AmpDhtProtocol.h"
+#include "mesh/dht/AmpDhtProtocol.h"
 
 #include "common/SettledWait.h"
-#include "domain/mesh/tests/support/mesh_test_harness.h"
+#include "mesh/testing/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(AmpDhtProtocolTest, FindPeerReturnsBootstrapRecord) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -65,7 +63,7 @@ TEST(AmpDhtProtocolTest, FindPeerReturnsBootstrapRecord) {
 // It used to hang: its concurrency slot never came back, and after max_concurrent_lookups (4)
 // such lookups every find_peer failed with ConcurrencyLimit for the process's lifetime.
 TEST(AmpDhtProtocolTest, LookupToASilentPeerSettlesAndFreesItsSlot) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
   ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
@@ -105,7 +103,7 @@ TEST(AmpDhtProtocolTest, LookupToASilentPeerSettlesAndFreesItsSlot) {
 
 /** Lab acceptance: two participating Nodes discover each other's ADP addrs (no Brief HTTP). */
 TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
-  auto created = pbr::test::AmpMeshHarness::Create();
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto harness = std::move(*created);
 
@@ -181,4 +179,4 @@ TEST(AmpDhtProtocolTest, WrapLinkFailureMapsCodes) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

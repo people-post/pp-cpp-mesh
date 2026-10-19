@@ -1,6 +1,6 @@
-#include "domain/mesh/reach/PeerReachCoordinator.h"
+#include "mesh/reach/PeerReachCoordinator.h"
 
-#include "domain/mesh/reach/MeshReachPorts.h"
+#include "mesh/reach/MeshReachPorts.h"
 #include "common/ThreadExecutor.h"
 
 #include <atomic>
@@ -14,7 +14,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 constexpr const char* kPeer = "12D3KooWReachPeer";
@@ -417,7 +417,7 @@ TEST_F(PeerReachCoordinatorTest, NoLaneFailsAtOnce) {
   ASSERT_FALSE(*out->result);
 }
 
-// THREADING.md § Mesh threads, rule 4: a reach's steps and watchdog are timers on its lane, which the
+// docs/THREADING.md, rule 4: a reach's steps and watchdog are timers on its lane, which the
 // runtime drops as it stops. A new lane (mesh stopped / restarted) fails what is in flight instead
 // of leaving it waiting on a timer that will never fire.
 TEST_F(PeerReachCoordinatorTest, AnotherLaneFailsTheReachesInFlight) {
@@ -488,4 +488,4 @@ TEST_F(PeerReachCoordinatorTest, AvailabilityFollowsDeps) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

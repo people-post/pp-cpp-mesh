@@ -1,5 +1,5 @@
-#include "domain/mesh/connectivity/MeshConnectivity.h"
-#include "domain/mesh/media_plane/MeshMediaRelay.h"
+#include "mesh/connectivity/MeshConnectivity.h"
+#include "mesh/media_plane/MeshMediaRelay.h"
 
 #include <gtest/gtest.h>
 #include <atomic>
@@ -7,9 +7,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 constexpr const char* kPeer = "12D3KooWPeerListenBook";
@@ -67,7 +65,7 @@ TEST(MeshConnectivityTest, WireWithoutAMeshLeavesNoSharedObjects) {
   EXPECT_FALSE(connectivity.TryEnsurePeerReachable("peer"));
 }
 
-// THREADING.md § Mesh threads, rule 1: the candidate policy is the app's, pushed from any thread; the
+// docs/THREADING.md, rule 1: the candidate policy is the app's, pushed from any thread; the
 // mesh publishes it as is (the Amp IO side reads the snapshot) and keeps it across Wire.
 TEST(MeshConnectivityTest, HopPolicyIsTheAppsPushedSnapshot) {
   {
@@ -89,4 +87,4 @@ TEST(MeshConnectivityTest, HopPolicyIsTheAppsPushedSnapshot) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

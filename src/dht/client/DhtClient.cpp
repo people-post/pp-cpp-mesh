@@ -1,18 +1,16 @@
-#include "domain/mesh/dht/client/DhtClient.h"
+#include "mesh/dht/client/DhtClient.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/PeerLink.h"
-#include "domain/mesh/dht/DhtRecordCodec.h"
+#include "mesh/dht/DhtRecordCodec.h"
 #include "common/Utilities.h"
-#include "domain/mesh/shared/AmpChannelOpen.h"
+#include "mesh/shared/AmpChannelOpen.h"
 
 #include <algorithm>
 #include <ctime>
 #include <optional>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -116,7 +114,7 @@ std::vector<std::string> DhtClient::FilteredQueryPeerKeys() {
   return keys;
 }
 
-void DhtClient::Rpc(const std::string& peer_key, Object request, std::function<void(RpcRoe)> on_response) {
+void DhtClient::Rpc(const std::string& peer_key, common::Object request, std::function<void(RpcRoe)> on_response) {
   if (!IsStarted()) {
     on_response(RpcRoe::error(Failure::Of(Err::NotStarted, "dht service stopped")));
     return;
@@ -127,7 +125,7 @@ void DhtClient::Rpc(const std::string& peer_key, Object request, std::function<v
   }
   const auto timeout = ControlTimeout(config_.tunables);
   const auto deadline = Clock::now() + timeout + std::chrono::milliseconds(2000);
-  const std::string request_json = DumpJson(request);
+  const std::string request_json = common::DumpJson(request);
   auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
   auto settled = std::make_shared<std::atomic<bool>>(false);
 
@@ -181,7 +179,7 @@ void DhtClient::Rpc(const std::string& peer_key, Object request, std::function<v
                                        return false;
                                      }
                                      auto root =
-                                         TryParseObject(std::string(frame->begin(), frame->end()));
+                                         common::TryParseObject(std::string(frame->begin(), frame->end()));
                                      if (!root) {
                                        finish(RpcRoe::error(Failure::Of(
                                            Err::ProtocolError, "invalid dht response json")));
@@ -248,7 +246,7 @@ void DhtClient::PublishSelfIfDue() {
   if (config_.query_peer_keys.empty()) {
     return;
   }
-  Object store_req;
+  common::Object store_req;
   store_req.set("op", "store");
   store_req.set("req_id", util::GenerateUuid());
   store_req.set("version", int64_t{kDhtWireVersion});
@@ -330,7 +328,7 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
   state->self = this;
   state->pending = std::make_shared<std::atomic<size_t>>(query_keys.size());
 
-  Object request;
+  common::Object request;
   request.set("op", "find_peer");
   request.set("req_id", util::GenerateUuid());
   request.set("version", int64_t{kDhtWireVersion});
@@ -350,9 +348,9 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
                  {
                    std::lock_guard lock(state->mutex);
                    if (resp) {
-                     if (const Array* records = resp->getArray("records")) {
-                       for (const Value& item : records->elements) {
-                         const Object* obj = asObject(item);
+                     if (const common::Array* records = resp->getArray("records")) {
+                       for (const common::Value& item : records->elements) {
+                         const common::Object* obj = common::asObject(item);
                          if (!obj) {
                            saw_bad = true;
                            continue;
@@ -438,4 +436,4 @@ DhtClient::Stats DhtClient::OutboundStats() const {
   return stats;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

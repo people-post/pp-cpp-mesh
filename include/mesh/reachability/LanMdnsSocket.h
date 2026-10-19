@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <memory>
 
-namespace pbr::lan_mdns {
+namespace pp::mesh::lan_mdns {
 
 /** UDP IPv4 multicast socket for LAN mDNS (port 5353 / 224.0.0.251). */
 class UdpMulticastSocket {
@@ -35,4 +35,4 @@ private:
   std::unique_ptr<Impl> impl_;
 };
 
-} // namespace pbr::lan_mdns
+} // namespace pp::mesh::lan_mdns

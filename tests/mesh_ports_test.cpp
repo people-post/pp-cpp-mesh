@@ -1,11 +1,11 @@
-#include "domain/mesh/host/MeshPorts.h"
+#include "mesh/host/MeshPorts.h"
 
 #include "amp/L3/ChannelPolicy.h"
-#include "domain/mesh/tests/support/mesh_test_harness.h"
+#include "mesh/testing/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
 
-namespace pbr::test {
+namespace pp::mesh::test {
 namespace {
 
 class MeshPortsTest : public ::testing::Test {
@@ -56,4 +56,4 @@ TEST_F(MeshPortsTest, ChatPortMatchesManagerLinkFailureCode) {
 }
 
 } // namespace
-} // namespace pbr::test
+} // namespace pp::mesh::test

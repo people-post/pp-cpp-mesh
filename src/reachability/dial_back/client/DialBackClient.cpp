@@ -1,17 +1,15 @@
-#include "domain/mesh/reachability/dial_back/client/DialBackClient.h"
+#include "mesh/reachability/dial_back/client/DialBackClient.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
 #include "common/SettledWait.h"
 #include "common/ValueJson.h"
-#include "domain/mesh/shared/AmpChannelOpen.h"
-#include "domain/mesh/shared/AmpParkUntil.h"
+#include "mesh/shared/AmpChannelOpen.h"
+#include "mesh/shared/AmpParkUntil.h"
 
 #include <atomic>
 #include <chrono>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -61,17 +59,17 @@ void DialBackClient::ProbeAsync(const std::string& seed_peer_key,
     return;
   }
 
-  Object request;
+  common::Object request;
   request.set("v", int64_t{1});
   request.set("op", "probe");
-  std::vector<Value> addrs;
+  std::vector<common::Value> addrs;
   addrs.reserve(target_multiaddrs.size());
   for (const auto& ma : target_multiaddrs) {
     addrs.emplace_back(ma);
   }
-  request.set("target_multiaddrs", ArrayValue(std::move(addrs)));
+  request.set("target_multiaddrs", common::ArrayValue(std::move(addrs)));
   request.set("timeout_ms", int64_t{timeout_ms > 0 ? timeout_ms : 8000});
-  const std::string request_json = DumpJson(request);
+  const std::string request_json = common::DumpJson(request);
 
   const int wait_ms = (timeout_ms > 0 ? timeout_ms : 8000) + 2000;
   const auto deadline = Clock::now() + std::chrono::milliseconds(wait_ms);
@@ -122,7 +120,7 @@ void DialBackClient::ProbeAsync(const std::string& seed_peer_key,
                                                  return false;
                                                }
                                                auto root =
-                                                   TryParseObject(std::string(frame->begin(), frame->end()));
+                                                   common::TryParseObject(std::string(frame->begin(), frame->end()));
                                                if (!root) {
                                                  (*finish)(ProbeRoe::error(Failure::Of(
                                                      Err::ProtocolError, "invalid dial-back response")));
@@ -169,4 +167,4 @@ DialBackClient::ProbeRoe DialBackClient::Probe(const std::string& seed_peer_key,
   return wait.Wait(std::chrono::milliseconds(1), Failure::Of(Err::Timeout, "dial-back probe timed out"));
 }
 
-} // namespace pbr
+} // namespace pp::mesh

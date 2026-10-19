@@ -1,19 +1,17 @@
-#include "domain/mesh/discovery/client/DirectoryClient.h"
+#include "mesh/discovery/client/DirectoryClient.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
-#include "domain/mesh/discovery/MeshNodeHitCodec.h"
+#include "mesh/discovery/MeshNodeHitCodec.h"
 #include "common/SettledWait.h"
 #include "common/Utilities.h"
-#include "domain/mesh/shared/AmpChannelOpen.h"
-#include "domain/mesh/shared/AmpParkUntil.h"
+#include "mesh/shared/AmpChannelOpen.h"
+#include "mesh/shared/AmpParkUntil.h"
 
 #include <chrono>
 #include <mutex>
 #include <optional>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -66,7 +64,7 @@ void DirectoryClient::Start() { stopped_.store(false, std::memory_order_release)
 
 void DirectoryClient::Stop() { stopped_.store(true, std::memory_order_release); }
 
-void DirectoryClient::Rpc(const std::string& peer_key, Object request, std::function<void(RpcRoe)> on_response) {
+void DirectoryClient::Rpc(const std::string& peer_key, common::Object request, std::function<void(RpcRoe)> on_response) {
   if (stopped_.load(std::memory_order_acquire)) {
     on_response(RpcRoe::error(Failure::Of(Err::NotStarted, "directory service stopped")));
     return;
@@ -78,7 +76,7 @@ void DirectoryClient::Rpc(const std::string& peer_key, Object request, std::func
   }
   const auto timeout = ControlTimeout(config_);
   const auto deadline = Clock::now() + timeout + std::chrono::milliseconds(2000);
-  const std::string request_json = DumpJson(request);
+  const std::string request_json = common::DumpJson(request);
   auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
   auto settled = std::make_shared<std::atomic<bool>>(false);
 
@@ -133,7 +131,7 @@ void DirectoryClient::Rpc(const std::string& peer_key, Object request, std::func
                                        return false;
                                      }
                                      auto root =
-                                         TryParseObject(std::string(frame->begin(), frame->end()));
+                                         common::TryParseObject(std::string(frame->begin(), frame->end()));
                                      if (!root) {
                                        finish(RpcRoe::error(Failure::Of(
                                            Err::ProtocolError, "invalid directory response json")));
@@ -185,7 +183,7 @@ void DirectoryClient::ListMeshNodesAsync(std::function<void(ListRoe)> on_done) {
   state->pending = std::make_shared<std::atomic<size_t>>(config_.query_peer_keys.size());
   state->finished = std::make_shared<std::atomic<bool>>(false);
 
-  Object request;
+  common::Object request;
   request.set("op", "list_mesh_nodes");
   request.set("req_id", util::GenerateUuid());
   request.set("version", int64_t{kDirectoryWireVersion});
@@ -201,7 +199,7 @@ void DirectoryClient::ListMeshNodesAsync(std::function<void(ListRoe)> on_done) {
         if (resp) {
           const std::string op = resp->getString("op").value_or("");
           if (op == "list_mesh_nodes_result") {
-            if (const Array* nodes = resp->getArray("nodes")) {
+            if (const common::Array* nodes = resp->getArray("nodes")) {
               if (auto parsed = MeshNodeHitsFromJsonArray(*nodes)) {
                 state->best = std::move(*parsed);
                 state->finished->store(true, std::memory_order_release);
@@ -251,4 +249,4 @@ DirectoryClient::ListRoe DirectoryClient::ListMeshNodes() {
   return wait.Wait(std::chrono::milliseconds(1), Failure::Of(Err::Timeout, "directory list timed out"));
 }
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,8 +1,5 @@
-#include "domain/mesh/discovery/AmpDirectoryProtocol.h"
-
-#include "common/PbrCompat.h"
-
-namespace pbr {
+#include "mesh/discovery/AmpDirectoryProtocol.h"
+namespace pp::mesh {
 
 AmpDirectoryProtocol::AmpDirectoryProtocol(pp::amp::MeshRuntime& runtime, IoPump io_pump, WorkerPost post_worker)
     : server_(runtime, std::move(post_worker)), client_(runtime, std::move(io_pump)) {}
@@ -44,4 +41,4 @@ Roe<std::vector<MeshNodeHit>> AmpDirectoryClient::ListMeshNodes() {
   return std::move(*result);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

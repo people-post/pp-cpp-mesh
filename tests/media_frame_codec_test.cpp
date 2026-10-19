@@ -1,8 +1,8 @@
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include <gtest/gtest.h>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(MediaFrameCodecTest, RoundTripHeaderAndPayload) {
@@ -25,4 +25,4 @@ TEST(MediaFrameCodecTest, RoundTripHeaderAndPayload) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

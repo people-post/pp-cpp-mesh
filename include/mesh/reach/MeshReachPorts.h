@@ -1,9 +1,9 @@
 #pragma once
 
-#include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
-#include "domain/mesh/host/MeshPorts.h"
-#include "domain/mesh/l4/shared/L4ProtocolIds.h"
-#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/l4/circuit/CircuitBridgeTarget.h"
+#include "mesh/host/MeshPorts.h"
+#include "mesh/l4/shared/L4ProtocolIds.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 
 #include "common/Error.h"
 
@@ -12,9 +12,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 // Reach ports shared by every media client (calls, broadcast): which mesh keys are dialable /
 // connected, and circuit / punch reach to a peer or hop. Feature-neutral (media-client-layers L002).
@@ -336,4 +334,4 @@ private:
   std::function<Roe<void>(const std::string&)> try_peer_reach_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

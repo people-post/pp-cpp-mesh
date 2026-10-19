@@ -2,11 +2,11 @@
 
 #include "common/Error.h"
 #include "common/Module.h"
-#include "common/directory/MeshHopTypes.h"
-#include "domain/mesh/host/MeshHost.h"
-#include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
-#include "domain/mesh/reach/MeshReachPorts.h"
-#include "domain/mesh/reach/PunchIntroducerWalk.h"
+#include "mesh/types/MeshHopTypes.h"
+#include "mesh/host/MeshHost.h"
+#include "mesh/reach/CircuitRendezvousCoordinator.h"
+#include "mesh/reach/MeshReachPorts.h"
+#include "mesh/reach/PunchIntroducerWalk.h"
 #include "common/Lifetime.h"
 #include "common/SerialExecutor.h"
 
@@ -18,14 +18,12 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * What connectivity needs from the product. Hop candidates are not here: they are product policy
  * (contacts, directory, DHT, seeds) the app computes and pushes (`SetHopPolicy`) — the mesh never
- * calls into the app for them (THREADING.md § Mesh threads, rule 1).
+ * calls into the app for them (docs/THREADING.md, rule 1).
  */
 struct MeshConnectivityDeps {
   std::function<MeshHost*()> mesh;
@@ -70,7 +68,7 @@ struct MeshLocalView {
  * The owner sequences rewires: dependents holding `Dial()` / `CircuitReach()` must be detached
  * before `Wire`, `ResetDialRegistry`, `ResetAfterMeshStop` or teardown replace them.
  *
- * Threading (THREADING.md § Mesh threads): its state lives on the wired mesh's io lane
+ * Threading (docs/THREADING.md): its state lives on the wired mesh's io lane
  * (`MeshHost::IoLane`), next to the Amp state it drives; unwired, on the caller of an edge.
  * Lifecycle edges (deps, hooks, Wire / Reset / Clear, test path) run there and the caller waits
  * (`RunEdge`: serialized among themselves; callers are the app's threads, never the lane). Listen
@@ -224,4 +222,4 @@ private:
   pp::Lifetime self_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

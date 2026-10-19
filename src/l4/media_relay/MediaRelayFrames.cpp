@@ -1,10 +1,8 @@
-#include "domain/mesh/l4/media_relay/MediaRelayFrames.h"
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/l4/media_relay/MediaRelayFrames.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include <cstring>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 MediaChannelType MediaChannelTypeFor(const uint16_t channel_id) {
   return IsAudioChannel(channel_id) ? MediaChannelType::ReliableOrdered : MediaChannelType::LatestLossy;
@@ -59,4 +57,4 @@ Roe<MediaDataFrame> DecodeMediaDataFrame(const std::vector<uint8_t>& body) {
   return frame;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

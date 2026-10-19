@@ -2,8 +2,8 @@
 
 #include "amp/link/PeerLinkManager.h"
 #include "common/Module.h"
-#include "common/directory/MeshHopTypes.h"
-#include "domain/mesh/host/MeshHost.h"
+#include "mesh/types/MeshHopTypes.h"
+#include "mesh/host/MeshHost.h"
 #include "common/Lifetime.h"
 
 #include <cstddef>
@@ -12,9 +12,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 struct CircuitRendezvousDeps {
   std::function<MeshHost*()> mesh;
@@ -99,4 +97,4 @@ private:
   pp::Lifetime deferred_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

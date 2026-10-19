@@ -1,20 +1,18 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
-#include "domain/mesh/l4/media_relay/MediaRelayBundleLogic.h"
-#include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
-#include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
-#include "domain/mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/l4/media_relay/MediaRelayBundleLogic.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
+#include "mesh/l4/media_relay/client/IMediaRelayClient.h"
+#include "mesh/l4/media_relay/serve/MediaRelayServer.h"
 
 #include "common/Error.h"
-#include "common/PbrCompat.h"
-
 #include <functional>
 #include <memory>
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Client side of `/pp-browser/datagram-relay/1.0.0` on MeshRuntime ([A022]): outbound quote and
@@ -77,4 +75,4 @@ private:
   pp::amp::MeshRuntime& runtime_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

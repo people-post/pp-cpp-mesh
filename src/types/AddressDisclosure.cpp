@@ -1,8 +1,5 @@
-#include "common/privacy/AddressDisclosure.h"
-
-#include "common/PbrCompat.h"
-
-namespace pbr {
+#include "mesh/types/AddressDisclosure.h"
+namespace pp::mesh {
 
 const char* DirectAudienceName(const DirectAudience audience) {
   switch (audience) {
@@ -91,4 +88,4 @@ std::shared_ptr<const AddressDisclosurePolicy> AddressDisclosureGate::Snapshot()
   return policy_;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

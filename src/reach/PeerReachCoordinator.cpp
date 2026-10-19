@@ -1,16 +1,14 @@
-#include "domain/mesh/reach/PeerReachCoordinator.h"
+#include "mesh/reach/PeerReachCoordinator.h"
 
-#include "domain/mesh/l4/circuit/CircuitServeDialPolicy.h"
+#include "mesh/l4/circuit/CircuitServeDialPolicy.h"
 #include "common/Utilities.h"
-#include "common/directory/MeshHopDial.h"
+#include "mesh/types/MeshHopDial.h"
 
 #include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <utility>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 /** Direct-dial (EnsureAssociation) budget before circuit / punch pivot (V049 / B31). */
@@ -37,7 +35,7 @@ constexpr int kSeedParkAwaitMs = 12000;
 using Lane = std::shared_ptr<pp::SerialExecutor>;
 
 /**
- * A step on the reach's lane (the mesh's io lane; THREADING.md § Mesh threads). Steps capture the
+ * A step on the reach's lane (the mesh's io lane; docs/THREADING.md). Steps capture the
  * lane they were started on: when the lane changes (mesh stop) every attempt was failed already,
  * so a late step on the old one finds its attempt settled.
  */
@@ -746,4 +744,4 @@ void PeerReachCoordinator::OnCircuitDone(const AttemptPtr& a, Roe<void> via, con
   ScheduleTick(a, kPollMs);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

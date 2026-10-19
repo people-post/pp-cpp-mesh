@@ -1,8 +1,8 @@
-#include "domain/mesh/host/MeshPumpThread.h"
+#include "mesh/host/MeshPumpThread.h"
 
 #include <utility>
 
-namespace pbr {
+namespace pp::mesh {
 
 MeshPumpThread::~MeshPumpThread() { Stop(); }
 
@@ -67,4 +67,4 @@ void MeshPumpThread::ThreadMain() {
   running_.store(false, std::memory_order_release);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,10 +1,10 @@
-#include "domain/mesh/l4/media_relay/MediaRelayVideoLevels.h"
+#include "mesh/l4/media_relay/MediaRelayVideoLevels.h"
 
 #include <gtest/gtest.h>
 
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 using Levels = std::vector<uint8_t>;
@@ -63,4 +63,4 @@ TEST(MediaRelayVideoLevelsTest, PublishLevelIsTheHighestOfferedAndCarried) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

@@ -6,7 +6,7 @@
 #include <memory>
 #include <thread>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** MeshRuntime::PostAfter — Amp-clock delayed work (deadlines / sync windows). */
 using MeshIoAfter = std::function<void(std::chrono::milliseconds, std::function<void()>)>;
@@ -133,4 +133,4 @@ inline void AmpScheduleUntilSettled(const std::function<void(std::function<void(
   }
 }
 
-} // namespace pbr
+} // namespace pp::mesh

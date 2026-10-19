@@ -1,15 +1,15 @@
-#include "domain/mesh/dht/DhtRecordCodec.h"
-#include "domain/mesh/dht/DhtRecordStore.h"
+#include "mesh/dht/DhtRecordCodec.h"
+#include "mesh/dht/DhtRecordStore.h"
 
 #include "crypto/MlDsa.h"
-#include "domain/mesh/tests/support/mesh_test_harness.h"
+#include "mesh/testing/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
 
 #include <ctime>
 #include <limits>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(DhtRecordCodecTest, SignVerifyRoundTrip) {
@@ -127,13 +127,13 @@ TEST(DhtRecordStoreTest, RejectsNewPeerWhenFullOfLiveRecords) {
 }
 
 TEST(DhtRecordCodecTest, RejectsMultiaddrPeerMismatch) {
-  Object object;
+  common::Object object;
   object.set("type", "peer_routing");
   object.set("peer_id", "12D3KooWPeerA");
   object.set("seq", int64_t{1});
   object.set("ttl_seconds", int64_t{3600});
   object.set("issued_at", int64_t{1'700'000'000});
-  object.set("multiaddrs", makeArray(std::vector<Value>{"/ip4/1.2.3.4/udp/443/adp/1.0.0/p2p/12D3KooWPeerB"}));
+  object.set("multiaddrs", common::makeArray(std::vector<common::Value>{"/ip4/1.2.3.4/udp/443/adp/1.0.0/p2p/12D3KooWPeerB"}));
   object.set("signature_b64", "AA==");
   object.set("signature_alg", "ml-dsa-65");
 
@@ -142,4 +142,4 @@ TEST(DhtRecordCodecTest, RejectsMultiaddrPeerMismatch) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

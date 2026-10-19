@@ -1,19 +1,17 @@
 #pragma once
 
-#include "common/media/MediaChannel.h"
+#include "mesh/types/MediaChannel.h"
 
-#include "foundation/data/MeshConfigTypes.h"
-#include "common/directory/RelayScope.h"
+#include "mesh/types/MeshConfigTypes.h"
+#include "mesh/types/RelayScope.h"
 #include "common/Error.h"
-#include "domain/mesh/l4/shared/L4ProtocolIds.h"
-#include "common/PbrCompat.h"
-
+#include "mesh/l4/shared/L4ProtocolIds.h"
 #include <cstdint>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 
 /** V032 host load limits (also documented in HOST_RECEIVE_POLICY). */
@@ -138,4 +136,4 @@ struct MediaDataFrame {
 std::vector<uint8_t> EncodeMediaDataFrame(const MediaDataFrame& frame);
 Roe<MediaDataFrame> DecodeMediaDataFrame(const std::vector<uint8_t>& body);
 
-} // namespace pbr
+} // namespace pp::mesh

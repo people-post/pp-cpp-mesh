@@ -7,9 +7,7 @@
 #include <optional>
 #include <string>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 /** One side's punch candidates in a signaled punch (H012): offer or answer. */
 struct PunchSignal {
@@ -74,4 +72,4 @@ private:
   std::optional<Pending> pending_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,8 +1,8 @@
-#include "common/privacy/AddressDisclosure.h"
+#include "mesh/types/AddressDisclosure.h"
 
 #include <gtest/gtest.h>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 AddressDisclosurePolicy PolicyWith(const DirectAudience audience) {
@@ -69,4 +69,4 @@ TEST(AddressDisclosureTest, AudienceNamesRoundTrip) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Identity handle kinds on a Contact / directory hit (D079 / D096 / M009).
  *  Account = person (communicating identity); PeerId = device endpoint;
@@ -146,4 +146,4 @@ inline void FlattenDirectoryEndpoints(std::vector<ContactId>& ids, std::vector<s
   }
 }
 
-}  // namespace pbr
+}  // namespace pp::mesh

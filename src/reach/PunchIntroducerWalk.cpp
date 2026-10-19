@@ -1,13 +1,11 @@
-#include "domain/mesh/reach/PunchIntroducerWalk.h"
+#include "mesh/reach/PunchIntroducerWalk.h"
 
-#include "domain/mesh/reachability/punch/AmpPunchCoordinator.h"
-#include "domain/mesh/reachability/punch/PunchLogic.h"
+#include "mesh/reachability/punch/AmpPunchCoordinator.h"
+#include "mesh/reachability/punch/PunchLogic.h"
 
 #include <memory>
 #include <unordered_set>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 void CompletePunch(const std::function<void(Roe<void>)>& on_done, AmpPunchCoordinator::PunchRoe punched,
@@ -112,4 +110,4 @@ void PunchIntroducerWalk::TryUpgradePunchAsync(const std::string& introducer_pee
       2000);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

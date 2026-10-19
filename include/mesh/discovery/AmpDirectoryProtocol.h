@@ -1,17 +1,15 @@
 #pragma once
 
-#include "domain/mesh/discovery/DirectoryTypes.h"
-#include "domain/mesh/discovery/client/DirectoryClient.h"
-#include "domain/mesh/discovery/serve/DirectoryServer.h"
-#include "common/directory/IDirectoryClient.h"
+#include "mesh/discovery/DirectoryTypes.h"
+#include "mesh/discovery/client/DirectoryClient.h"
+#include "mesh/discovery/serve/DirectoryServer.h"
+#include "mesh/types/IDirectoryClient.h"
 #include "amp/link/MeshRuntime.h"
-#include "common/PbrCompat.h"
-
 #include <functional>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Amp L4 directory twin (`/pp-mesh/directory/1.0.0`) — list_mesh_nodes. One config drives both
@@ -69,4 +67,4 @@ private:
   AmpDirectoryProtocol& service_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,5 +1,5 @@
-#include "domain/mesh/reachability/Reachability.h"
-#include "domain/mesh/reachability/ReachabilityNetIf.h"
+#include "mesh/reachability/Reachability.h"
+#include "mesh/reachability/ReachabilityNetIf.h"
 #include "amp/link/AdpMultiaddr.h"
 
 #include <algorithm>
@@ -9,7 +9,7 @@
 #include <optional>
 #include <sstream>
 
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -430,4 +430,4 @@ std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiadd
   return multiaddrs;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,18 +1,16 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/reachability/punch/PunchLinkOps.h"
-#include "domain/mesh/reachability/punch/PunchTypes.h"
+#include "mesh/reachability/punch/PunchLinkOps.h"
+#include "mesh/reachability/punch/PunchTypes.h"
 #include "common/CodedFailure.h"
 #include "common/Error.h"
-#include "common/PbrCompat.h"
-
 #include <atomic>
 #include <functional>
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
  * Client (initiator) side of Amp coordinated punch (`kAmpPunchProtocolId`, H009 / L3.25a–d): ask an
@@ -77,4 +75,4 @@ private:
   std::atomic<bool> stopped_{true};
 };
 
-} // namespace pbr
+} // namespace pp::mesh

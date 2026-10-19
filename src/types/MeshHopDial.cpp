@@ -1,11 +1,11 @@
-#include "common/directory/MeshHopDial.h"
+#include "mesh/types/MeshHopDial.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <sstream>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 std::string Ip4HostFromMultiaddr(const std::string& multiaddr) {
@@ -218,4 +218,4 @@ std::vector<MeshHopCandidate> PreferLocalMediaHop(std::vector<MeshHopCandidate> 
   return out;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

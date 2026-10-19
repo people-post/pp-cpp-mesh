@@ -1,6 +1,6 @@
-#include "domain/mesh/reachability/punch/PunchBurst.h"
+#include "mesh/reachability/punch/PunchBurst.h"
 
-namespace pbr {
+namespace pp::mesh {
 
 bool PeerAlreadyConnectedDirect(pp::amp::PeerLinkManager& links, const std::string& peer_id) {
   if (peer_id.empty()) {
@@ -10,4 +10,4 @@ bool PeerAlreadyConnectedDirect(pp::amp::PeerLinkManager& links, const std::stri
   return links.IsConnectedToPeerId(peer_id);
 }
 
-} // namespace pbr
+} // namespace pp::mesh

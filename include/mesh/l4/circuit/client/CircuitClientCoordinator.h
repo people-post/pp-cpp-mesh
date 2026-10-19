@@ -2,18 +2,16 @@
 
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/l4/circuit/CircuitBridgeTarget.h"
-#include "domain/mesh/l4/circuit/CircuitBundleLogic.h"
-#include "domain/mesh/l4/circuit/CircuitRelayTypes.h"
+#include "mesh/l4/circuit/CircuitBridgeTarget.h"
+#include "mesh/l4/circuit/CircuitBundleLogic.h"
+#include "mesh/l4/circuit/CircuitRelayTypes.h"
 
 #include "common/Error.h"
-#include "common/PbrCompat.h"
-
 #include <functional>
 #include <memory>
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 
 struct CircuitTunnelBridgeResult {
   bool ok = false;
@@ -84,4 +82,4 @@ private:
   pp::amp::MeshRuntime& runtime_;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Client/relay bridge destination (media-hop L3 / Amp circuit). */
 /**
@@ -56,4 +56,4 @@ struct CircuitBridgeTarget {
   CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

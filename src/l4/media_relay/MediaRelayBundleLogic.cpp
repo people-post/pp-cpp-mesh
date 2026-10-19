@@ -1,12 +1,12 @@
-#include "domain/mesh/l4/media_relay/MediaRelayBundleLogic.h"
+#include "mesh/l4/media_relay/MediaRelayBundleLogic.h"
 
-#include "domain/mesh/l4/media_relay/MediaRelayLogic.h"
+#include "mesh/l4/media_relay/MediaRelayLogic.h"
 
 #include <algorithm>
 #include <atomic>
 #include <sstream>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 constexpr int64_t kDefaultUserUpBps = 500'000;
@@ -161,5 +161,5 @@ MediaRelayQuoteBook::Entries::iterator MediaRelayQuoteBook::Erase(Entries::itera
   return entries_.erase(it);
 }
 
-} // namespace pbr
+} // namespace pp::mesh
 

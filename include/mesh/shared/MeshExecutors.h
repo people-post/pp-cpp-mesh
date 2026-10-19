@@ -6,10 +6,10 @@
 #include <memory>
 #include <utility>
 
-namespace pbr {
+namespace pp::mesh {
 
 /**
- * Where one mesh hands work off its I/O lane (THREADING.md § Mesh threads), given by its host per
+ * Where one mesh hands work off its I/O lane (docs/THREADING.md), given by its host per
  * instance. Nothing posted here may wait on the mesh.
  *
  * A null executor runs the task inline on the caller: manual-drive test harnesses, which have no
@@ -34,4 +34,4 @@ inline void PostOrRun(const std::shared_ptr<pp::Executor>& executor, std::functi
   }
 }
 
-} // namespace pbr
+} // namespace pp::mesh

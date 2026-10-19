@@ -1,14 +1,14 @@
-#include "domain/mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
-#include "domain/mesh/l4/media_relay/MediaRelayVideoLevels.h"
+#include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "mesh/l4/media_relay/MediaRelayVideoLevels.h"
 
-#include "domain/mesh/l4/shared/ChannelSessionSlot.h"
-#include "domain/mesh/l4/shared/ProductChannelPolicies.h"
+#include "mesh/l4/shared/ChannelSessionSlot.h"
+#include "mesh/l4/shared/ProductChannelPolicies.h"
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/PeerLink.h"
-#include "domain/mesh/l4/media_relay/MediaRelayFrames.h"
-#include "domain/mesh/l4/media_relay/MediaRelayLogic.h"
+#include "mesh/l4/media_relay/MediaRelayFrames.h"
+#include "mesh/l4/media_relay/MediaRelayLogic.h"
 #include "common/ValueJson.h"
-#include "domain/mesh/shared/AmpChannelOpen.h"
+#include "mesh/shared/AmpChannelOpen.h"
 #include "common/Lifetime.h"
 
 #include <atomic>
@@ -18,9 +18,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include "common/PbrCompat.h"
-
-namespace pbr {
+namespace pp::mesh {
 
 namespace {
 
@@ -34,7 +32,7 @@ std::string BodyToJson(const std::vector<uint8_t>& body) {
   return std::string(body.begin(), body.end());
 }
 
-MediaRelayQuote ParseQuoteResponse(const Object& root) {
+MediaRelayQuote ParseQuoteResponse(const common::Object& root) {
   MediaRelayQuote q;
   q.ok = root.getIf<bool>("ok").value_or(false);
   q.error = root.getString("error").value_or("");
@@ -373,7 +371,7 @@ struct MediaRelayClientCoordinator::Impl {
       TearDown(*session, false, "media-relay channel failed");
       return false;
     }
-    auto root = TryParseObject(BodyToJson(*frame));
+    auto root = common::TryParseObject(BodyToJson(*frame));
     if (!root) {
       TearDown(*session, false, "invalid media-relay json");
       return false;
@@ -410,13 +408,13 @@ struct MediaRelayClientCoordinator::Impl {
       }
       session->session_token = root->getString("session_token").value_or("");
       session->phase = MediaRelayBundlePhase::OutboundAttach;
-      Object attach_req;
+      common::Object attach_req;
       attach_req.set("v", int64_t{1});
       attach_req.set("op", "attach");
       attach_req.set("session_token", session->session_token);
       attach_req.set("call_id", session->call_id);
       attach_req.set("auth", session->auth_stub);
-      if (!session->channel->EnqueueOutbound(JsonToBody(DumpJson(attach_req)))) {
+      if (!session->channel->EnqueueOutbound(JsonToBody(common::DumpJson(attach_req)))) {
         TearDown(*session, false, "failed to send attach");
         return false;
       }
@@ -541,7 +539,7 @@ struct MediaRelayClientCoordinator::Impl {
 
   void BeginQuote(Session& session, const MediaRelayQuoteRequest& request) {
     session.phase = MediaRelayBundlePhase::OutboundQuote;
-    Object req;
+    common::Object req;
     req.set("v", int64_t{1});
     req.set("op", "quote");
     req.set("call_id", request.session_id);
@@ -550,7 +548,7 @@ struct MediaRelayClientCoordinator::Impl {
     req.set("want_down_bps", request.want_down_bps);
     req.set("video_levels", VideoLevelsToJson(request.video_levels));
     req.set("video_parallel", int64_t{request.video_parallel});
-    const std::string json = DumpJson(req);
+    const std::string json = common::DumpJson(req);
     if (TryBeginOnCircuitHop(session, json, MediaRelayBundlePhase::WaitQuote)) {
       return;
     }
@@ -559,11 +557,11 @@ struct MediaRelayClientCoordinator::Impl {
 
   void BeginAttach(Session& session) {
     session.phase = MediaRelayBundlePhase::OutboundAccept;
-    Object accept_req;
+    common::Object accept_req;
     accept_req.set("v", int64_t{1});
     accept_req.set("op", "accept");
     accept_req.set("quote_id", session.quote_id);
-    const std::string json = DumpJson(accept_req);
+    const std::string json = common::DumpJson(accept_req);
     if (TryBeginOnCircuitHop(session, json, MediaRelayBundlePhase::WaitAccept)) {
       return;
     }
@@ -816,13 +814,13 @@ Roe<void> MediaRelayClientCoordinator::Subscribe(const uint32_t stream_id, const
     impl_->client_.subscriptions.insert(key);
     channel = impl_->client_.channel;
   }
-  Object sub;
+  common::Object sub;
   sub.set("v", int64_t{1});
   sub.set("op", "subscribe");
   sub.setJsonUInt("stream_id", stream_id);
   sub.setJsonUInt("channel_id", channel_id);
   // Written outside `mu`, under the io lock (see SendFrame).
-  const bool sent = runtime_.WithIoLock([&]() { return channel->EnqueueOutbound(JsonToBody(DumpJson(sub))); });
+  const bool sent = runtime_.WithIoLock([&]() { return channel->EnqueueOutbound(JsonToBody(common::DumpJson(sub))); });
   if (!sent) {
     std::lock_guard lock(impl_->mu);
     impl_->client_.subscriptions.erase(key);
@@ -915,4 +913,4 @@ MediaRelayClientHealth MediaRelayClientCoordinator::HealthSnapshot() const {
   return health;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

@@ -1,6 +1,6 @@
-#include "domain/mesh/l4/media_relay/MediaRelayLogic.h"
+#include "mesh/l4/media_relay/MediaRelayLogic.h"
 
-namespace pbr {
+namespace pp::mesh {
 
 const char* MediaRelayClientPhaseName(const MediaRelayClientPhase phase) {
   switch (phase) {
@@ -145,4 +145,4 @@ bool MediaRelayCanAddParticipant(const size_t current_participants, const size_t
   return current_participants < max_participants;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

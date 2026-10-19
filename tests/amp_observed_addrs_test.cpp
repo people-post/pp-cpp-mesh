@@ -1,8 +1,8 @@
-#include "domain/mesh/reachability/AmpObservedAddrs.h"
+#include "mesh/reachability/AmpObservedAddrs.h"
 
 #include <gtest/gtest.h>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 TEST(AmpObservedAddrsTest, MergesLanUpnpAndDialBackWithoutWildcard) {
@@ -97,4 +97,4 @@ TEST(AmpObservedAddrsTest, IsUsableAdpListenRejectsWildcardAndLinkLocal) {
 }
 
 } // namespace
-} // namespace pbr
+} // namespace pp::mesh

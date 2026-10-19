@@ -1,8 +1,8 @@
-#include "common/net/PublicAddress.h"
+#include "mesh/types/PublicAddress.h"
 
 #include <cstddef>
 
-namespace pbr {
+namespace pp::mesh {
 namespace {
 
 bool AllZero(const uint8_t* bytes, const size_t n) {
@@ -72,4 +72,4 @@ bool IsPublicIPv6(const uint8_t* b) {
   return true;
 }
 
-} // namespace pbr
+} // namespace pp::mesh

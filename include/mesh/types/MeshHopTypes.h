@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 /** Affinity class for hop scoring (N014 / N020). */
 enum class MeshHopAffinity {
@@ -37,4 +37,4 @@ struct MeshHopCandidate {
   bool advertises_circuit_relay = false;
 };
 
-} // namespace pbr
+} // namespace pp::mesh

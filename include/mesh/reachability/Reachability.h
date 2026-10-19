@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace pbr {
+namespace pp::mesh {
 
 enum class ReachabilityStatus {
   Unknown,
@@ -123,4 +123,4 @@ std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiadd
 /** Rank key for tests (lower is preferred). */
 int AmpDialMultiaddrRank(const std::string& multiaddr);
 
-} // namespace pbr
+} // namespace pp::mesh

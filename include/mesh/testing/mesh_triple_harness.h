@@ -6,13 +6,13 @@
 #include "crypto/MlDsa.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/MeshRuntime.h"
-#include "domain/mesh/tests/support/mesh_harness_support.h"
+#include "mesh/testing/mesh_harness_support.h"
 
 #include <functional>
 #include <memory>
 #include <string>
 
-namespace pbr::test {
+namespace pp::mesh::test {
 
 /** Three-peer MemoryDatagramIo harness (client A, relay R, target B) for AMP circuit tests. */
 struct AmpMeshTripleHarness {
@@ -50,4 +50,4 @@ struct AmpMeshTripleHarness {
   void PumpUntil(const std::function<bool()>& done, size_t max_rounds = 800);
 };
 
-} // namespace pbr::test
+} // namespace pp::mesh::test
