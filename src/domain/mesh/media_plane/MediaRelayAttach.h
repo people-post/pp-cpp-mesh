@@ -3,12 +3,14 @@
 #include "domain/mesh/l4/media_relay/client/IMediaRelayClient.h"
 #include "domain/mesh/l4/media_relay/MediaRelayTypes.h"
 #include "domain/mesh/reach/MeshReachPorts.h"
+#include "domain/mesh/shared/MeshExecutors.h"
 #include "common/Lifetime.h"
 
 #include "common/Error.h"
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include "common/PbrCompat.h"
 
@@ -19,6 +21,8 @@ namespace pbr {
  * `objects_alive` / `objects_snap`: the owner's liveness for these raw pointers (`MeshConnectivity` and
  * `MeshMediaRelay` invalidate it before freeing them). Service reach can take seconds; the continuation after it
  * (and before AcceptAndAttach) fails instead of dereferencing freed objects. Null = ungated (tests).
+ * `work`: where the attach continues off the IO strand after service reach (the mesh's `work`
+ * executor; null = inline, tests).
  */
 struct MediaRelayAttachPorts {
   IMediaRelayClient* relay = nullptr;
@@ -26,6 +30,7 @@ struct MediaRelayAttachPorts {
   ICircuitHopReach* service_reach = nullptr;
   pp::Lifetime::Token objects_alive;
   uint64_t objects_snap = 0;
+  std::shared_ptr<pp::Executor> work;
 
   bool Live() const { return !objects_alive || pp::Lifetime::Alive(objects_alive, objects_snap); }
 };

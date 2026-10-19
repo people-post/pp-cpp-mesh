@@ -66,7 +66,7 @@ TEST(MeshHostAmpTest, AttachAmpStackParallelNoMeshHost) {
   auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
-  MeshHost host;
+  MeshHost host{MeshExecutors{}};  // manual drive: L4 work inline
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
   ASSERT_NE(host.Amp(), nullptr);
   EXPECT_TRUE(host.Amp()->IsStarted());
@@ -107,7 +107,7 @@ TEST(MeshHostAmpTest, AmpL4CoordinatorsShareIoTickWithoutOverwrite) {
   auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
-  MeshHost host;
+  MeshHost host{MeshExecutors{}};  // manual drive: L4 work inline
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
   ASSERT_NE(host.AmpCircuitClient(), nullptr);
   ASSERT_NE(host.AmpMediaRelayServer(), nullptr);
@@ -146,7 +146,7 @@ TEST(MeshHostAmpTest, ConnectivityWiresOnAmpWithoutTheMediaRelayClient) {
   auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
-  MeshHost host;
+  MeshHost host{MeshExecutors{}};  // manual drive: L4 work inline
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
   ASSERT_NE(host.AmpMediaRelayClientCoord(), nullptr);
   host.AmpMediaRelayClientCoord()->Stop();
@@ -179,7 +179,7 @@ struct SilentPeerFixture {
   std::shared_ptr<pp::adp::MemoryDatagramHub> hub = pp::adp::MemoryDatagramIo::MakeHub();
   std::shared_ptr<pp::adp::LossyDatagramIo> io_b;
   std::unique_ptr<pp::amp::AmpStack> stack_b;
-  MeshHost host;
+  MeshHost host{MeshExecutors{}};  // manual drive: L4 work inline
   std::vector<pp::amp::LinkEvent> events;
 
   void SetUp() {
@@ -279,7 +279,7 @@ TEST(MeshHostAmpTest, Ch0CapabilityKeepsOurAddressesFromAPeerOutsideTheAudience)
   AddressDisclosurePolicy contacts_only;
   contacts_only.audience = DirectAudience::Contacts;  // B is not a contact
   gate.Publish(contacts_only);
-  MeshHost host;
+  MeshHost host{MeshExecutors{}};  // manual drive: L4 work inline
   host.SetAddressDisclosure(&gate);
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack_a), *ma_a)));
   auto& links = host.Amp()->Links();
@@ -324,7 +324,7 @@ TEST(MeshHostAmpTest, ABlockedPeersLinkIsDroppedOnConnect) {
   policy.audience = DirectAudience::Everyone;
   policy.blocked.insert(peer_b);
   gate.Publish(policy);
-  MeshHost host;
+  MeshHost host{MeshExecutors{}};  // manual drive: L4 work inline
   host.SetAddressDisclosure(&gate);
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack_a), *ma_a)));
   auto& links = host.Amp()->Links();

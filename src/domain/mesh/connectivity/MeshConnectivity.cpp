@@ -83,6 +83,7 @@ void MeshConnectivity::Wire() {
     }
     objects_.Invalidate();  // rewire replaces the objects earlier ports point at
     wired_ = true;
+    work_ = m ? m->Executors().work : nullptr;
     RefreshLocalViewOnOwner();
     ArmLocalViewRefresh();
     WireDialRegistry(m, io);
@@ -280,6 +281,7 @@ void MeshConnectivity::ResetAfterMeshStop() {
     objects_.Invalidate();
     dial_registry_.reset();
     circuit_hop_reach_.reset();
+    work_.reset();
   });
 }
 

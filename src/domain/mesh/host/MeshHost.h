@@ -15,7 +15,7 @@
 #include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
 #include "domain/mesh/host/MeshIdentityConfig.h"
 #include "domain/mesh/host/MeshPorts.h"
-#include "foundation/runtime/AppRuntime.h"
+#include "domain/mesh/shared/MeshExecutors.h"
 #include "domain/mesh/host/MeshPumpThread.h"
 #include "domain/mesh/reachability/ReachabilityEngine.h"
 #include "common/Error.h"
@@ -72,7 +72,8 @@ struct MeshHostConfig {
 
 class MeshHost {
 public:
-  MeshHost();
+  /** `executors`: where this mesh hands work off its I/O lane (empty: inline — manual-drive harnesses). */
+  explicit MeshHost(MeshExecutors executors);
   ~MeshHost();
 
   MeshHost(const MeshHost&) = delete;
@@ -84,6 +85,8 @@ public:
   bool IsRunning() const;
 
   bool MeshPumpRunning() const { return pump_.IsRunning(); }
+  /** Where this mesh hands work off its I/O lane (given at construction). */
+  const MeshExecutors& Executors() const { return executors_; }
 
   ReachabilityEngine& Reachability();
 
@@ -142,7 +145,7 @@ public:
   enum class AttachDrive {
     /** Caller Ticks (VirtualClock / MemoryDatagramIo tests — MeshPump is not clock-safe). */
     Manual,
-    /** Own MeshPump and hand L4 work to AppRuntime workers like product Start (wall-clock harnesses, e.g. pp-call-probe). */
+    /** Own MeshPump and hand L4 work to the host's executors like product Start (wall-clock harnesses, e.g. pp-call-probe). */
     MeshPump,
   };
   Roe<void> AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr = {},
@@ -181,15 +184,16 @@ private:
   /** MeshRuntime::PostAfter — Amp-clock delayed work (deadlines). */
   std::function<void(std::chrono::milliseconds, std::function<void()>)> MakeL4IoAfter() const;
   /**
-   * Where L4 inbound handlers do their CPU / disk work off the IO strand: AppRuntime workers once
-   * this host drives its own MeshPump (product, wall-clock harnesses); inline on the driving thread
-   * for manual-drive harnesses (no runtime). Nothing posted here may wait on the mesh.
+   * Where L4 work leaves the IO strand: `executor` (one of `executors_`) once this host drives its
+   * own MeshPump (product, wall-clock harnesses); inline on the driving thread for manual-drive
+   * harnesses. Nothing posted here may wait on the mesh.
    */
-  std::function<void(std::function<void()>)> MakeL4WorkerPost(WorkerLane lane) const;
+  std::function<void(std::function<void()>)> MakeL4WorkerPost(std::shared_ptr<pp::Executor> executor) const;
 
   std::unique_ptr<ReachabilityEngine> reachability_;
   MeshPumpThread pump_;
-  /** Set while MeshPump drives: L4 work goes to AppRuntime workers (MakeL4WorkerPost). */
+  const MeshExecutors executors_;
+  /** Set while MeshPump drives: L4 work goes to `executors_` (MakeL4WorkerPost). */
   std::atomic<bool> l4_on_workers_{false};
   /** k5: the latest network change; a delayed re-probe for an older one stands down. */
   std::atomic<uint64_t> network_change_gen_{0};

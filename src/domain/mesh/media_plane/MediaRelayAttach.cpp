@@ -1,6 +1,5 @@
 #include "domain/mesh/media_plane/MediaRelayAttach.h"
 
-#include "foundation/runtime/AppRuntime.h"
 
 #include "common/Logger.h"
 
@@ -17,15 +16,6 @@ constexpr int kAttachTimeoutMs = 8000;
 logging::Logger& AttachLog() {
   static logging::Logger log = logging::getLogger("MediaRelayAttach");
   return log;
-}
-
-/** Off the IO strand (quote / attach take the relay client's lock): a worker, or inline without a runtime. */
-void PostOffIo(std::function<void()> task) {
-  if (AppRuntime::IsRunning()) {
-    AppRuntime::PostWorkerNormal(std::move(task));
-  } else {
-    task();
-  }
 }
 
 Error PortsGoneError() {
@@ -100,9 +90,11 @@ void ReachHopService(const MediaRelayAttachPorts& ports, const MediaRelayAttachR
     ports.dial->ClearDialBackoff(request.hop_peer_id);
   }
   if (!ports.dial->IsDialable(request.hop_peer_id) && ports.service_reach) {
-    // Service reach finishes on Amp IO — continue on a worker, not the IO strand.
+    // Service reach finishes on Amp IO; quote / attach take the relay client's lock, so continue on
+    // the mesh's `work` executor, not the IO strand.
     ports.service_reach->TryEnsureHopReachableAsync(
-        request.hop_peer_id, [next = std::move(next)](Roe<void>) mutable { PostOffIo(std::move(next)); });
+        request.hop_peer_id,
+        [work = ports.work, next = std::move(next)](Roe<void>) mutable { PostOrRun(work, std::move(next)); });
     return;
   }
   next();

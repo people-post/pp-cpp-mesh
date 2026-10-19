@@ -73,6 +73,7 @@ MediaRelayAttachPorts MeshMediaRelay::RelayAttachPorts() const {
   ports.service_reach = connectivity_.CircuitReach();
   ports.objects_alive = connectivity_.ObjectsToken();
   ports.objects_snap = connectivity_.ObjectsSnapshot();
+  ports.work = connectivity_.WorkExecutor();
   return ports;
 }
 

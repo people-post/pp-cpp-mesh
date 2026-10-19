@@ -35,7 +35,8 @@ logging::Logger& MeshHostLog() {
 
 } // namespace
 
-MeshHost::MeshHost() : reachability_(std::make_unique<ReachabilityEngine>()) {}
+MeshHost::MeshHost(MeshExecutors executors)
+    : reachability_(std::make_unique<ReachabilityEngine>()), executors_(std::move(executors)) {}
 
 MeshHost::~MeshHost() { Stop(); }
 
@@ -165,16 +166,9 @@ void MeshHost::StopOwnedThreads() {
   l4_on_workers_.store(false, std::memory_order_release);
 }
 
-std::function<void(std::function<void()>)> MeshHost::MakeL4WorkerPost(const WorkerLane lane) const {
-  return [this, lane](std::function<void()> task) {
-    if (!task) {
-      return;
-    }
-    if (l4_on_workers_.load(std::memory_order_acquire)) {
-      AppRuntime::PostWorker(lane, std::move(task));
-    } else {
-      task();
-    }
+std::function<void(std::function<void()>)> MeshHost::MakeL4WorkerPost(std::shared_ptr<pp::Executor> executor) const {
+  return [this, executor = std::move(executor)](std::function<void()> task) {
+    PostOrRun(l4_on_workers_.load(std::memory_order_acquire) ? executor : nullptr, std::move(task));
   };
 }
 
@@ -228,7 +222,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
   }
   amp_media_relay_client_->SetCircuitHopRegistry(amp_circuit_hops_.get());
   auto io_pump = MakeL4IoPump();
-  auto post_worker = MakeL4WorkerPost(WorkerLane::Normal);
+  auto post_worker = MakeL4WorkerPost(executors_.work);
   if (!amp_dial_back_server_) {
     amp_dial_back_server_ = std::make_unique<DialBackServer>(amp_->Runtime());
   }
@@ -570,7 +564,7 @@ AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) con
   deps.local_peer_id = amp_->LocalPeerId();
   deps.bootstrap_peers = bootstrap_peers_;
   deps.io_pump = MakeL4IoPump();
-  deps.post_worker = MakeL4WorkerPost(WorkerLane::Background);  // UPnP discovery blocks (~2 s)
+  deps.post_worker = MakeL4WorkerPost(executors_.blocking);  // UPnP discovery blocks (~2 s)
   deps.post_io = MakeL4IoPost();
   deps.post_after = MakeL4IoAfter();
   deps.try_upnp_first = try_upnp_first;
@@ -632,7 +626,7 @@ std::optional<MeshChatDeps> MeshHost::ChatDeps() {
   }
   MeshIoContext io;
   io.io_pump = MakeL4IoPump();
-  io.post_worker = MakeL4WorkerPost(WorkerLane::Normal);
+  io.post_worker = MakeL4WorkerPost(executors_.work);
   io.post_io = MakeL4IoPost();
   io.post_after = MakeL4IoAfter();
   io.local_peer_id = amp_->LocalPeerId();

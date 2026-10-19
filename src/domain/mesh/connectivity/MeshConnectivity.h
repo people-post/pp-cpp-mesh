@@ -130,6 +130,8 @@ public:
 
   IDialRegistry* Dial() const;
   ICircuitHopReach* CircuitReach() const;
+  /** The wired mesh's `work` executor (null when not wired: inline), for objects built on this. */
+  std::shared_ptr<pp::Executor> WorkExecutor() const { return work_; }
   /** The mesh it wires from (null when none); for objects built on this (`MeshMediaRelay`). */
   MeshHost* Mesh() const { return mesh(); }
 
@@ -188,6 +190,7 @@ private:
   std::shared_ptr<const MeshLocalView> local_view_ = std::make_shared<const MeshLocalView>();
   std::unique_ptr<PeerSessionDialRegistry> dial_registry_;
   std::unique_ptr<ICircuitHopReach> circuit_hop_reach_;
+  std::shared_ptr<pp::Executor> work_;  // set at Wire, read at consumers' bind points like Dial()
   IDialRegistry* test_dial_ = nullptr;
   ICircuitHopReach* test_circuit_reach_ = nullptr;
   PunchIntroducerWalk punch_;

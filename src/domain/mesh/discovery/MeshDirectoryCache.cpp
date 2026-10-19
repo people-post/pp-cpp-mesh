@@ -2,7 +2,7 @@
 
 #include "domain/mesh/discovery/NameDirectory.h"
 #include "foundation/data/AtomicFileWrite.h"
-#include "foundation/runtime/AppRuntime.h"
+#include "domain/mesh/shared/MeshExecutors.h"
 #include "common/ValueJson.h"
 
 #include <fstream>
@@ -64,7 +64,12 @@ std::optional<MeshDirectoryNode> NodeFromObject(const Object& o) {
 
 } // namespace
 
-MeshDirectoryCache::MeshDirectoryCache(Fetcher fetcher) : fetcher_(std::move(fetcher)) {}
+MeshDirectoryCache::MeshDirectoryCache(Fetcher fetcher, std::shared_ptr<pp::Executor> blocking)
+    : fetcher_(std::move(fetcher)), blocking_(std::move(blocking)) {}
+
+MeshDirectoryCache::~MeshDirectoryCache() {
+  lifetime_.InvalidateAndWait();
+}
 
 void MeshDirectoryCache::SetRefreshInterval(std::chrono::seconds interval) {
   std::lock_guard lock(mutex_);
@@ -212,16 +217,18 @@ void MeshDirectoryCache::RequestRefresh() {
     sync = fetcher_;
   }
 
+  auto apply = lifetime_.Bind([this](Roe<std::vector<MeshDirectoryNode>> result) {
+    ApplyRefreshResult(std::move(result));
+  });
   if (async) {
-    async([this](Roe<std::vector<MeshDirectoryNode>> result) {
-      AppRuntime::PostUI([this, result = std::move(result)]() mutable { ApplyRefreshResult(std::move(result)); });
+    // The completion may arrive on the mesh's I/O lane: applying persists to disk, so not there.
+    async([blocking = blocking_, apply](Roe<std::vector<MeshDirectoryNode>> result) {
+      PostOrRun(blocking, [apply, result = std::move(result)]() mutable { apply(std::move(result)); });
     });
     return;
   }
-
-  AppRuntime::PostWorkerAndReplyOnUI<Roe<std::vector<MeshDirectoryNode>>>(
-      WorkerLane::Normal, [sync]() { return sync(); },
-      [this](Roe<std::vector<MeshDirectoryNode>> result) { ApplyRefreshResult(std::move(result)); });
+  // The fetch itself is not bound: destruction never waits on HTTP; only its result is dropped.
+  PostOrRun(blocking_, [sync, apply]() { apply(sync()); });
 }
 
 std::vector<MeshDirectoryNode> MeshDirectoryNodesFromHits(const std::vector<MeshNodeHit>& hits) {
