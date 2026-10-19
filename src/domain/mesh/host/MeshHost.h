@@ -1,6 +1,6 @@
 #pragma once
 
-#include "foundation/data/Config.h"
+#include "foundation/data/MeshConfigTypes.h"
 #include "amp/link/AmpStack.h"
 #include "domain/mesh/host/LocalNetworkChange.h"
 #include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
