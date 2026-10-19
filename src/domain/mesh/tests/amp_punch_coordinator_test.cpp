@@ -14,6 +14,7 @@
 #include <functional>
 #include <optional>
 #include <vector>
+#include "common/PbrCompat.h"
 
 namespace pbr {
 namespace {

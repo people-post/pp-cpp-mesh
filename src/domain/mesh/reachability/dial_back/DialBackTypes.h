@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <string>
+#include "common/PbrCompat.h"
 
 namespace pbr {
 

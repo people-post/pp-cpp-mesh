@@ -1,6 +1,7 @@
 #include "domain/mesh/discovery/MeshNodeHitCodec.h"
 
 #include "common/ValueJson.h"
+#include "common/PbrCompat.h"
 
 namespace pbr {
 namespace {

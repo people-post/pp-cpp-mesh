@@ -3,7 +3,7 @@
 
 #include "common/directory/DirectoryTypes.h"
 #include "common/ValueJson.h"
-#include "foundation/data/AtomicFileWrite.h"
+#include "common/AtomicFileWrite.h"
 
 #include <gtest/gtest.h>
 
@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "common/PbrCompat.h"
 
 namespace pbr {
 namespace {

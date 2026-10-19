@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <chrono>
+#include "common/PbrCompat.h"
 
 namespace pbr {
 namespace {

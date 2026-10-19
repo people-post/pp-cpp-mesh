@@ -1,13 +1,14 @@
 #include "domain/mesh/discovery/MeshDirectoryCache.h"
 
 #include "domain/mesh/discovery/NameDirectory.h"
-#include "foundation/data/AtomicFileWrite.h"
+#include "common/AtomicFileWrite.h"
 #include "domain/mesh/shared/MeshExecutors.h"
 #include "common/ValueJson.h"
 
 #include <fstream>
 #include <memory>
 #include <optional>
+#include "common/PbrCompat.h"
 
 namespace pbr {
 namespace {
