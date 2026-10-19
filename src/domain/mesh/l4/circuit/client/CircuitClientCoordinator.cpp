@@ -7,7 +7,7 @@
 #include "amp/link/PeerLink.h"
 #include "common/ValueJson.h"
 #include "domain/mesh/shared/AmpChannelOpen.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <algorithm>
 #include <atomic>
@@ -40,9 +40,9 @@ struct CircuitClientCoordinator::Impl {
   std::atomic<uint64_t> next_id{1};
   pp::amp::MeshRuntime::IoTickId io_tick_id = 0;
   /** PostIo(raw Impl*) — Invalidate on AbortInflight (Stop calls Abort). */
-  DeferredSelf deferred;
+  pp::Lifetime deferred;
   /** IoTick — Invalidate only on Stop (survives mid-life Abort). */
-  DeferredSelf lifetime;
+  pp::Lifetime lifetime;
 
   /** One bridge or reserve request on a relay (the near channel is ours ↔ relay). */
   struct Tunnel {
@@ -468,7 +468,7 @@ bool CircuitClientCoordinator::IsStarted() const {
 void CircuitClientCoordinator::AbortInflight() {
   // Null Finish cbs: CircuitRendezvousCoordinator / AmpCircuitHopReach may already be destroyed
   // (hard-w5 offerer SIGSEGV after Leave). Reach uses AbortPending gen; reserve cbs use
-  // CircuitRendezvousCoordinator DeferredSelf.
+  // CircuitRendezvousCoordinator Lifetime.
   // Lock order is strand → mu (IO callbacks hold the strand). Off-IO callers (quit / Leave on the
   // UI thread) take the strand first: mu → ClearWarm (strand) deadlocked against MeshPump's
   // TickDeadlines (strand → mu) — pp-call-probe teardown hang, 2026-09-25.

@@ -7,7 +7,8 @@
 #include "domain/mesh/reach/CircuitRendezvousCoordinator.h"
 #include "domain/mesh/reach/MeshReachPorts.h"
 #include "domain/mesh/reach/PunchIntroducerWalk.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
+#include "common/SerialExecutor.h"
 
 #include <atomic>
 #include <cstdint>
@@ -22,27 +23,23 @@
 namespace pbr {
 
 /**
- * What connectivity needs from the product. Hop candidates are policy (contacts, directory, DHT,
- * seeds) the wiring feature computes — `domain/mesh` does not read contacts. The three policy
- * providers are evaluated on the Connectivity owner (at Wire, every few seconds, and on
- * `RefreshHopPolicy`); the Amp IO side only reads the resulting `MeshHopPolicy` snapshot.
+ * What connectivity needs from the product. Hop candidates are not here: they are product policy
+ * (contacts, directory, DHT, seeds) the app computes and pushes (`SetHopPolicy`) — the mesh never
+ * calls into the app for them (THREADING.md § Mesh threads, rule 1).
  */
 struct MeshConnectivityDeps {
   std::function<MeshHost*()> mesh;
-  /** Rendezvous surface (contacts ∪ directory ∪ DHT ∪ seeds); self / target are filtered here. */
-  std::function<std::vector<MeshHopCandidate>()> rendezvous_candidates;
-  /** Effective bootstrap seeds (configured ∪ directory). */
-  std::function<std::vector<MeshHopCandidate>()> bootstrap_seeds;
-  std::function<MeshPunchIntroducers()> punch_introducers;
   /** A peer listen addr was registered (LAN discovery bookkeeping). */
   std::function<void(const std::string& peer_id)> note_lan_peer_id;
   /** Without a dial registry: record one direct endpoint (delivery plane). */
   std::function<void(const std::string& key, const std::string& multiaddr)> register_direct_endpoint;
 };
 
-/** Candidate policy as of the owner's last refresh (read on the Amp IO strand). */
+/** Candidate policy as the app last pushed it (read on the Amp IO strand). */
 struct MeshHopPolicy {
+  /** Rendezvous surface (contacts ∪ directory ∪ DHT ∪ seeds); self / target are filtered by the mesh. */
   std::vector<MeshHopCandidate> rendezvous_candidates;
+  /** Effective bootstrap seeds (configured ∪ directory). */
   std::vector<MeshHopCandidate> bootstrap_seeds;
   MeshPunchIntroducers punch_introducers;
 };
@@ -73,14 +70,17 @@ struct MeshLocalView {
  * The owner sequences rewires: dependents holding `Dial()` / `CircuitReach()` must be detached
  * before `Wire`, `ResetDialRegistry`, `ResetAfterMeshStop` or teardown replace them.
  *
- * Threading (thread-ownership t3-2): lives on the Connectivity owner (`pp-connectivity`).
+ * Threading (THREADING.md § Mesh threads): its state lives on the wired mesh's io lane
+ * (`MeshHost::IoLane`), next to the Amp state it drives; unwired, on the caller of an edge.
  * Lifecycle edges (deps, hooks, Wire / Reset / Clear, test path) run there and the caller waits
- * (`AppRuntime::RunAndWait` — callers are UI or the media-sessions owner, never below it). Listen
- * registrations post there; the listen book is read as a published snapshot. Circuit reach's
- * relay-chosen notice hops from Amp IO to the owner, and the consumer hook runs there — consumers
- * hop to their own owner. The object accessors (`Dial` / `CircuitReach`) are read by consumers at
- * their bind points, between the owner's rewire edges (L015 sequencing). Async callbacks that
- * capture `this` (and the rendezvous coordinator's) are dropped after `InvalidateAsyncOps`.
+ * (`RunEdge`: serialized among themselves; callers are the app's threads, never the lane). Listen
+ * registrations, local-view refreshes and relay-chosen notices post there (dropped if the mesh they
+ * were posted for is gone by then); the listen book, local view and policy are read as published
+ * snapshots. The candidate policy is the app's, pushed from any thread (`SetHopPolicy`), never
+ * evaluated here. The relay-chosen consumer hook runs on the lane — consumers hop to their own
+ * thread. The object accessors (`Dial` / `CircuitReach` / `Lane`) are read by consumers at their
+ * bind points, between rewire edges (L015 sequencing). Async callbacks that capture `this` (and the
+ * rendezvous coordinator's) are dropped after `InvalidateAsyncOps`.
  */
 class MeshConnectivity : public Module {
 public:
@@ -95,12 +95,18 @@ public:
   /** Last-resort punch through a consumer's own signaling when Amp introducers are exhausted (H012). */
   void SetSignalingPunch(SignalingPunchFn punch);
   /**
-   * Recompute the candidate policy and the local view on the owner now (contacts / directory /
-   * seeds / reachability changed). They are also refreshed at Wire and every few seconds.
+   * Any thread: the app's candidate policy, computed off the mesh's threads; it replaces the last
+   * one. The app pushes again whenever its inputs change (and periodically for those that change
+   * without notice); it survives Wire / Reset.
    */
-  void RefreshHopPolicy();
+  void SetHopPolicy(MeshHopPolicy policy);
   /** Any thread: the policy the IO side sees. */
   std::shared_ptr<const MeshHopPolicy> HopPolicy() const;
+  /**
+   * Recompute the local view on the owner now (reachability changed the advertised addrs). Also
+   * refreshed at Wire and every few seconds while wired.
+   */
+  void RefreshLocalView();
   /** Any thread: this node's mesh as of the owner's last refresh (empty when not wired). */
   std::shared_ptr<const MeshLocalView> LocalView() const;
   /**
@@ -114,8 +120,9 @@ public:
 
   /** (Re)create the dial registry and circuit reach from the running mesh; arm re-park. */
   void Wire();
-  /** Tests / harness without MeshHost objects: use these instead (not owned). */
-  void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach);
+  /** Tests / harness without MeshHost objects: use these instead (not owned), reach running on `lane`. */
+  void BindTestPath(IDialRegistry* dial, ICircuitHopReach* circuit_reach,
+                    std::shared_ptr<pp::SerialExecutor> lane = nullptr);
   /** Drop async callbacks, relay-chosen notices and the re-park listener (mesh stop / teardown). */
   void InvalidateAsyncOps();
   /** Dial registry (capability refresh); Wire makes a new one. */
@@ -127,6 +134,15 @@ public:
 
   IDialRegistry* Dial() const;
   ICircuitHopReach* CircuitReach() const;
+  /** The wired mesh's `work` executor (null when not wired: inline), for objects built on this. */
+  std::shared_ptr<pp::Executor> WorkExecutor() const { return work_; }
+  /** The wired mesh's io lane, where reach runs (`PeerReachPorts`); null when not wired. */
+  std::shared_ptr<pp::SerialExecutor> Lane() const { return test_lane_ ? test_lane_ : StateLane(); }
+  /**
+   * A lifecycle edge of an object built on this one (`MeshMediaRelay`): runs where this one's state
+   * lives — the wired mesh's io lane, else the caller — while the caller waits. Never from the lane.
+   */
+  void RunEdge(const std::function<void()>& task);
   /** The mesh it wires from (null when none); for objects built on this (`MeshMediaRelay`). */
   MeshHost* Mesh() const { return mesh(); }
 
@@ -134,7 +150,7 @@ public:
    * Liveness of the objects handed out to consumers' async work (dial registry, circuit reach, and
    * `MeshMediaRelay`'s relay client): bumped on the owner before any of them is replaced or freed.
    */
-  DeferredSelf::Token ObjectsToken() const { return objects_.token(); }
+  pp::Lifetime::Token ObjectsToken() const { return objects_.token(); }
   uint64_t ObjectsSnapshot() const { return objects_.Snapshot(); }
   /** Owner: one of the handed-out objects is about to be replaced (`MeshMediaRelay`'s relay client). */
   void InvalidateObjects() { objects_.Invalidate(); }
@@ -162,35 +178,50 @@ public:
 
 private:
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }
-  std::string RegisterPeerListenMultiaddrsOnOwner(const std::string& key, const std::vector<std::string>& multiaddrs);
-  void RefreshHopPolicyOnOwner();
+  std::shared_ptr<pp::SerialExecutor> StateLane() const;
+  void SetStateLane(std::shared_ptr<pp::SerialExecutor> lane);
+  /** Debug assertions: on the state lane (unwired: anywhere, an edge holds the edge lock). */
+  bool OnStateLane() const;
+  /** `task` where the state lives: posted to the lane; unwired, now on the caller (as an edge). */
+  void Post(std::function<void()> task);
+  std::string RegisterPeerListenMultiaddrsOnLane(const std::string& key, const std::vector<std::string>& multiaddrs);
+  void RefreshLocalViewOnLane();
   void PublishLocalView(MeshLocalView view);
-  /** Re-evaluate the policy periodically while wired (the inputs change without notice). */
-  void ArmHopPolicyRefresh();
+  /** Refresh the local view periodically while wired (the mesh's addrs change without notice). */
+  void ArmLocalViewRefresh();
   void PublishListenBook();
   void WireDialRegistry(MeshHost* m, const MeshIoContext& io);
   void WireCircuitHopReach(MeshHost* m, const MeshIoContext& io);
 
   MeshConnectivityDeps deps_;
   std::function<void(const std::string&)> on_relay_chosen_;
-  ListenBook peer_listen_mas_;  // owner
+  ListenBook peer_listen_mas_;  // state lane
   mutable std::mutex listen_book_mu_;
   std::shared_ptr<const ListenBook> listen_book_ = std::make_shared<const ListenBook>();
-  std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
   mutable std::mutex hop_policy_mu_;
   std::shared_ptr<const MeshHopPolicy> hop_policy_ = std::make_shared<const MeshHopPolicy>();
-  uint64_t hop_policy_timer_ = 0;  // owner
-  bool wired_ = false;             // owner: between Wire and InvalidateAsyncOps
+  uint64_t local_view_timer_ = 0;  // state lane
+  bool wired_ = false;             // state lane: between Wire and InvalidateAsyncOps
+  /** Serializes edges (they nest: Clear runs InvalidateAsyncOps). Never taken on the lane. */
+  std::recursive_mutex edge_mu_;
+  /** Guards `lane_` only: a leaf, never held while running anything. */
+  mutable std::mutex lane_mu_;
+  /** The wired mesh's io lane: where the state lives (null: unwired). */
+  std::shared_ptr<pp::SerialExecutor> lane_;
   mutable std::mutex local_view_mu_;
   std::shared_ptr<const MeshLocalView> local_view_ = std::make_shared<const MeshLocalView>();
   std::unique_ptr<PeerSessionDialRegistry> dial_registry_;
   std::unique_ptr<ICircuitHopReach> circuit_hop_reach_;
+  std::shared_ptr<pp::Executor> work_;  // set at Wire, read at consumers' bind points like Dial()
+  std::shared_ptr<pp::SerialExecutor> test_lane_;
   IDialRegistry* test_dial_ = nullptr;
   ICircuitHopReach* test_circuit_reach_ = nullptr;
   PunchIntroducerWalk punch_;
   CircuitRendezvousCoordinator rendezvous_;
-  DeferredSelf deferred_;
-  DeferredSelf objects_;
+  pp::Lifetime deferred_;
+  pp::Lifetime objects_;
+  /** Everything Post()ed: the destructor drops what is queued and waits for one running. */
+  pp::Lifetime self_;
 };
 
 } // namespace pbr

@@ -4,7 +4,7 @@
 #include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "domain/mesh/host/MeshPorts.h"
 #include "domain/mesh/reach/MeshReachPorts.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <atomic>
 #include <chrono>
@@ -51,6 +51,9 @@ public:
   void TryEnsureRelayedAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
                              CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None) override;
 
+  /** Its mesh is going away (MeshHost::IsStopping): the synchronous waits below are refused. */
+  void SetStopping(std::function<bool()> stopping) { stopping_ = std::move(stopping); }
+
   Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override;
   Roe<void> TryEnsurePeerReachable(const std::string& peer_key) override;
   void AbortPending() override;
@@ -84,7 +87,8 @@ private:
   TryPunchViaIntroducerAsync try_punch_via_introducer_;
   OnRelayChosen on_relay_chosen_;
   /** AbortPending Invalidates — in-flight EnsureViaCircuit / punch cbs no-op. */
-  DeferredSelf deferred_;
+  std::function<bool()> stopping_;
+  pp::Lifetime deferred_;
   /** Active StartBridge id for this reach chain; AbortPending CancelTunnel's it (hard cancel). */
   std::atomic<uint64_t> inflight_tunnel_value_{0};
   /** Last relay that completed a bridge Install (sticky first try — H010). */

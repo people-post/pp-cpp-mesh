@@ -1,7 +1,7 @@
 #include "domain/mesh/reach/PeerReachCoordinator.h"
 
 #include "domain/mesh/reach/MeshReachPorts.h"
-#include "foundation/runtime/AppRuntime.h"
+#include "common/ThreadExecutor.h"
 
 #include <atomic>
 #include <chrono>
@@ -21,7 +21,7 @@ constexpr const char* kPeer = "12D3KooWReachPeer";
 constexpr const char* kPrivateMa = "/ip4/10.0.0.2/udp/1/p2p/12D3KooWReachPeer";
 constexpr const char* kPublicMa = "/ip4/203.0.113.7/udp/1/p2p/12D3KooWReachPeer";
 
-/** Dial registry fake; state is read on the Connectivity owner, so every access takes the lock. */
+/** Dial registry fake; state is read on the reach's lane, so every access takes the lock. */
 class FakeDialRegistry final : public IDialRegistry {
 public:
   Roe<void> RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) override {
@@ -136,16 +136,17 @@ private:
 class PeerReachCoordinatorTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    AppRuntime::Initialize();
+    // The mesh's io lane in the product; a thread of its own here.
+    lane_ = std::make_shared<pp::ThreadExecutor>();
     dial_ = std::make_unique<FakeDialRegistry>();
     circuit_ = std::make_unique<FakeCircuitReach>(*dial_);
-    reach_ = std::make_unique<PeerReachCoordinator>(dial_.get(), circuit_.get());
+    reach_ = std::make_unique<PeerReachCoordinator>(PeerReachPorts{dial_.get(), circuit_.get(), lane_});
     reach_->SetDialBudgetMsForTest(300);
   }
 
   void TearDown() override {
     reach_->CancelAll();
-    AppRuntime::Shutdown();
+    lane_->Stop();  // joined: no step runs past here
     reach_.reset();
     circuit_.reset();
     dial_.reset();
@@ -185,6 +186,7 @@ protected:
     return r;
   }
 
+  std::shared_ptr<pp::ThreadExecutor> lane_;
   std::unique_ptr<FakeDialRegistry> dial_;
   std::unique_ptr<FakeCircuitReach> circuit_;
   std::unique_ptr<PeerReachCoordinator> reach_;
@@ -402,10 +404,34 @@ TEST_F(PeerReachCoordinatorTest, CancelCompletesInlineOnce) {
 }
 
 TEST_F(PeerReachCoordinatorTest, MissingDialRegistryFails) {
-  reach_->SetDeps(nullptr, circuit_.get());
+  reach_->SetDeps({nullptr, circuit_.get(), lane_});
   auto out = Run(Request());
   ASSERT_TRUE(WaitDone(out, std::chrono::seconds(5)));
   ASSERT_FALSE(*out->result);
+}
+
+TEST_F(PeerReachCoordinatorTest, NoLaneFailsAtOnce) {
+  reach_->SetDeps({dial_.get(), circuit_.get(), nullptr});
+  auto out = Run(Request());
+  ASSERT_TRUE(out->done.load()) << "no mesh: completes inline";
+  ASSERT_FALSE(*out->result);
+}
+
+// THREADING.md § Mesh threads, rule 4: a reach's steps and watchdog are timers on its lane, which the
+// runtime drops as it stops. A new lane (mesh stopped / restarted) fails what is in flight instead
+// of leaving it waiting on a timer that will never fire.
+TEST_F(PeerReachCoordinatorTest, AnotherLaneFailsTheReachesInFlight) {
+  reach_->SetDeps({dial_.get(), nullptr, lane_});
+  auto out = Run(Request());  // nothing dialable or connected, no circuit: it polls out its budget
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  ASSERT_FALSE(out->done.load());
+  auto other = std::make_shared<pp::ThreadExecutor>();
+  reach_->SetDeps({dial_.get(), nullptr, other});
+  ASSERT_TRUE(out->done.load()) << "failed inline by SetDeps";
+  ASSERT_FALSE(*out->result);
+  EXPECT_EQ(out->result->error().message, "mesh stopped");
+  reach_->SetDeps({dial_.get(), circuit_.get(), lane_});
+  other->Stop();
 }
 
 // --- Link-state operations ---------------------------------------------------------------
@@ -451,7 +477,7 @@ TEST_F(PeerReachCoordinatorTest, ReleasePeerAbortsDialAndDropsRelayHop) {
 TEST_F(PeerReachCoordinatorTest, AvailabilityFollowsDeps) {
   EXPECT_TRUE(reach_->Available());
   EXPECT_TRUE(reach_->HasCircuitReach());
-  reach_->SetDeps(nullptr, nullptr);
+  reach_->SetDeps({});
   EXPECT_FALSE(reach_->Available());
   EXPECT_FALSE(reach_->HasCircuitReach());
   EXPECT_FALSE(reach_->HasRelayHop(kPeer));

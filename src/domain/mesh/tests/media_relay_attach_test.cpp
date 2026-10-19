@@ -223,7 +223,7 @@ TEST_F(MediaRelayAttachTest, RelayRefusalsSurface) {
 // PR #233 review: the mesh may stop (and free relay / dial) while service reach is outstanding —
 // the continuation must fail on the owner's liveness, not touch the freed objects.
 TEST_F(MediaRelayAttachTest, MeshStopDuringServiceReachFailsWithoutTouchingPorts) {
-  DeferredSelf objects;
+  pp::Lifetime objects;
   MediaRelayAttachPorts ports = Ports();
   ports.objects_alive = objects.token();
   ports.objects_snap = objects.Snapshot();
@@ -236,9 +236,7 @@ TEST_F(MediaRelayAttachTest, MeshStopDuringServiceReachFailsWithoutTouchingPorts
   EXPECT_EQ(attached->error().message, "mesh media stopped");
 
   dial_.relay_routes.clear();  // the first reach landed; the quote must go through reach again
-  objects = DeferredSelf();
-  ports.objects_alive = objects.token();
-  ports.objects_snap = objects.Snapshot();
+  ports.objects_snap = objects.Snapshot();  // the objects were rebuilt: a fresh generation
   reach_.during_reach = [&objects]() { objects.Invalidate(); };
   std::optional<Roe<MediaRelayQuote>> quoted;
   QuoteMediaRelayAsync(ports, Request(), [&quoted](Roe<MediaRelayQuote> r) { quoted = std::move(r); });

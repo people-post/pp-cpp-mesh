@@ -15,7 +15,8 @@
 #include "domain/mesh/l4/circuit/serve/CircuitRelayServer.h"
 #include "domain/mesh/host/MeshIdentityConfig.h"
 #include "domain/mesh/host/MeshPorts.h"
-#include "foundation/runtime/AppRuntime.h"
+#include "domain/mesh/shared/MeshExecutors.h"
+#include "common/SerialExecutor.h"
 #include "domain/mesh/host/MeshPumpThread.h"
 #include "domain/mesh/reachability/ReachabilityEngine.h"
 #include "common/Error.h"
@@ -72,7 +73,8 @@ struct MeshHostConfig {
 
 class MeshHost {
 public:
-  MeshHost();
+  /** `executors`: where this mesh hands work off its I/O lane (empty: inline — manual-drive harnesses). */
+  explicit MeshHost(MeshExecutors executors);
   ~MeshHost();
 
   MeshHost(const MeshHost&) = delete;
@@ -84,6 +86,18 @@ public:
   bool IsRunning() const;
 
   bool MeshPumpRunning() const { return pump_.IsRunning(); }
+  /** Where this mesh hands work off its I/O lane (given at construction). */
+  const MeshExecutors& Executors() const { return executors_; }
+  /** The I/O lane mesh control runs on (Amp's io executor); null when Amp is down. */
+  std::shared_ptr<pp::SerialExecutor> IoLane() const;
+  /** `task` on the io lane while the caller waits (inline without Amp). Never from the lane's own callbacks into the app. */
+  void RunOnLane(const std::function<void()>& task);
+  /**
+   * The host is going away (an app's quit, which it may still cancel): synchronous reach waits are
+   * refused from now on, so nothing parks a thread on a mesh about to stop. Any thread.
+   */
+  void SetStopping(bool stopping) { stopping_.store(stopping, std::memory_order_release); }
+  bool IsStopping() const { return stopping_.load(std::memory_order_acquire); }
 
   ReachabilityEngine& Reachability();
 
@@ -142,7 +156,7 @@ public:
   enum class AttachDrive {
     /** Caller Ticks (VirtualClock / MemoryDatagramIo tests — MeshPump is not clock-safe). */
     Manual,
-    /** Own MeshPump and hand L4 work to AppRuntime workers like product Start (wall-clock harnesses, e.g. pp-call-probe). */
+    /** Own MeshPump and hand L4 work to the host's executors like product Start (wall-clock harnesses, e.g. pp-call-probe). */
     MeshPump,
   };
   Roe<void> AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr = {},
@@ -181,15 +195,17 @@ private:
   /** MeshRuntime::PostAfter — Amp-clock delayed work (deadlines). */
   std::function<void(std::chrono::milliseconds, std::function<void()>)> MakeL4IoAfter() const;
   /**
-   * Where L4 inbound handlers do their CPU / disk work off the IO strand: AppRuntime workers once
-   * this host drives its own MeshPump (product, wall-clock harnesses); inline on the driving thread
-   * for manual-drive harnesses (no runtime). Nothing posted here may wait on the mesh.
+   * Where L4 work leaves the IO strand: `executor` (one of `executors_`) once this host drives its
+   * own MeshPump (product, wall-clock harnesses); inline on the driving thread for manual-drive
+   * harnesses. Nothing posted here may wait on the mesh.
    */
-  std::function<void(std::function<void()>)> MakeL4WorkerPost(WorkerLane lane) const;
+  std::function<void(std::function<void()>)> MakeL4WorkerPost(std::shared_ptr<pp::Executor> executor) const;
 
   std::unique_ptr<ReachabilityEngine> reachability_;
   MeshPumpThread pump_;
-  /** Set while MeshPump drives: L4 work goes to AppRuntime workers (MakeL4WorkerPost). */
+  const MeshExecutors executors_;
+  std::atomic<bool> stopping_{false};
+  /** Set while MeshPump drives: L4 work goes to `executors_` (MakeL4WorkerPost). */
   std::atomic<bool> l4_on_workers_{false};
   /** k5: the latest network change; a delayed re-probe for an older one stands down. */
   std::atomic<uint64_t> network_change_gen_{0};
@@ -210,6 +226,8 @@ private:
   /** Apply the gate to Amp's ch0 capability (listen multiaddrs per peer); after every Amp (re)build. */
   void ApplyAddressDisclosureToAmp();
   std::unique_ptr<AmpDhtProtocol> amp_dht_;
+  /** The DHT's self-publish io tick (0: none). */
+  pp::amp::MeshRuntime::IoTickId dht_tick_ = 0;
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;
   bool host_dht_ = false;
   bool host_directory_ = false;

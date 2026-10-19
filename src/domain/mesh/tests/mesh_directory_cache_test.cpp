@@ -8,7 +8,9 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <functional>
 #include <memory>
+#include <vector>
 
 namespace pbr {
 namespace {
@@ -68,13 +70,85 @@ TEST(MeshDirectoryCacheTest, NodesFromHitsPreservesNameFields) {
   ASSERT_EQ(nodes[0].multiaddrs.size(), 1u);
 }
 
+/** Holds what is posted until the test runs it: the cache's `blocking` executor. */
+class QueueExecutor final : public pp::Executor {
+public:
+  void Post(Task task) override { tasks_.push_back(std::move(task)); }
+  size_t RunAll() {
+    size_t ran = 0;
+    while (!tasks_.empty()) {
+      Task task = std::move(tasks_.front());
+      tasks_.erase(tasks_.begin());
+      task();
+      ++ran;
+    }
+    return ran;
+  }
+
+private:
+  std::vector<Task> tasks_;
+};
+
+Roe<std::vector<MeshDirectoryNode>> OneNode() {
+  MeshDirectoryNode node;
+  node.peer_id = "12D3KooWNode";
+  return std::vector<MeshDirectoryNode>{node};
+}
+
 TEST(MeshDirectoryCacheTest, SnapshotEmptyBeforeRefresh) {
-  MeshDirectoryCache cache([]() -> Roe<std::vector<MeshDirectoryNode>> {
-    MeshDirectoryNode node;
-    node.peer_id = "12D3KooWNode";
-    return std::vector<MeshDirectoryNode>{node};
-  });
+  MeshDirectoryCache cache(OneNode, nullptr);
   EXPECT_TRUE(cache.Snapshot().empty());
+}
+
+// THREADING.md § Mesh threads: the fetch (HTTP) runs on the mesh's `blocking` executor and the
+// result lands there, `on_updated` included — no UI delivery in the mesh.
+TEST(MeshDirectoryCacheTest, RefreshRunsAndLandsOnTheBlockingExecutor) {
+  auto blocking = std::make_shared<QueueExecutor>();
+  int fetches = 0;
+  int updates = 0;
+  MeshDirectoryCache cache(
+      [&fetches]() {
+        ++fetches;
+        return OneNode();
+      },
+      blocking);
+  cache.SetOnUpdated([&updates]() { ++updates; });
+  cache.RequestRefresh();
+  cache.RequestRefresh();  // in flight: no second fetch
+  EXPECT_EQ(fetches, 0) << "not on the caller";
+  EXPECT_EQ(blocking->RunAll(), 1u);
+  EXPECT_EQ(fetches, 1);
+  EXPECT_EQ(updates, 1);
+  ASSERT_EQ(cache.Snapshot().size(), 1u);
+}
+
+TEST(MeshDirectoryCacheTest, AsyncResultsAreAppliedOnTheBlockingExecutor) {
+  auto blocking = std::make_shared<QueueExecutor>();
+  std::function<void(Roe<std::vector<MeshDirectoryNode>>)> complete;
+  MeshDirectoryCache cache(nullptr, blocking);
+  cache.SetAsyncFetcher([&complete](auto done) { complete = std::move(done); });
+  cache.RequestRefresh();
+  ASSERT_TRUE(complete);
+  complete(OneNode());  // e.g. on the mesh's I/O lane
+  EXPECT_TRUE(cache.Snapshot().empty()) << "applying persists to disk: not where the completion ran";
+  blocking->RunAll();
+  EXPECT_EQ(cache.Snapshot().size(), 1u);
+}
+
+TEST(MeshDirectoryCacheTest, AResultArrivingAfterDestructionIsDropped) {
+  auto blocking = std::make_shared<QueueExecutor>();
+  int fetches = 0;
+  {
+    MeshDirectoryCache cache(
+        [&fetches]() {
+          ++fetches;
+          return OneNode();
+        },
+        blocking);
+    cache.RequestRefresh();
+  }
+  EXPECT_EQ(blocking->RunAll(), 1u);  // the fetch still runs; its result touches nothing
+  EXPECT_EQ(fetches, 1);
 }
 
 TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
@@ -98,7 +172,7 @@ TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
   root.set("nodes", makeArray(std::move(rows)));
   ASSERT_TRUE(AtomicFileWrite::Write(path, DumpJson(root, 2)));
 
-  MeshDirectoryCache cache([]() -> Roe<std::vector<MeshDirectoryNode>> { return Error("no net"); });
+  MeshDirectoryCache cache([]() -> Roe<std::vector<MeshDirectoryNode>> { return Error("no net"); }, nullptr);
   cache.SetPersistPath(path);
   cache.LoadPersisted();
   const auto snap = cache.Snapshot();

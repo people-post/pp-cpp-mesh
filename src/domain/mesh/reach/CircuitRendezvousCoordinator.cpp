@@ -4,7 +4,6 @@
 #include "domain/mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "domain/mesh/l4/circuit/CircuitRendezvousPolicy.h"
 #include "domain/mesh/l4/circuit/client/CircuitClientCoordinator.h"
-#include "foundation/runtime/AppRuntime.h"
 
 #include <algorithm>
 #include <atomic>
@@ -47,6 +46,8 @@ struct CircuitRendezvousCoordinator::SeedPark {
   std::atomic<bool> settled{false};
   pp::amp::PeerLinkManager* links = nullptr;
   std::atomic<pp::amp::PeerLinkManager::PeerConnectedListenerId> listener_id{0};
+  /** The mesh's io lane: its timers (Amp's clock) and where the park's checks run. */
+  std::shared_ptr<pp::SerialExecutor> lane;
   std::atomic<uint64_t> deadline_timer{0};
   /** Armed when the first seed connects: the rest get a short grace, not the whole deadline. */
   std::atomic<uint64_t> grace_timer{0};
@@ -82,6 +83,17 @@ void CircuitRendezvousCoordinator::NoteChosenRelay(const std::string& relay_peer
 void CircuitRendezvousCoordinator::Invalidate() {
   RemoveReparkListener();
   deferred_.Invalidate();
+  // Their deadlines are timers on the mesh's lane, which its runtime drops as it stops: answer now.
+  std::vector<std::weak_ptr<SeedPark>> parks;
+  {
+    std::lock_guard lock(parks_mu_);
+    parks.swap(parks_);
+  }
+  for (const auto& weak : parks) {
+    if (auto park = weak.lock()) {
+      AbandonSeedPark(park);
+    }
+  }
 }
 
 void CircuitRendezvousCoordinator::Clear() {
@@ -404,12 +416,14 @@ void CircuitRendezvousCoordinator::EnsureBootstrapSeedParkedAsync(std::function<
   }
   ReserveOnBootstrapSeeds();
   MeshHost* m = mesh();
-  if (!m || !m->ChatDeps() || !m->Amp()) {
+  auto lane = m ? m->IoLane() : nullptr;
+  if (!m || !m->ChatDeps() || !lane) {
     on_done(false);
     return;
   }
   auto park = std::make_shared<SeedPark>();
   park->links = &m->Amp()->Runtime().Links();
+  park->lane = lane;
   park->on_done = std::move(on_done);
   // Prefer Connected on *all* seeds — the dialer's StartBridge may pick hop2 while we only parked
   // hop1 (dogfood ae4900eb / 39412f). The deadline still accepts ≥1.
@@ -431,18 +445,23 @@ void CircuitRendezvousCoordinator::EnsureBootstrapSeedParkedAsync(std::function<
           PostIoOrRun(deferred_.Bind([this, park]() { CheckSeedPark(park, /*at_deadline=*/false); }));
         }
       }));
+  {
+    std::lock_guard lock(parks_mu_);
+    std::erase_if(parks_, [](const std::weak_ptr<SeedPark>& weak) { return weak.expired(); });
+    parks_.push_back(park);
+  }
   // Connected may have landed between the check and AddPeerConnectedListener.
   PostIoOrRun(deferred_.Bind([this, park]() { CheckSeedPark(park, /*at_deadline=*/false); }));
-  // The deadline always answers: after InvalidateAsyncOps (mesh stop) the park is abandoned with
-  // `false` instead of checking links that may be gone.
-  park->deadline_timer = AppRuntime::ScheduleCoordinatorOneShot(
+  // The deadline always answers: on the lane while the mesh runs; Invalidate (mesh stop) abandons
+  // the park with `false` instead of checking links that may be gone.
+  park->deadline_timer = lane->PostAfter(
       std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 12000),
       [this, park, alive = deferred_.token(), snap = deferred_.Snapshot()]() {
-        if (!DeferredSelf::Alive(alive, snap)) {
+        if (!pp::Lifetime::Alive(alive, snap)) {
           AbandonSeedPark(park);
           return;
         }
-        PostIoOrRun(deferred_.Bind([this, park]() { CheckSeedPark(park, /*at_deadline=*/true); }));
+        CheckSeedPark(park, /*at_deadline=*/true);
       });
 }
 
@@ -474,17 +493,17 @@ void CircuitRendezvousCoordinator::CheckSeedPark(const std::shared_ptr<SeedPark>
     FinishSeedPark(park, false);
     return;
   case SeedParkStep::ArmGrace: {
-    const uint64_t timer = AppRuntime::ScheduleCoordinatorOneShot(
+    const uint64_t timer = park->lane->PostAfter(
         kSeedParkGrace, [this, park, alive = deferred_.token(), snap = deferred_.Snapshot()]() {
-          if (!DeferredSelf::Alive(alive, snap)) {
+          if (!pp::Lifetime::Alive(alive, snap)) {
             AbandonSeedPark(park);
             return;
           }
-          PostIoOrRun(deferred_.Bind([this, park]() { CheckSeedPark(park, /*at_deadline=*/true); }));
+          CheckSeedPark(park, /*at_deadline=*/true);
         });
     uint64_t expected = 0;
     if (!park->grace_timer.compare_exchange_strong(expected, timer) && timer != 0) {
-      AppRuntime::CancelCoordinatorTimer(timer);  // raced another check: one grace is enough
+      park->lane->CancelTimer(timer);  // raced another check: one grace is enough
     }
     return;
   }
@@ -501,10 +520,10 @@ void CircuitRendezvousCoordinator::FinishSeedPark(const std::shared_ptr<SeedPark
     park->links->RemovePeerConnectedListener(id);
   }
   if (const auto timer = park->deadline_timer.exchange(0); timer != 0) {
-    AppRuntime::CancelCoordinatorTimer(timer);
+    park->lane->CancelTimer(timer);
   }
   if (const auto timer = park->grace_timer.exchange(0); timer != 0) {
-    AppRuntime::CancelCoordinatorTimer(timer);
+    park->lane->CancelTimer(timer);
   }
   park->on_done(parked);
 }

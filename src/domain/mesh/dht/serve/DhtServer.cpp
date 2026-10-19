@@ -6,7 +6,7 @@
 #include "amp/L3/ChannelSession.h"
 #include "domain/mesh/dht/DhtRecordCodec.h"
 #include "common/ValueJson.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <atomic>
 #include <ctime>
@@ -54,8 +54,8 @@ struct DhtServer::Impl {
   DhtRecordStore* store = nullptr;
   WorkerPost post_worker;
   std::atomic<bool> stopped{false};
-  /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
-  DeferredSelf deferred;
+  /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § Lifetime. */
+  pp::Lifetime deferred;
   std::string local_peer_id;
   DhtRateLimiter limiter;
   mutable std::mutex stats_mutex;

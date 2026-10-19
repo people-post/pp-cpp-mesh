@@ -1,11 +1,11 @@
 #include "domain/mesh/reach/PeerReachCoordinator.h"
 
 #include "domain/mesh/l4/circuit/CircuitServeDialPolicy.h"
-#include "foundation/runtime/AppRuntime.h"
 #include "common/Utilities.h"
 #include "common/directory/MeshHopDial.h"
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <utility>
 #include "common/PbrCompat.h"
@@ -34,23 +34,22 @@ constexpr int kAssocRedialBackoffMs = 1500;
  */
 constexpr int kSeedParkAwaitMs = 12000;
 
-/** Reach state lives on the Connectivity owner (thread-ownership T001); the Coordinator strand
- *  only when the runtime has no owners. */
-constexpr OwnerThreadId kOwner = OwnerThreadId::Connectivity;
+using Lane = std::shared_ptr<pp::SerialExecutor>;
 
-void PostStep(std::function<void()> step) {
-  if (AppRuntime::HasOwner(kOwner)) {
-    AppRuntime::PostTo(kOwner, std::move(step));
-  } else {
-    AppRuntime::PostCoordinatorNormal(std::move(step));
+/**
+ * A step on the reach's lane (the mesh's io lane; THREADING.md § Mesh threads). Steps capture the
+ * lane they were started on: when the lane changes (mesh stop) every attempt was failed already,
+ * so a late step on the old one finds its attempt settled.
+ */
+void PostOn(const Lane& lane, std::function<void()> step) {
+  if (lane) {
+    lane->Post(std::move(step));
   }
 }
 
-void ScheduleStep(const std::chrono::milliseconds delay, std::function<void()> step) {
-  if (AppRuntime::HasOwner(kOwner)) {
-    (void)AppRuntime::ScheduleOn(kOwner, delay, std::move(step));
-  } else {
-    (void)AppRuntime::ScheduleCoordinatorOneShot(delay, std::move(step));
+void ScheduleOn(const Lane& lane, const std::chrono::milliseconds delay, std::function<void()> step) {
+  if (lane) {
+    (void)lane->PostAfter(delay, std::move(step));
   }
 }
 
@@ -93,8 +92,8 @@ struct PeerReachCoordinator::Attempt {
   bool seed_park_ok = false;
 };
 
-PeerReachCoordinator::PeerReachCoordinator(IDialRegistry* dial, ICircuitHopReach* circuit)
-    : dial_(dial), circuit_(circuit), dial_budget_ms_(kDialBudgetMs),
+PeerReachCoordinator::PeerReachCoordinator(PeerReachPorts ports)
+    : dial_(ports.dial), circuit_(ports.circuit), lane_(std::move(ports.lane)), dial_budget_ms_(kDialBudgetMs),
       alive_(std::make_shared<std::atomic<bool>>(true)) {
   redirectLogger("PeerReach");
 }
@@ -110,9 +109,29 @@ PeerReachCoordinator::~PeerReachCoordinator() {
   attempts_.clear();
 }
 
-void PeerReachCoordinator::SetDeps(IDialRegistry* dial, ICircuitHopReach* circuit) {
-  dial_.store(dial, std::memory_order_release);
-  circuit_.store(circuit, std::memory_order_release);
+void PeerReachCoordinator::SetDeps(PeerReachPorts ports) {
+  bool lane_changed = false;
+  {
+    std::lock_guard lock(mu_);
+    lane_changed = lane_ != ports.lane;
+    lane_ = std::move(ports.lane);
+  }
+  dial_.store(ports.dial, std::memory_order_release);
+  circuit_.store(ports.circuit, std::memory_order_release);
+  if (lane_changed) {
+    // Their steps and watchdogs were on the old lane, which drops them as its runtime stops.
+    FailAll(Error("mesh stopped"));
+  }
+}
+
+std::shared_ptr<pp::SerialExecutor> PeerReachCoordinator::Lane() const {
+  std::lock_guard lock(mu_);
+  return lane_;
+}
+
+bool PeerReachCoordinator::OnLane() const {
+  const auto lane = Lane();
+  return !lane || lane->RunsTasksOnCurrentThread();
 }
 
 void PeerReachCoordinator::SetSeedParkAwait(SeedParkAwait park) {
@@ -136,7 +155,12 @@ PeerReachId PeerReachCoordinator::Ensure(PeerReachRequest request, Done on_done)
     a->dial_budget_ms = dial_budget_ms_;
     attempts_[a->id] = a;
   }
-  PostStep([this, alive = alive_, a]() {
+  const auto lane = Lane();
+  if (!lane) {
+    Finish(a, Error("dial registry not available"));
+    return a->id;
+  }
+  PostOn(lane, [this, alive = alive_, a]() {
     if (alive->load(std::memory_order_acquire)) {
       Start(a);
     }
@@ -193,7 +217,12 @@ void PeerReachCoordinator::UpgradeToDirect(const std::string& peer_id, std::func
   if (!on_done) {
     return;
   }
-  PostStep([this, alive = alive_, peer_id, on_done = std::move(on_done)]() mutable {
+  const auto lane = Lane();
+  if (!lane) {
+    on_done(Error("circuit reach not available"));
+    return;
+  }
+  PostOn(lane, [this, alive = alive_, lane, peer_id, on_done = std::move(on_done)]() mutable {
     if (!alive->load(std::memory_order_acquire)) {
       return;
     }
@@ -203,9 +232,9 @@ void PeerReachCoordinator::UpgradeToDirect(const std::string& peer_id, std::func
       return;
     }
     log().info << "direct upgrade punch peer=" << peer_id;
-    // Circuit reach answers on the Amp IO strand: back onto the owner.
-    circuit->TryUpgradeToDirectAsync(peer_id, [alive, on_done = std::move(on_done)](Roe<void> result) mutable {
-      PostStep([alive, on_done = std::move(on_done), result = std::move(result)]() mutable {
+    // Circuit reach answers from inside its own handling: run the caller's continuation after it.
+    circuit->TryUpgradeToDirectAsync(peer_id, [alive, lane, on_done = std::move(on_done)](Roe<void> result) mutable {
+      PostOn(lane, [alive, on_done = std::move(on_done), result = std::move(result)]() mutable {
         if (alive->load(std::memory_order_acquire)) {
           on_done(std::move(result));
         }
@@ -258,13 +287,17 @@ void PeerReachCoordinator::Cancel(const PeerReachId id) {
 }
 
 void PeerReachCoordinator::CancelAll() {
+  FailAll(Error("peer reach cancelled"));
+}
+
+void PeerReachCoordinator::FailAll(const Error& error) {
   std::unordered_map<PeerReachId, AttemptPtr> all;
   {
     std::lock_guard lock(mu_);
     all = attempts_;
   }
   for (auto& [id, a] : all) {
-    Finish(a, Error("peer reach cancelled"));
+    Finish(a, error);
   }
 }
 
@@ -283,7 +316,7 @@ void PeerReachCoordinator::Finish(const AttemptPtr& a, Roe<PeerReachResult> resu
 }
 
 void PeerReachCoordinator::ScheduleTick(const AttemptPtr& a, const int delay_ms) {
-  ScheduleStep(std::chrono::milliseconds(delay_ms),
+  ScheduleOn(Lane(), std::chrono::milliseconds(delay_ms),
                                                [this, alive = alive_, a]() {
                                                  if (alive->load(std::memory_order_acquire)) {
                                                    Tick(a);
@@ -343,7 +376,7 @@ void PeerReachCoordinator::ClearBackoff(const Attempt& a) {
 }
 
 void PeerReachCoordinator::Start(const AttemptPtr& a) {
-  PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
+  assert(OnLane());
   if (a->settled.load(std::memory_order_acquire)) {
     return;
   }
@@ -391,8 +424,8 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
   // Hard deadline independent of the tick chain (dogfood af934e: EnsureAssociation never called
   // back). Covers the peer's dial overlap (V049) + circuit slack. Must not touch dial state —
   // it can fire mid-StartBridge and race PeerLinkManager::FinishDial (dogfood 091029).
-  ScheduleStep(
-      std::chrono::milliseconds(a->dial_budget_ms + kPeerDialOverlapMs + kCircuitEnsureBudgetMs + 250),
+  ScheduleOn(
+      Lane(), std::chrono::milliseconds(a->dial_budget_ms + kPeerDialOverlapMs + kCircuitEnsureBudgetMs + 250),
       [this, alive = alive_, a]() {
         if (!alive->load(std::memory_order_acquire) || a->settled.load(std::memory_order_acquire)) {
           return;
@@ -427,7 +460,7 @@ bool PeerReachCoordinator::TrySettleConnected(const AttemptPtr& a) {
 }
 
 void PeerReachCoordinator::Tick(const AttemptPtr& a) {
-  PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
+  assert(OnLane());
   if (a->settled.load(std::memory_order_acquire)) {
     return;
   }
@@ -486,8 +519,8 @@ bool PeerReachCoordinator::MaybeParkBeforePrivateDial(const AttemptPtr& a) {
   a->seed_park_preassoc_done = true;
   log().info << "seed park before private Preferred peer=" << a->Primary();
   a->seed_park(
-      [this, alive = alive_, a](bool parked) {
-        PostStep([this, alive, a, parked]() {
+      [this, alive = alive_, lane = Lane(), a](bool parked) {
+        PostOn(lane, [this, alive, a, parked]() {
           if (!alive->load(std::memory_order_acquire)) {
             return;
           }
@@ -528,14 +561,14 @@ bool PeerReachCoordinator::MaybeStartAssociation(const AttemptPtr& a) {
   log().info << "EnsureAssociation start peer=" << a->Primary() << " attempt=" << a->assoc_attempts
              << " mode=" << (a->IsAwait() ? "await" : "reach");
   // V049 / B31: both modes dial (simultaneous open); Amp A026 elects one PeerLink.
-  dial->EnsureAssociation(a->Primary(), [this, alive = alive_, a](Roe<void> assoc) {
+  dial->EnsureAssociation(a->Primary(), [this, alive = alive_, lane = Lane(), a](Roe<void> assoc) {
     if (!alive->load(std::memory_order_acquire)) {
       return;
     }
-    // Runs on Amp IO (FinishDial) — snapshot link state before the Coordinator hop.
+    // Runs inside FinishDial — snapshot link state, and continue after it.
     const bool connected_now = static_cast<bool>(assoc) && AnyConnected(*a);
     const bool direct_now = connected_now && AnyConnectedDirect(*a);
-    PostStep(
+    PostOn(lane,
         [this, alive, a, assoc = std::move(assoc), connected_now, direct_now]() mutable {
           if (alive->load(std::memory_order_acquire)) {
             OnAssociationDone(a, std::move(assoc), connected_now, direct_now);
@@ -553,7 +586,7 @@ void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, Roe<void> asso
     return;
   }
   const auto rearm = [this, a]() {
-    ScheduleStep(std::chrono::milliseconds(kAssocRedialBackoffMs),
+    ScheduleOn(Lane(), std::chrono::milliseconds(kAssocRedialBackoffMs),
                                                  [this, alive = alive_, a]() {
                                                    if (!alive->load(std::memory_order_acquire)) {
                                                      return;
@@ -624,8 +657,8 @@ bool PeerReachCoordinator::MaybeStartCircuit(const AttemptPtr& a) {
   // timed out, or a later private dial dropped the hop link (dogfood 88e16f5c).
   if (a->seed_park) {
     a->seed_park(
-        [this, alive = alive_, a, allow_circuit](bool parked) {
-          PostStep([this, alive, a, allow_circuit, parked]() {
+        [this, alive = alive_, lane = Lane(), a, allow_circuit](bool parked) {
+          PostOn(lane, [this, alive, a, allow_circuit, parked]() {
             if (!alive->load(std::memory_order_acquire)) {
               return;
             }
@@ -659,15 +692,15 @@ void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const bool allow_cir
     a->circuit_inflight = false;
     return;
   }
-  auto on_via = [this, alive = alive_, a](Roe<void> via) {
+  auto on_via = [this, alive = alive_, lane = Lane(), a](Roe<void> via) {
     if (!alive->load(std::memory_order_acquire)) {
       return;
     }
-    // Finishes on Amp IO — snapshot before the Coordinator hop.
+    // Finishes inside circuit reach's handling — snapshot, and continue after it.
     const bool connected_now = a->req.exclude_direct ? AnyConnectedRelayed(*a) : AnyConnected(*a);
     // Connected only through a relay carrier is not a punch.
     const bool relayed_now = a->req.exclude_direct || AnyCircuitHop(*a) || (connected_now && !AnyConnectedDirect(*a));
-    PostStep([this, alive, a, via = std::move(via), connected_now, relayed_now]() mutable {
+    PostOn(lane, [this, alive, a, via = std::move(via), connected_now, relayed_now]() mutable {
       if (alive->load(std::memory_order_acquire)) {
         OnCircuitDone(a, std::move(via), connected_now, relayed_now);
       }

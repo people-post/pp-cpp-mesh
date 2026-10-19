@@ -35,7 +35,8 @@ logging::Logger& MeshHostLog() {
 
 } // namespace
 
-MeshHost::MeshHost() : reachability_(std::make_unique<ReachabilityEngine>()) {}
+MeshHost::MeshHost(MeshExecutors executors)
+    : reachability_(std::make_unique<ReachabilityEngine>()), executors_(std::move(executors)) {}
 
 MeshHost::~MeshHost() { Stop(); }
 
@@ -63,7 +64,7 @@ Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   bootstrap_peers_ = config.bootstrap_peers;
   reachability_ = std::make_unique<ReachabilityEngine>();
   // B26: always refresh ch0 / punch candidates when dial-back or UPnP lands, then notify product.
-  // Runs on the Connectivity owner: the link / punch updates belong to the Amp IO strand.
+  // Runs on the io lane (the probe's): the link / punch updates belong there too, after it.
   reachability_->SetOnUpdated([this, product_cb = config.on_reachability_updated]() {
     MakeL4IoPost()([this]() { RefreshAdvertisedListenAddrs(); });
     if (product_cb) {
@@ -156,7 +157,9 @@ void MeshHost::StartOwnedThreads() {
   }
   l4_on_workers_.store(true, std::memory_order_release);
   if (!pump_.IsRunning()) {
-    pump_.Start([this]() { Tick(); });
+    // The pump is the runtime's only driver: a drive from any other thread is refused (and counted).
+    pump_.Start([this]() { Tick(); }, MeshPumpThread::kDefaultInterval, [this]() { amp_->Runtime().ClaimDriver(); },
+                [this]() { amp_->Runtime().ReleaseDriver(); });
   }
 }
 
@@ -165,17 +168,14 @@ void MeshHost::StopOwnedThreads() {
   l4_on_workers_.store(false, std::memory_order_release);
 }
 
-std::function<void(std::function<void()>)> MeshHost::MakeL4WorkerPost(const WorkerLane lane) const {
-  return [this, lane](std::function<void()> task) {
-    if (!task) {
-      return;
-    }
-    if (l4_on_workers_.load(std::memory_order_acquire)) {
-      AppRuntime::PostWorker(lane, std::move(task));
-    } else {
-      task();
-    }
+std::function<void(std::function<void()>)> MeshHost::MakeL4WorkerPost(std::shared_ptr<pp::Executor> executor) const {
+  return [this, executor = std::move(executor)](std::function<void()> task) {
+    PostOrRun(l4_on_workers_.load(std::memory_order_acquire) ? executor : nullptr, std::move(task));
   };
+}
+
+std::shared_ptr<pp::SerialExecutor> MeshHost::IoLane() const {
+  return amp_ ? amp_->Runtime().IoExecutor() : nullptr;
 }
 
 std::function<void()> MeshHost::MakeL4IoPump() const {
@@ -228,7 +228,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
   }
   amp_media_relay_client_->SetCircuitHopRegistry(amp_circuit_hops_.get());
   auto io_pump = MakeL4IoPump();
-  auto post_worker = MakeL4WorkerPost(WorkerLane::Normal);
+  auto post_worker = MakeL4WorkerPost(executors_.work);
   if (!amp_dial_back_server_) {
     amp_dial_back_server_ = std::make_unique<DialBackServer>(amp_->Runtime());
   }
@@ -241,6 +241,8 @@ void MeshHost::EnsureAmpL4Coordinators() {
   }
   if (!amp_dht_) {
     amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Runtime(), post_worker);
+    // Self-publish when due, on the lane with the rest of the DHT's state.
+    dht_tick_ = amp_->Runtime().AddIoTick([dht = amp_dht_.get()]() { dht->Tick(); });
   }
   if (!amp_directory_) {
     amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Runtime(), io_pump, post_worker);
@@ -282,7 +284,7 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media,
     RefreshAdvertisedListenAddrs();
   }
   if (amp_dht_ && !amp_dht_->IsStarted()) {
-    amp_dht_->Start();
+    RunOnLane([this]() { amp_dht_->Start(); });
   }
   if (amp_directory_ && !amp_directory_->IsStarted()) {
     amp_directory_->Start();
@@ -341,6 +343,9 @@ void MeshHost::StopAmp() {
   amp_dial_back_.reset();
   amp_dial_back_server_.reset();
   amp_directory_.reset();
+  if (amp_ && dht_tick_ != 0) {
+    amp_->Runtime().RemoveIoTick(std::exchange(dht_tick_, 0));  // nothing drives now: MeshPump joined
+  }
   amp_dht_.reset();
   amp_media_relay_client_.reset();
   amp_media_relay_server_.reset();
@@ -413,7 +418,7 @@ void MeshHost::ApplyAmpAdvertisement(const MeshHostConfig& config) {
 }
 
 void MeshHost::Stop() {
-  // Retire the probe first (its destructor waits on the Connectivity owner), so no `on_updated`
+  // Retire the probe first (its destructor waits for a step running on the lane), so no `on_updated`
   // runs while the Amp stack below goes away. Reachability() stays valid (a fresh engine).
   reachability_ = std::make_unique<ReachabilityEngine>();
   if (amp_circuit_client_) {
@@ -435,11 +440,17 @@ void MeshHost::Stop() {
 void MeshHost::Tick() {
   if (amp_) {
     // Sole Drive entry for this host. L4 must not call Tick to progress —
-    // exclusive Amp Drive (THREADING.md). Nested Drive is refused by MeshRuntime.
+    // exclusive Amp Drive (THREADING.md). Nested Drive is refused by MeshRuntime; under MeshPump a
+    // drive from another thread is too. The DHT's self-publish is an io tick, inside the drive.
     amp_->Runtime().Drive();
   }
-  if (amp_dht_) {
-    amp_dht_->Tick();
+}
+
+void MeshHost::RunOnLane(const std::function<void()>& task) {
+  if (auto lane = IoLane()) {
+    lane->RunAndWait(task);
+  } else {
+    task();
   }
 }
 
@@ -520,7 +531,7 @@ void MeshHost::ConfigureAmpDht(AmpDhtProtocolConfig config) {
   if (!amp_dht_) {
     return;
   }
-  amp_dht_->Configure(std::move(config));
+  RunOnLane([&]() { amp_dht_->Configure(std::move(config)); });  // its tick reads the config there
 }
 
 void MeshHost::RefreshAmpDhtHosting(const bool host_dht) {
@@ -535,7 +546,7 @@ void MeshHost::RefreshAmpDhtHosting(const bool host_dht) {
   ad_cfg.host_directory = host_directory_;
   ApplyAmpAdvertisement(ad_cfg);
   if (amp_dht_ && host_dht) {
-    amp_dht_->Tick();
+    RunOnLane([this]() { amp_dht_->Tick(); });
   }
 }
 
@@ -570,9 +581,10 @@ AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) con
   deps.local_peer_id = amp_->LocalPeerId();
   deps.bootstrap_peers = bootstrap_peers_;
   deps.io_pump = MakeL4IoPump();
-  deps.post_worker = MakeL4WorkerPost(WorkerLane::Background);  // UPnP discovery blocks (~2 s)
+  deps.post_worker = MakeL4WorkerPost(executors_.blocking);  // UPnP discovery blocks (~2 s)
   deps.post_io = MakeL4IoPost();
   deps.post_after = MakeL4IoAfter();
+  deps.lane = IoLane();
   deps.try_upnp_first = try_upnp_first;
   return deps;
 }
@@ -632,7 +644,7 @@ std::optional<MeshChatDeps> MeshHost::ChatDeps() {
   }
   MeshIoContext io;
   io.io_pump = MakeL4IoPump();
-  io.post_worker = MakeL4WorkerPost(WorkerLane::Normal);
+  io.post_worker = MakeL4WorkerPost(executors_.work);
   io.post_io = MakeL4IoPost();
   io.post_after = MakeL4IoAfter();
   io.local_peer_id = amp_->LocalPeerId();

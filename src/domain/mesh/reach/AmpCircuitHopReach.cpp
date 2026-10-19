@@ -7,7 +7,6 @@
 #include "common/directory/MeshHopDial.h"
 #include "domain/mesh/l4/shared/L4ProtocolIds.h"
 #include "domain/mesh/shared/AmpParkUntil.h"
-#include "foundation/runtime/AppRuntime.h"
 #include "common/SettledWait.h"
 #include "common/Logger.h"
 
@@ -106,7 +105,7 @@ void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key
   // (dogfood 072a7425); offerer dials the reserved answerer after inbound grace instead.
   const uint64_t gen = deferred_.Snapshot();
   auto aborted = [tok = deferred_.token(), gen]() {
-    return !DeferredSelf::Alive(tok, gen);
+    return !pp::Lifetime::Alive(tok, gen);
   };
   auto settled = std::make_shared<std::atomic<bool>>(false);
   auto finish = [settled, on_done = std::move(on_done)](Roe<void> result) mutable {
@@ -301,7 +300,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   const auto envelope_deadline = Clock::now() + std::chrono::milliseconds(kCircuitReachEnvelopeMs);
   const uint64_t gen = deferred_.Snapshot();
   auto aborted = [tok = deferred_.token(), gen]() {
-    return !DeferredSelf::Alive(tok, gen);
+    return !pp::Lifetime::Alive(tok, gen);
   };
   auto try_relay = std::make_shared<std::function<void(size_t)>>();
   *try_relay = [this, target_peer_id, target_protocol, register_endpoint, nested_session, bridge_target,
@@ -623,7 +622,7 @@ void AmpCircuitHopReach::AbortPending() {
 }
 
 Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
-  if (AppRuntime::IsShuttingDown()) {
+  if (stopping_ && stopping_()) {
     AmpReachLog().debug << "TryEnsureHopReachable rejected: shutting down";
     return Error("shutdown in progress");
   }
@@ -635,7 +634,7 @@ Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_
 }
 
 Roe<void> AmpCircuitHopReach::TryEnsurePeerReachable(const std::string& peer_key) {
-  if (AppRuntime::IsShuttingDown()) {
+  if (stopping_ && stopping_()) {
     AmpReachLog().debug << "TryEnsurePeerReachable rejected: shutting down";
     return Error("shutdown in progress");
   }

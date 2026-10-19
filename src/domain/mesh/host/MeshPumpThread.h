@@ -10,8 +10,9 @@
 namespace pbr {
 
 /**
- * Joinable Amp UDP drain thread. Owns the ~5ms MeshHost::Tick / MeshRuntime::Drive loop.
- * Owned by MeshHost — coordinator must not run this work.
+ * Joinable Amp UDP drain thread. Owns the ~5ms MeshHost::Tick / MeshRuntime::Drive loop — the
+ * runtime's only driver: `on_thread_start` claims it (MeshRuntime::ClaimDriver), `on_thread_exit`
+ * releases it. Owned by MeshHost — coordinator must not run this work.
  */
 class MeshPumpThread {
 public:
@@ -23,8 +24,12 @@ public:
   MeshPumpThread(const MeshPumpThread&) = delete;
   MeshPumpThread& operator=(const MeshPumpThread&) = delete;
 
-  /** Start the pump. `tick` must remain valid until Stop() returns. */
-  void Start(std::function<void()> tick, std::chrono::milliseconds interval = kDefaultInterval);
+  /**
+   * Start the pump. `tick` (and the hooks, run on the pump thread before its first tick and after
+   * its last) must remain valid until Stop() returns.
+   */
+  void Start(std::function<void()> tick, std::chrono::milliseconds interval = kDefaultInterval,
+             std::function<void()> on_thread_start = {}, std::function<void()> on_thread_exit = {});
   /** Signal stop and join. Idempotent. */
   void Stop();
 
@@ -34,6 +39,8 @@ private:
   void ThreadMain();
 
   std::function<void()> tick_;
+  std::function<void()> on_thread_start_;
+  std::function<void()> on_thread_exit_;
   std::chrono::milliseconds interval_{kDefaultInterval};
   std::thread thread_;
   std::mutex mutex_;

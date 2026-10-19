@@ -6,7 +6,7 @@
 #include "amp/L3/ChannelSession.h"
 #include "domain/mesh/discovery/MeshNodeHitCodec.h"
 #include "common/ValueJson.h"
-#include "foundation/runtime/DeferredSelf.h"
+#include "common/Lifetime.h"
 
 #include <atomic>
 #include "common/PbrCompat.h"
@@ -42,8 +42,8 @@ struct DirectoryServer::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
   WorkerPost post_worker;
   std::atomic<bool> stopped{false};
-  /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § DeferredSelf. */
-  DeferredSelf deferred;
+  /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § Lifetime. */
+  pp::Lifetime deferred;
   DhtRateLimiter limiter;
   mutable std::mutex mu;  // local_peer_id, provider, snapshot
   std::string local_peer_id;
