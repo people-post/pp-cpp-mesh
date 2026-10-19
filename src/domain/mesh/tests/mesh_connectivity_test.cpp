@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include <atomic>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 #include "common/PbrCompat.h"
@@ -67,38 +68,25 @@ TEST(MeshConnectivityTest, WireWithoutAMeshLeavesNoSharedObjects) {
   EXPECT_FALSE(connectivity.TryEnsurePeerReachable("peer"));
 }
 
-// thread-ownership t3-2b: candidate policy is evaluated on the Connectivity owner — never on the
-// Amp IO strand — and the IO side reads the published snapshot.
-TEST(MeshConnectivityTest, HopPolicyIsEvaluatedOnTheConnectivityOwnerAndPublished) {
+// THREADING.md § Mesh threads, rule 1: the candidate policy is the app's, pushed from any thread; the
+// mesh publishes it as is (the Amp IO side reads the snapshot) and keeps it across Wire.
+TEST(MeshConnectivityTest, HopPolicyIsTheAppsPushedSnapshot) {
   AppRuntime::Initialize(ManualOwnerRuntimeConfig());
   {
     MeshConnectivity connectivity;
-    std::atomic<int> evaluations{0};
-    std::atomic<bool> off_owner{false};
-    std::string seed = "12D3KooWSeedA";
-    MeshConnectivityDeps deps;
-    deps.bootstrap_seeds = [&]() {
-      ++evaluations;
-      if (!AppRuntime::CurrentlyOn(OwnerThreadId::Connectivity)) {
-        off_owner = true;
-      }
-      MeshHopCandidate hop;
-      hop.peer_id = seed;
-      return std::vector<MeshHopCandidate>{hop};
-    };
-    connectivity.SetDeps(std::move(deps));
-    connectivity.Wire();  // no mesh: nothing wired, but the policy is read once
+    EXPECT_TRUE(connectivity.HopPolicy()->bootstrap_seeds.empty());
+    MeshHopCandidate seed;
+    seed.peer_id = "12D3KooWSeedA";
+    MeshHopPolicy policy;
+    policy.bootstrap_seeds = {seed};
+    std::thread([&connectivity, policy]() { connectivity.SetHopPolicy(policy); }).join();
     ASSERT_EQ(connectivity.HopPolicy()->bootstrap_seeds.size(), 1u);
     EXPECT_EQ(connectivity.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedA");
 
-    seed = "12D3KooWSeedB";
-    const int before = evaluations.load();
-    connectivity.RefreshHopPolicy();
-    EXPECT_EQ(evaluations.load(), before) << "posted to the owner, not run by the caller";
-    EXPECT_EQ(connectivity.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedA");
-    AppRuntime::RunOwnerTasks(OwnerThreadId::Connectivity);
-    EXPECT_EQ(connectivity.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedB");
-    EXPECT_FALSE(off_owner.load()) << "providers only ever run on the Connectivity owner";
+    connectivity.Wire();  // no mesh: nothing wired; the pushed policy stays
+    ASSERT_EQ(connectivity.HopPolicy()->bootstrap_seeds.size(), 1u);
+    connectivity.Clear();
+    EXPECT_TRUE(connectivity.HopPolicy()->bootstrap_seeds.empty()) << "teardown drops it";
   }
   AppRuntime::Shutdown();
 }

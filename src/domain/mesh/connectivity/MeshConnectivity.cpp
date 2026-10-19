@@ -27,8 +27,8 @@ std::string PeerIdFromListenMultiaddr(const std::string& ma) {
 
 /** Its owner (thread-ownership T001): connectivity decisions, not Amp I/O. */
 constexpr OwnerThreadId kOwner = OwnerThreadId::Connectivity;
-/** Candidate policy inputs (contacts, directory, DHT, seeds) change without notice: re-read. */
-constexpr std::chrono::milliseconds kHopPolicyRefresh{5000};
+/** The mesh's own addrs (advertised, punch candidates) change without notice: re-read. */
+constexpr std::chrono::milliseconds kLocalViewRefresh{5000};
 
 } // namespace
 
@@ -83,18 +83,24 @@ void MeshConnectivity::Wire() {
     }
     objects_.Invalidate();  // rewire replaces the objects earlier ports point at
     wired_ = true;
-    RefreshHopPolicyOnOwner();
-    ArmHopPolicyRefresh();
+    RefreshLocalViewOnOwner();
+    ArmLocalViewRefresh();
     WireDialRegistry(m, io);
     WireCircuitHopReach(m, io);
     rendezvous_.InstallReparkListener();
   });
 }
 
-void MeshConnectivity::RefreshHopPolicy() {
+void MeshConnectivity::SetHopPolicy(MeshHopPolicy policy) {
+  auto published = std::make_shared<const MeshHopPolicy>(std::move(policy));
+  std::lock_guard lock(hop_policy_mu_);
+  hop_policy_ = std::move(published);
+}
+
+void MeshConnectivity::RefreshLocalView() {
   AppRuntime::PostToOwnerOrRun(kOwner, [this, alive = alive_]() {
     if (alive->load(std::memory_order_acquire)) {
-      RefreshHopPolicyOnOwner();
+      RefreshLocalViewOnOwner();
     }
   });
 }
@@ -145,12 +151,12 @@ void MeshConnectivity::SignalingPunchBurstAsync(std::vector<std::string> peer_ad
   });
 }
 
-void MeshConnectivity::RefreshHopPolicyOnOwner() {
+void MeshConnectivity::RefreshLocalViewOnOwner() {
   PBR_ASSERT_ON_OWNER(OwnerThreadId::Connectivity);
   if (!wired_) {
-    return;  // unwired: the product's inputs (and its mesh) may be going away
+    return;  // unwired: the mesh may be going away
   }
-  // The local view first: it is what media consumers on other owners read instead of the MeshHost.
+  // What media consumers on other owners read instead of the MeshHost.
   MeshLocalView view;
   if (MeshHost* m = mesh(); m && m->Amp()) {
     view.amp_up = true;
@@ -164,29 +170,16 @@ void MeshConnectivity::RefreshHopPolicyOnOwner() {
     }
   }
   PublishLocalView(std::move(view));
-
-  auto policy = std::make_shared<MeshHopPolicy>();
-  if (deps_.rendezvous_candidates) {
-    policy->rendezvous_candidates = deps_.rendezvous_candidates();
-  }
-  if (deps_.bootstrap_seeds) {
-    policy->bootstrap_seeds = deps_.bootstrap_seeds();
-  }
-  if (deps_.punch_introducers) {
-    policy->punch_introducers = deps_.punch_introducers();
-  }
-  std::lock_guard lock(hop_policy_mu_);
-  hop_policy_ = std::move(policy);
 }
 
-void MeshConnectivity::ArmHopPolicyRefresh() {
-  if (hop_policy_timer_ != 0) {
-    AppRuntime::CancelCoordinatorTimer(std::exchange(hop_policy_timer_, 0));
+void MeshConnectivity::ArmLocalViewRefresh() {
+  if (local_view_timer_ != 0) {
+    AppRuntime::CancelCoordinatorTimer(std::exchange(local_view_timer_, 0));
   }
-  hop_policy_timer_ = AppRuntime::ScheduleOn(kOwner, kHopPolicyRefresh, deferred_.Bind([this]() {
-    hop_policy_timer_ = 0;
-    RefreshHopPolicyOnOwner();
-    ArmHopPolicyRefresh();
+  local_view_timer_ = AppRuntime::ScheduleOn(kOwner, kLocalViewRefresh, deferred_.Bind([this]() {
+    local_view_timer_ = 0;
+    RefreshLocalViewOnOwner();
+    ArmLocalViewRefresh();
   }));
 }
 
@@ -264,8 +257,8 @@ void MeshConnectivity::InvalidateAsyncOps() {
     rendezvous_.Invalidate();
     wired_ = false;
     PublishLocalView({});  // consumers stop seeing the mesh the owner is about to tear down
-    if (hop_policy_timer_ != 0) {
-      AppRuntime::CancelCoordinatorTimer(std::exchange(hop_policy_timer_, 0));
+    if (local_view_timer_ != 0) {
+      AppRuntime::CancelCoordinatorTimer(std::exchange(local_view_timer_, 0));
     }
     if (auto* amp = dynamic_cast<AmpCircuitHopReach*>(circuit_hop_reach_.get())) {
       amp->SetOnRelayChosen({});
@@ -301,6 +294,7 @@ void MeshConnectivity::Clear() {
     peer_listen_mas_.clear();
     PublishListenBook();
   });
+  SetHopPolicy({});
 }
 
 // --- peer listen book -----------------------------------------------------------------------------

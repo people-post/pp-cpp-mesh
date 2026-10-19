@@ -22,27 +22,23 @@
 namespace pbr {
 
 /**
- * What connectivity needs from the product. Hop candidates are policy (contacts, directory, DHT,
- * seeds) the wiring feature computes — `domain/mesh` does not read contacts. The three policy
- * providers are evaluated on the Connectivity owner (at Wire, every few seconds, and on
- * `RefreshHopPolicy`); the Amp IO side only reads the resulting `MeshHopPolicy` snapshot.
+ * What connectivity needs from the product. Hop candidates are not here: they are product policy
+ * (contacts, directory, DHT, seeds) the app computes and pushes (`SetHopPolicy`) — the mesh never
+ * calls into the app for them (THREADING.md § Mesh threads, rule 1).
  */
 struct MeshConnectivityDeps {
   std::function<MeshHost*()> mesh;
-  /** Rendezvous surface (contacts ∪ directory ∪ DHT ∪ seeds); self / target are filtered here. */
-  std::function<std::vector<MeshHopCandidate>()> rendezvous_candidates;
-  /** Effective bootstrap seeds (configured ∪ directory). */
-  std::function<std::vector<MeshHopCandidate>()> bootstrap_seeds;
-  std::function<MeshPunchIntroducers()> punch_introducers;
   /** A peer listen addr was registered (LAN discovery bookkeeping). */
   std::function<void(const std::string& peer_id)> note_lan_peer_id;
   /** Without a dial registry: record one direct endpoint (delivery plane). */
   std::function<void(const std::string& key, const std::string& multiaddr)> register_direct_endpoint;
 };
 
-/** Candidate policy as of the owner's last refresh (read on the Amp IO strand). */
+/** Candidate policy as the app last pushed it (read on the Amp IO strand). */
 struct MeshHopPolicy {
+  /** Rendezvous surface (contacts ∪ directory ∪ DHT ∪ seeds); self / target are filtered by the mesh. */
   std::vector<MeshHopCandidate> rendezvous_candidates;
+  /** Effective bootstrap seeds (configured ∪ directory). */
   std::vector<MeshHopCandidate> bootstrap_seeds;
   MeshPunchIntroducers punch_introducers;
 };
@@ -76,7 +72,8 @@ struct MeshLocalView {
  * Threading (thread-ownership t3-2): lives on the Connectivity owner (`pp-connectivity`).
  * Lifecycle edges (deps, hooks, Wire / Reset / Clear, test path) run there and the caller waits
  * (`AppRuntime::RunAndWait` — callers are UI or the media-sessions owner, never below it). Listen
- * registrations post there; the listen book is read as a published snapshot. Circuit reach's
+ * registrations post there; the listen book is read as a published snapshot. The candidate policy
+ * is the app's, pushed from any thread (`SetHopPolicy`), never evaluated here. Circuit reach's
  * relay-chosen notice hops from Amp IO to the owner, and the consumer hook runs there — consumers
  * hop to their own owner. The object accessors (`Dial` / `CircuitReach`) are read by consumers at
  * their bind points, between the owner's rewire edges (L015 sequencing). Async callbacks that
@@ -95,12 +92,18 @@ public:
   /** Last-resort punch through a consumer's own signaling when Amp introducers are exhausted (H012). */
   void SetSignalingPunch(SignalingPunchFn punch);
   /**
-   * Recompute the candidate policy and the local view on the owner now (contacts / directory /
-   * seeds / reachability changed). They are also refreshed at Wire and every few seconds.
+   * Any thread: the app's candidate policy, computed off the mesh's threads; it replaces the last
+   * one. The app pushes again whenever its inputs change (and periodically for those that change
+   * without notice); it survives Wire / Reset.
    */
-  void RefreshHopPolicy();
+  void SetHopPolicy(MeshHopPolicy policy);
   /** Any thread: the policy the IO side sees. */
   std::shared_ptr<const MeshHopPolicy> HopPolicy() const;
+  /**
+   * Recompute the local view on the owner now (reachability changed the advertised addrs). Also
+   * refreshed at Wire and every few seconds while wired.
+   */
+  void RefreshLocalView();
   /** Any thread: this node's mesh as of the owner's last refresh (empty when not wired). */
   std::shared_ptr<const MeshLocalView> LocalView() const;
   /**
@@ -163,10 +166,10 @@ public:
 private:
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }
   std::string RegisterPeerListenMultiaddrsOnOwner(const std::string& key, const std::vector<std::string>& multiaddrs);
-  void RefreshHopPolicyOnOwner();
+  void RefreshLocalViewOnOwner();
   void PublishLocalView(MeshLocalView view);
-  /** Re-evaluate the policy periodically while wired (the inputs change without notice). */
-  void ArmHopPolicyRefresh();
+  /** Refresh the local view periodically while wired (the mesh's addrs change without notice). */
+  void ArmLocalViewRefresh();
   void PublishListenBook();
   void WireDialRegistry(MeshHost* m, const MeshIoContext& io);
   void WireCircuitHopReach(MeshHost* m, const MeshIoContext& io);
@@ -179,7 +182,7 @@ private:
   std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
   mutable std::mutex hop_policy_mu_;
   std::shared_ptr<const MeshHopPolicy> hop_policy_ = std::make_shared<const MeshHopPolicy>();
-  uint64_t hop_policy_timer_ = 0;  // owner
+  uint64_t local_view_timer_ = 0;  // owner
   bool wired_ = false;             // owner: between Wire and InvalidateAsyncOps
   mutable std::mutex local_view_mu_;
   std::shared_ptr<const MeshLocalView> local_view_ = std::make_shared<const MeshLocalView>();
