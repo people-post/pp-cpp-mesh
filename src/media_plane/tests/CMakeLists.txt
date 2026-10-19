@@ -1,0 +1,1 @@
+pp_mesh_add_tests(pp_mesh_media_plane LINK_LIBS pp_mesh_testing)

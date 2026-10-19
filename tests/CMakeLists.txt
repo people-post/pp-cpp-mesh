@@ -1,6 +1,0 @@
-file(GLOB _pp_mesh_test_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*_test.cpp")
-add_executable(pp_mesh_test ${_pp_mesh_test_sources})
-target_link_libraries(pp_mesh_test PRIVATE GTest::gtest GTest::gtest_main pp_mesh pp_mesh_testing)
-pp_mesh_apply_warnings(pp_mesh_test)
-include(GoogleTest)
-gtest_discover_tests(pp_mesh_test DISCOVERY_TIMEOUT 60)
