@@ -1,0 +1,84 @@
+#pragma once
+
+#include "common/Error.h"
+
+#include <atomic>
+#include <cstdint>
+#include <functional>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <unordered_set>
+#include <vector>
+namespace pp::mesh {
+
+namespace lan_mdns {
+class UdpMulticastSocket;
+}
+
+/** mDNS service type for pp-browser LAN peer discovery (ns2). */
+inline constexpr const char* kLanMdnsServiceType = "_pp-browser._tcp.local";
+
+struct LanMdnsDiscoveredPeer {
+  std::string peer_id_base58;
+  std::string host_ip;
+  int tcp_port = 0;
+  /** AMP UDP listen port from TXT `amp_udp=` (0 = not advertised). */
+  int amp_udp_port = 0;
+};
+
+/**
+ * Minimal multicast DNS announcer/browser for contacts-only LAN discovery (ns2).
+ * Announces the local PeerId and listen ports (Amp UDP in TXT `amp_udp=`) when listening; browse results are filtered upstream.
+ */
+class LanMdnsDiscovery {
+public:
+  using DiscoveredFn = std::function<void(LanMdnsDiscoveredPeer)>;
+
+  LanMdnsDiscovery();
+  ~LanMdnsDiscovery();
+
+  LanMdnsDiscovery(const LanMdnsDiscovery&) = delete;
+  LanMdnsDiscovery& operator=(const LanMdnsDiscovery&) = delete;
+
+  void SetOnDiscovered(DiscoveredFn callback);
+
+  /** Start announce + browse loops. Idempotent. */
+  Roe<void> Start();
+  void Stop();
+
+  bool IsRunning() const { return running_.load(); }
+
+  /** Update what we announce (PeerId + bound TCP listen port). Empty peer_id stops announce. */
+  void SetAdvertisement(const std::string& peer_id_base58, int tcp_port,
+                        const std::vector<std::string>& lan_ipv4_addrs, int amp_udp_port = 0);
+
+  /** Build `/ip4/…/tcp/…/p2p/…` from a browse result. */
+  static std::optional<std::string> BuildMultiaddr(const LanMdnsDiscoveredPeer& peer);
+  /** Build `/ip4/…/udp/…/adp/1.0.0/p2p/…` when amp_udp_port is set. */
+  static std::optional<std::string> BuildAdpMultiaddr(const LanMdnsDiscoveredPeer& peer);
+
+  /** Test helpers — DNS name encode/decode (no socket I/O). */
+  static Roe<std::vector<uint8_t>> EncodeDnsName(const std::string& fqdn);
+  static Roe<std::string> DecodeDnsName(const std::vector<uint8_t>& packet, size_t offset, size_t* out_next);
+
+private:
+  void ThreadMain();
+  void SendBrowseQuery(lan_mdns::UdpMulticastSocket& socket);
+  void SendAnnouncement(lan_mdns::UdpMulticastSocket& socket);
+  void HandlePacket(const uint8_t* data, size_t len);
+
+  DiscoveredFn on_discovered_;
+  mutable std::mutex advertise_mutex_;
+  std::string advertise_peer_id_;
+  int advertise_port_ = 0;
+  int advertise_amp_udp_port_ = 0;
+  std::vector<std::string> advertise_ips_;
+
+  std::atomic<bool> running_{false};
+  std::atomic<bool> stop_requested_{false};
+  std::thread thread_;
+};
+
+} // namespace pp::mesh
