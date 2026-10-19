@@ -1,0 +1,184 @@
+#include "domain/mesh/dht/AmpDhtProtocol.h"
+
+#include "common/SettledWait.h"
+#include "domain/mesh/tests/support/mesh_test_harness.h"
+
+#include <gtest/gtest.h>
+#include "common/PbrCompat.h"
+
+namespace pbr {
+namespace {
+
+TEST(AmpDhtProtocolTest, FindPeerReturnsBootstrapRecord) {
+  auto created = pbr::test::AmpMeshHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("client", harness->ma_a)));
+
+  AmpDhtProtocol seed(*harness->runtime_b);
+  AmpDhtProtocol client(*harness->runtime_a);
+
+  AmpDhtProtocolConfig seed_cfg;
+  seed_cfg.local_peer_id = harness->peer_id_b;
+  seed_cfg.listen_multiaddrs = {harness->ma_b};
+  seed_cfg.device_signing_secret = harness->bob.ml_dsa_secret_key;
+  seed_cfg.device_signing_public = harness->bob.ml_dsa_public_key;
+  seed_cfg.participate = true;
+  seed_cfg.publish_media_relay = true;
+  seed_cfg.publish_circuit_relay = true;
+  seed.Configure(seed_cfg);
+
+  AmpDhtProtocolConfig client_cfg;
+  client_cfg.local_peer_id = harness->peer_id_a;
+  client_cfg.listen_multiaddrs = {harness->ma_a};
+  client_cfg.device_signing_secret = harness->alice.ml_dsa_secret_key;
+  client_cfg.device_signing_public = harness->alice.ml_dsa_public_key;
+  client_cfg.query_peer_keys = {"seed"};
+  client_cfg.participate = false;
+  client.Configure(client_cfg);
+
+  seed.Start();
+  client.Start();
+  seed.Tick();
+
+  SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait;
+  client.FindPeer(harness->peer_id_b,
+                  [&wait](AmpDhtProtocol::FindPeerRoe result) { wait.Finish(std::move(result)); });
+  harness->PumpUntil([&]() { return wait.IsSettled(); }, 1000);
+
+  auto found =
+      wait.Wait(std::chrono::seconds(5), AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "find_peer timed out"));
+  ASSERT_TRUE(static_cast<bool>(found)) << found.error().message;
+  EXPECT_EQ(found->peer_id, harness->peer_id_b);
+  EXPECT_FALSE(found->record.multiaddrs.empty());
+  ASSERT_TRUE(found->record.capabilities.has_value());
+  EXPECT_TRUE(found->record.capabilities->media_relay);
+  EXPECT_TRUE(found->record.capabilities->circuit_relay);
+
+  client.Stop();
+  seed.Stop();
+}
+
+// A lookup whose reply channel ends without an answer (read timeout here) settles with an error.
+// It used to hang: its concurrency slot never came back, and after max_concurrent_lookups (4)
+// such lookups every find_peer failed with ConcurrencyLimit for the process's lifetime.
+TEST(AmpDhtProtocolTest, LookupToASilentPeerSettlesAndFreesItsSlot) {
+  auto created = pbr::test::AmpMeshHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
+
+  // The "seed" accepts DHT channels and never answers.
+  std::vector<std::shared_ptr<pp::amp::ChannelSession>> silent;
+  harness->runtime_b->SetProtocolHandler(
+      kDhtProtocolId, [&](pp::amp::LinkHandle, const std::string& remote_peer_id, const uint32_t channel_id) {
+        silent.push_back(harness->mgr_b().BindChannel(remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
+                                                      [](Roe<std::vector<uint8_t>>) { return true; }));
+      });
+
+  AmpDhtProtocol client(*harness->runtime_a);
+  AmpDhtProtocolConfig client_cfg;
+  client_cfg.local_peer_id = harness->peer_id_a;
+  client_cfg.listen_multiaddrs = {harness->ma_a};
+  client_cfg.device_signing_secret = harness->alice.ml_dsa_secret_key;
+  client_cfg.device_signing_public = harness->alice.ml_dsa_public_key;
+  client_cfg.query_peer_keys = {"seed"};
+  client.Configure(client_cfg);
+  client.Start();
+
+  for (int i = 0; i < 6; ++i) {  // more than the default 4 concurrent lookups
+    SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait;
+    client.FindPeer("QmSomeoneElse",
+                    [&wait](AmpDhtProtocol::FindPeerRoe result) { wait.Finish(std::move(result)); });
+    harness->PumpUntil([&]() { return wait.IsSettled(); }, 30000);
+    ASSERT_TRUE(wait.IsSettled()) << "lookup " << i << " never settled";
+    auto found = wait.Wait(std::chrono::seconds(1),
+                           AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "unsettled"));
+    ASSERT_FALSE(static_cast<bool>(found));
+    EXPECT_NE(found.error().GetCode(), AmpDhtProtocol::Err::ConcurrencyLimit) << "lookup " << i;
+  }
+  client.Stop();
+  harness->runtime_b->SetProtocolHandler(kDhtProtocolId, {});
+}
+
+/** Lab acceptance: two participating Nodes discover each other's ADP addrs (no Brief HTTP). */
+TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
+  auto created = pbr::test::AmpMeshHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("b", harness->ma_b)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("a", harness->ma_a)));
+
+  AmpDhtProtocol node_a(*harness->runtime_a);
+  AmpDhtProtocol node_b(*harness->runtime_b);
+
+  AmpDhtProtocolConfig cfg_a;
+  cfg_a.local_peer_id = harness->peer_id_a;
+  cfg_a.listen_multiaddrs = {harness->ma_a};
+  cfg_a.device_signing_secret = harness->alice.ml_dsa_secret_key;
+  cfg_a.device_signing_public = harness->alice.ml_dsa_public_key;
+  cfg_a.query_peer_keys = {"b"};
+  cfg_a.participate = true;
+  node_a.Configure(cfg_a);
+
+  AmpDhtProtocolConfig cfg_b;
+  cfg_b.local_peer_id = harness->peer_id_b;
+  cfg_b.listen_multiaddrs = {harness->ma_b};
+  cfg_b.device_signing_secret = harness->bob.ml_dsa_secret_key;
+  cfg_b.device_signing_public = harness->bob.ml_dsa_public_key;
+  cfg_b.query_peer_keys = {"a"};
+  cfg_b.participate = true;
+  node_b.Configure(cfg_b);
+
+  node_a.Start();
+  node_b.Start();
+
+  // Sequential publish + FindPeer (avoids concurrent dual-dial Store/FindPeer races).
+  node_a.Tick();
+  SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait_a;
+  node_a.FindPeer(harness->peer_id_b,
+                  [&wait_a](AmpDhtProtocol::FindPeerRoe result) { wait_a.Finish(std::move(result)); });
+  harness->PumpUntil([&]() { return wait_a.IsSettled(); }, 2000);
+  auto found_b = wait_a.Wait(std::chrono::seconds(5), AmpDhtProtocol::Failure::Of(
+                                                          AmpDhtProtocol::Err::Timeout, "find_peer A→B timed out"));
+  ASSERT_TRUE(static_cast<bool>(found_b)) << found_b.error().message;
+
+  node_b.Tick();
+  SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait_b;
+  node_b.FindPeer(harness->peer_id_a,
+                  [&wait_b](AmpDhtProtocol::FindPeerRoe result) { wait_b.Finish(std::move(result)); });
+  harness->PumpUntil([&]() { return wait_b.IsSettled(); }, 2000);
+  auto found_a = wait_b.Wait(std::chrono::seconds(5), AmpDhtProtocol::Failure::Of(
+                                                          AmpDhtProtocol::Err::Timeout, "find_peer B→A timed out"));
+  ASSERT_TRUE(static_cast<bool>(found_a)) << found_a.error().message;
+
+  auto a_has_b = node_a.LocalRecord(harness->peer_id_b);
+  auto b_has_a = node_b.LocalRecord(harness->peer_id_a);
+  ASSERT_TRUE(a_has_b.has_value()) << "node A missing B's DHT record";
+  ASSERT_TRUE(b_has_a.has_value()) << "node B missing A's DHT record";
+  EXPECT_FALSE(a_has_b->multiaddrs.empty());
+  EXPECT_FALSE(b_has_a->multiaddrs.empty());
+  EXPECT_NE(a_has_b->multiaddrs.front().find("/adp/"), std::string::npos);
+  EXPECT_NE(b_has_a->multiaddrs.front().find("/adp/"), std::string::npos);
+
+  node_a.Stop();
+  node_b.Stop();
+}
+
+TEST(AmpDhtProtocolTest, WrapLinkFailureMapsCodes) {
+  using Mgr = pp::amp::PeerLinkManager;
+  EXPECT_EQ(AmpDhtProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::DialTimeout, "slow")).GetCode(),
+            AmpDhtProtocol::Err::Timeout);
+  EXPECT_EQ(AmpDhtProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux")).GetCode(),
+            AmpDhtProtocol::Err::ChannelFailed);
+  const auto wrapped =
+      AmpDhtProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::AssociationNotReady, "not ready"));
+  EXPECT_EQ(wrapped.GetCode(), AmpDhtProtocol::Err::LinkFailed);
+  EXPECT_NE(wrapped.message.find("[link:"), std::string::npos);
+}
+
+} // namespace
+} // namespace pbr

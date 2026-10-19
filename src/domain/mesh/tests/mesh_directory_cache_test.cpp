@@ -1,0 +1,230 @@
+#include "domain/mesh/discovery/MeshDirectoryCache.h"
+#include "domain/mesh/discovery/NameDirectory.h"
+
+#include "common/directory/DirectoryTypes.h"
+#include "common/ValueJson.h"
+#include "common/AtomicFileWrite.h"
+
+#include <gtest/gtest.h>
+
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <vector>
+#include "common/PbrCompat.h"
+
+namespace pbr {
+namespace {
+
+class FakeDirectoryClient : public IDirectoryClient {
+public:
+  Roe<std::vector<DirectoryHit>> SearchPeople(const std::string& /*query*/) override {
+    return std::vector<DirectoryHit>{};
+  }
+  Roe<DirectoryHit> LookupRelayUser(const std::string& relay_user_id) override {
+    if (person.hit_id != relay_user_id) {
+      return Error("not found");
+    }
+    return person;
+  }
+  Roe<DirectoryHit> LookupByAccount(const std::string& account_id) override {
+    if (!person.account_id || *person.account_id != account_id) {
+      return Error("not found");
+    }
+    return person;
+  }
+  Roe<std::vector<MeshNodeHit>> ListMeshNodes() override { return mesh_nodes; }
+
+  DirectoryHit person;
+  std::vector<MeshNodeHit> mesh_nodes;
+};
+
+TEST(MeshDirectoryCacheTest, NodesFromHitsPreservesNameFields) {
+  MeshNodeHit hit;
+  hit.relay_user_id = "relay:abc";
+  hit.account_id = "account:org";
+  hit.nickname = "Org Node";
+  hit.entity_kind = "mesh_node";
+  hit.seq = 7;
+  hit.expires_at = "2099-01-01T00:00:00Z";
+  hit.capabilities.media_relay = true;
+  hit.capabilities.circuit_relay = true;
+  hit.capabilities.dht = true;
+  hit.capabilities.ledger_gateway = true;
+  DirectoryEndpoint ep;
+  ep.peer_id = "12D3KooWNode";
+  ep.multiaddrs = {"/ip4/9.9.9.9/udp/443/adp/1.0.0/p2p/12D3KooWNode"};
+  hit.endpoints.push_back(ep);
+
+  const auto nodes = MeshDirectoryNodesFromHits({hit});
+  ASSERT_EQ(nodes.size(), 1u);
+  EXPECT_EQ(nodes[0].peer_id, "12D3KooWNode");
+  EXPECT_EQ(nodes[0].account_id, "account:org");
+  EXPECT_EQ(nodes[0].nickname, "Org Node");
+  EXPECT_EQ(nodes[0].entity_kind, "mesh_node");
+  EXPECT_EQ(nodes[0].seq, 7);
+  EXPECT_EQ(nodes[0].expires_at, "2099-01-01T00:00:00Z");
+  EXPECT_TRUE(nodes[0].media_relay);
+  EXPECT_TRUE(nodes[0].circuit_relay);
+  EXPECT_TRUE(nodes[0].dht);
+  EXPECT_TRUE(nodes[0].ledger_gateway);
+  ASSERT_EQ(nodes[0].multiaddrs.size(), 1u);
+}
+
+/** Holds what is posted until the test runs it: the cache's `blocking` executor. */
+class QueueExecutor final : public pp::Executor {
+public:
+  void Post(Task task) override { tasks_.push_back(std::move(task)); }
+  size_t RunAll() {
+    size_t ran = 0;
+    while (!tasks_.empty()) {
+      Task task = std::move(tasks_.front());
+      tasks_.erase(tasks_.begin());
+      task();
+      ++ran;
+    }
+    return ran;
+  }
+
+private:
+  std::vector<Task> tasks_;
+};
+
+Roe<std::vector<MeshDirectoryNode>> OneNode() {
+  MeshDirectoryNode node;
+  node.peer_id = "12D3KooWNode";
+  return std::vector<MeshDirectoryNode>{node};
+}
+
+TEST(MeshDirectoryCacheTest, SnapshotEmptyBeforeRefresh) {
+  MeshDirectoryCache cache(OneNode, nullptr);
+  EXPECT_TRUE(cache.Snapshot().empty());
+}
+
+// THREADING.md § Mesh threads: the fetch (HTTP) runs on the mesh's `blocking` executor and the
+// result lands there, `on_updated` included — no UI delivery in the mesh.
+TEST(MeshDirectoryCacheTest, RefreshRunsAndLandsOnTheBlockingExecutor) {
+  auto blocking = std::make_shared<QueueExecutor>();
+  int fetches = 0;
+  int updates = 0;
+  MeshDirectoryCache cache(
+      [&fetches]() {
+        ++fetches;
+        return OneNode();
+      },
+      blocking);
+  cache.SetOnUpdated([&updates]() { ++updates; });
+  cache.RequestRefresh();
+  cache.RequestRefresh();  // in flight: no second fetch
+  EXPECT_EQ(fetches, 0) << "not on the caller";
+  EXPECT_EQ(blocking->RunAll(), 1u);
+  EXPECT_EQ(fetches, 1);
+  EXPECT_EQ(updates, 1);
+  ASSERT_EQ(cache.Snapshot().size(), 1u);
+}
+
+TEST(MeshDirectoryCacheTest, AsyncResultsAreAppliedOnTheBlockingExecutor) {
+  auto blocking = std::make_shared<QueueExecutor>();
+  std::function<void(Roe<std::vector<MeshDirectoryNode>>)> complete;
+  MeshDirectoryCache cache(nullptr, blocking);
+  cache.SetAsyncFetcher([&complete](auto done) { complete = std::move(done); });
+  cache.RequestRefresh();
+  ASSERT_TRUE(complete);
+  complete(OneNode());  // e.g. on the mesh's I/O lane
+  EXPECT_TRUE(cache.Snapshot().empty()) << "applying persists to disk: not where the completion ran";
+  blocking->RunAll();
+  EXPECT_EQ(cache.Snapshot().size(), 1u);
+}
+
+TEST(MeshDirectoryCacheTest, AResultArrivingAfterDestructionIsDropped) {
+  auto blocking = std::make_shared<QueueExecutor>();
+  int fetches = 0;
+  {
+    MeshDirectoryCache cache(
+        [&fetches]() {
+          ++fetches;
+          return OneNode();
+        },
+        blocking);
+    cache.RequestRefresh();
+  }
+  EXPECT_EQ(blocking->RunAll(), 1u);  // the fetch still runs; its result touches nothing
+  EXPECT_EQ(fetches, 1);
+}
+
+TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
+  const auto* info = ::testing::UnitTest::GetInstance();
+  const std::string path = (std::filesystem::temp_directory_path() /
+                            ("pp_mesh_dir_cache_" + std::to_string(info->random_seed()) + ".json"))
+                               .string();
+  std::filesystem::remove(path);
+
+  Object root;
+  root.set("schema_version", int64_t{1});
+  Object node;
+  node.set("peer_id", "12D3KooWCached");
+  node.set("circuit_relay", true);
+  node.set("media_relay", true);
+  std::vector<Value> mas;
+  mas.emplace_back("/ip4/1.1.1.1/udp/443/adp/1.0.0/p2p/12D3KooWCached");
+  node.set("multiaddrs", makeArray(std::move(mas)));
+  std::vector<Value> rows;
+  rows.emplace_back(std::make_shared<Object>(std::move(node)));
+  root.set("nodes", makeArray(std::move(rows)));
+  ASSERT_TRUE(AtomicFileWrite::Write(path, DumpJson(root, 2)));
+
+  MeshDirectoryCache cache([]() -> Roe<std::vector<MeshDirectoryNode>> { return Error("no net"); }, nullptr);
+  cache.SetPersistPath(path);
+  cache.LoadPersisted();
+  const auto snap = cache.Snapshot();
+  ASSERT_EQ(snap.size(), 1u);
+  EXPECT_EQ(snap[0].peer_id, "12D3KooWCached");
+  ASSERT_EQ(snap[0].multiaddrs.size(), 1u);
+  EXPECT_TRUE(snap[0].circuit_relay);
+  std::filesystem::remove(path);
+}
+
+TEST(NameDirectoryTest, ListServiceMapsMeshNodes) {
+  FakeDirectoryClient fake;
+  MeshNodeHit hit;
+  hit.relay_user_id = "relay:node";
+  hit.account_id = "account:node";
+  hit.seq = 3;
+  DirectoryEndpoint ep;
+  ep.peer_id = "12D3KooWList";
+  ep.multiaddrs = {"/ip4/1.2.3.4/udp/443/adp/1.0.0/p2p/12D3KooWList"};
+  hit.endpoints.push_back(ep);
+  fake.mesh_nodes.push_back(hit);
+
+  DirectoryClientNameDirectory names(fake);
+  auto records = names.ListService("mesh_node");
+  ASSERT_TRUE(static_cast<bool>(records));
+  ASSERT_EQ(records->size(), 1u);
+  EXPECT_EQ(records->front().account_id, "account:node");
+  EXPECT_EQ(records->front().peer_id, "12D3KooWList");
+  EXPECT_EQ(records->front().seq, 3);
+  EXPECT_EQ(records->front().entity_kind, "mesh_node");
+}
+
+TEST(NameDirectoryTest, ResolveByAccount) {
+  FakeDirectoryClient fake;
+  fake.person.hit_id = "relay:alice";
+  fake.person.account_id = "account:alice";
+  fake.person.nickname = "Alice";
+  fake.person.entity_kind = "person";
+  fake.person.seq = 2;
+  DirectoryEndpoint ep;
+  ep.peer_id = "12D3KooWAlice";
+  fake.person.endpoints.push_back(ep);
+
+  DirectoryClientNameDirectory names(fake);
+  auto record = names.Resolve("account:alice");
+  ASSERT_TRUE(static_cast<bool>(record));
+  EXPECT_EQ(record->name, "account:alice");
+  EXPECT_EQ(record->peer_id, "12D3KooWAlice");
+  EXPECT_EQ(record->entity_kind, "person");
+  EXPECT_EQ(record->seq, 2);
+}
+
+} // namespace
+} // namespace pbr
