@@ -1,5 +1,6 @@
 # Product Amp mesh glue (domain peer). Libp2p Host/Yamux/Noise L4 retired from product (A017/D10).
-# PeerId / identity lives under src/foundation/identity/ (pp_foundation_identity).
+# Bound for pp-cpp-mesh (docs/architecture/MESH.md): it links the libraries it will depend on there
+# (pp-cpp-common, pp-cpp-crypto, pp-cpp-amp) and pp_pbr_common only for the vocabulary that moves with it.
 #
 # One static library per folder; the link edges below are the allowed include edges
 # (scripts/check/check_mesh_layers.sh keeps the two in step). Bottom to top:
@@ -14,12 +15,10 @@
 # `pp_domain_mesh` aggregates them for consumers outside the peer.
 
 set(_pp_mesh_base_libs
-  pp_foundation_data
-  pp_foundation_crypto
+  pp_pbr_common
+  pp_crypto
   pp_amp_l1
   pp_amp_link
-  pp_foundation_identity
-  pp_foundation_runtime_core
   pp_common)
 
 # pp_domain_mesh_<name>: sources are relative to this directory.

@@ -1,7 +1,7 @@
 #include "domain/mesh/dht/DhtRecordCodec.h"
 #include "domain/mesh/dht/DhtRecordStore.h"
 
-#include "foundation/crypto/MlDsa.h"
+#include "crypto/MlDsa.h"
 #include "domain/mesh/tests/support/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
@@ -13,7 +13,7 @@ namespace pbr {
 namespace {
 
 TEST(DhtRecordCodecTest, SignVerifyRoundTrip) {
-  auto keys = MlDsa::GenerateKeyPair();
+  auto keys = pp::MlDsa::GenerateKeyPair();
   ASSERT_TRUE(static_cast<bool>(keys));
 
   PeerRoutingRecord record;
@@ -32,7 +32,7 @@ TEST(DhtRecordCodecTest, SignVerifyRoundTrip) {
 }
 
 TEST(DhtRecordCodecTest, SignVerifyRoundTripWithCapabilities) {
-  auto keys = MlDsa::GenerateKeyPair();
+  auto keys = pp::MlDsa::GenerateKeyPair();
   ASSERT_TRUE(static_cast<bool>(keys));
 
   PeerRoutingRecord record;

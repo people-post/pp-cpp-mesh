@@ -54,7 +54,7 @@ private:
 
 /**
  * IDirectoryClient adapter over AmpDirectoryProtocol (N029 nd4).
- * Person lookups fail so FailoverDirectoryClient can fall through to HTTP.
+ * Person lookups fail, so a client that fails over (the app's) falls through to its next backend.
  */
 class AmpDirectoryClient : public IDirectoryClient {
 public:

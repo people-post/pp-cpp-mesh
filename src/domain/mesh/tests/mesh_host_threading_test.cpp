@@ -1,6 +1,6 @@
 #include "amp/L1/Clock.h"
 #include "amp/L1/MemoryDatagramIo.h"
-#include "foundation/crypto/MlDsa.h"
+#include "crypto/MlDsa.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/AmpStack.h"
 #include "domain/mesh/tests/support/mesh_harness_support.h"
@@ -23,7 +23,7 @@ namespace {
 std::unique_ptr<pp::amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<pp::adp::Clock>& clock,
                                                     const std::shared_ptr<pp::adp::DatagramIo>& io,
                                                     std::string* peer_id_out) {
-  auto keys = MlDsa::GenerateKeyPair();
+  auto keys = pp::MlDsa::GenerateKeyPair();
   if (!keys) {
     return nullptr;
   }

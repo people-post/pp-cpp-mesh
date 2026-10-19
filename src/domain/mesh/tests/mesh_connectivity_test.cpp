@@ -1,6 +1,5 @@
 #include "domain/mesh/connectivity/MeshConnectivity.h"
 #include "domain/mesh/media_plane/MeshMediaRelay.h"
-#include "foundation/runtime/AppRuntime.h"
 
 #include <gtest/gtest.h>
 #include <atomic>
@@ -71,7 +70,6 @@ TEST(MeshConnectivityTest, WireWithoutAMeshLeavesNoSharedObjects) {
 // THREADING.md § Mesh threads, rule 1: the candidate policy is the app's, pushed from any thread; the
 // mesh publishes it as is (the Amp IO side reads the snapshot) and keeps it across Wire.
 TEST(MeshConnectivityTest, HopPolicyIsTheAppsPushedSnapshot) {
-  AppRuntime::Initialize(ManualOwnerRuntimeConfig());
   {
     MeshConnectivity connectivity;
     EXPECT_TRUE(connectivity.HopPolicy()->bootstrap_seeds.empty());
@@ -88,7 +86,6 @@ TEST(MeshConnectivityTest, HopPolicyIsTheAppsPushedSnapshot) {
     connectivity.Clear();
     EXPECT_TRUE(connectivity.HopPolicy()->bootstrap_seeds.empty()) << "teardown drops it";
   }
-  AppRuntime::Shutdown();
 }
 
 } // namespace
