@@ -290,6 +290,80 @@ TEST_F(PeerReachCoordinatorTest, ReachStillDialsPrivateWhenTheSeedParkFails) {
   EXPECT_GE(dial_->ensure_calls.load(), 1);
 }
 
+// The seed is down (app lab seed_down): the park before the private dial waits out its timeout. The
+// peer connecting meanwhile (its dial landed inbound) ends the reach then, not when the park gives up.
+TEST_F(PeerReachCoordinatorTest, APeerConnectingDuringTheSeedParkSettlesTheReach) {
+  std::mutex park_mu;
+  std::function<void(bool)> park_done;
+  reach_->SetSeedParkAwait([&](std::function<void(bool)> done, int /*timeout_ms*/) {
+    std::lock_guard lock(park_mu);
+    park_done = std::move(done);  // a park that has not answered yet
+  });
+  reach_->SetDialBudgetMsForTest(10000);
+  dial_->endpoints[kPeer] = kPrivateMa;
+  for (const PeerReachMode mode : {PeerReachMode::Reach, PeerReachMode::Await}) {
+    dial_->connected.clear();
+    auto out = Run(Request(mode));
+    std::thread peer([this] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      dial_->Connect(kPeer);
+    });
+    const bool done = WaitDone(out, std::chrono::seconds(2));
+    peer.join();
+    ASSERT_TRUE(done) << "still waiting on the seed park";
+    ASSERT_TRUE(*out->result) << out->result->error().message;
+    EXPECT_EQ((*out->result)->kind, PeerLinkKind::Direct);
+    EXPECT_EQ(dial_->ensure_calls.load(), 0) << "nothing dialed while the park held the socket";
+    std::function<void(bool)> late;
+    {
+      std::lock_guard lock(park_mu);
+      late = std::move(park_done);
+    }
+    if (late) {
+      late(false);  // the park gives up afterwards: harmless
+    }
+  }
+}
+
+// The same while the park before the circuit runs (the private dial missed): nothing is bridging yet.
+TEST_F(PeerReachCoordinatorTest, APeerConnectingDuringTheParkBeforeTheCircuitSettlesTheReach) {
+  std::mutex park_mu;
+  std::function<void(bool)> park_done;
+  std::atomic<int> parks{0};
+  reach_->SetSeedParkAwait([&](std::function<void(bool)> done, int /*timeout_ms*/) {
+    if (parks.fetch_add(1) == 0) {
+      done(false);  // the park before the private dial: the seed is gone
+      return;
+    }
+    std::lock_guard lock(park_mu);
+    park_done = std::move(done);  // the park before the circuit has not answered yet
+  });
+  dial_->endpoints[kPeer] = kPrivateMa;  // the dial misses (ensure_connects is false)
+  auto out = Run(Request(PeerReachMode::Reach));
+  std::thread peer([this, &parks] {
+    while (parks.load() < 2) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    dial_->Connect(kPeer);
+  });
+  const bool done = WaitDone(out, std::chrono::seconds(3));
+  peer.join();
+  ASSERT_TRUE(done) << "still waiting on the seed park";
+  ASSERT_TRUE(*out->result) << out->result->error().message;
+  EXPECT_EQ(circuit_->calls.load(), 0) << "no bridge started after the reach settled";
+  std::function<void(bool)> late;
+  {
+    std::lock_guard lock(park_mu);
+    late = std::move(park_done);
+  }
+  if (late) {
+    late(true);  // the park answers afterwards: the circuit is not started for a settled reach
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  EXPECT_EQ(circuit_->calls.load(), 0);
+}
+
 // Dogfood ae4900eb / 39412f / 072a7425: the awaiting side never dials a private Preferred and
 // never builds its own circuit — it punches and waits for the reacher.
 TEST_F(PeerReachCoordinatorTest, AwaitSkipsPrivateDialAndPunchesOnly) {

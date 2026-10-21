@@ -88,6 +88,12 @@ struct PeerReachCoordinator::Attempt {
   int assoc_attempts = 0;
   bool seed_park_preassoc_done = false;
   bool seed_park_ok = false;
+  /**
+   * A seed park is running (before the private dial, or before the circuit): nothing of ours touches
+   * the peer's link meanwhile, so the peer connecting (its dial landing inbound) still settles the
+   * reach — the park can take its whole timeout when the seed is gone.
+   */
+  bool seed_park_inflight = false;
 };
 
 PeerReachCoordinator::PeerReachCoordinator(PeerReachPorts ports)
@@ -436,7 +442,8 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
 }
 
 bool PeerReachCoordinator::TrySettleConnected(const AttemptPtr& a) {
-  const bool mutating = a->circuit_inflight || (a->assoc_started && !a->assoc_done);
+  const bool mutating =
+      (a->circuit_inflight && !a->seed_park_inflight) || (a->assoc_started && !a->assoc_done);
   const bool wait_for_circuit = a->req.exclude_direct && !a->circuit_started && !AnyCircuitHop(*a);
   // exclude_direct wants the relay: the direct link the caller already has does not settle it.
   const bool have_link = a->req.exclude_direct ? AnyConnectedRelayed(*a) : AnyConnected(*a);
@@ -469,6 +476,11 @@ void PeerReachCoordinator::Tick(const AttemptPtr& a) {
   // PeerLinkManager is Amp-IO only: do not read link state while our own EnsureAssociation or
   // circuit StartBridge is mutating it (dogfood 085210 / 091029). Hop registry reads are mutexed.
   if (TrySettleConnected(a)) {
+    return;
+  }
+  if (a->seed_park_inflight) {
+    // The park answers by its own timeout; until then only the peer connecting moves us on.
+    ScheduleTick(a, kPollMs);
     return;
   }
   if (util::NowUnixMs() >= a->deadline_ms) {
@@ -515,6 +527,7 @@ bool PeerReachCoordinator::MaybeParkBeforePrivateDial(const AttemptPtr& a) {
     return false;
   }
   a->seed_park_preassoc_done = true;
+  a->seed_park_inflight = true;
   log().info << "seed park before private Preferred peer=" << a->Primary();
   a->seed_park(
       [this, alive = alive_, lane = Lane(), a](bool parked) {
@@ -522,12 +535,14 @@ bool PeerReachCoordinator::MaybeParkBeforePrivateDial(const AttemptPtr& a) {
           if (!alive->load(std::memory_order_acquire)) {
             return;
           }
+          a->seed_park_inflight = false;
           a->seed_park_ok = parked;
           log().info << "seed park (pre-assoc) parked=" << (parked ? 1 : 0);
           Tick(a);
         });
       },
       kSeedParkAwaitMs);
+  ScheduleTick(a, kPollMs);
   return true;
 }
 
@@ -654,12 +669,14 @@ bool PeerReachCoordinator::MaybeStartCircuit(const AttemptPtr& a) {
   // Always confirm a Connected seed before StartBridge / punch-wait: the pre-assoc park may have
   // timed out, or a later private dial dropped the hop link (dogfood 88e16f5c).
   if (a->seed_park) {
+    a->seed_park_inflight = true;
     a->seed_park(
         [this, alive = alive_, lane = Lane(), a, allow_circuit](bool parked) {
           PostOn(lane, [this, alive, a, allow_circuit, parked]() {
             if (!alive->load(std::memory_order_acquire)) {
               return;
             }
+            a->seed_park_inflight = false;
             a->seed_park_ok = parked;
             log().info << "seed park before circuit/punch peer=" << a->Primary()
                        << " parked=" << (parked ? 1 : 0);
