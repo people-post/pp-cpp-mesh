@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mesh/dht/DhtRecordStore.h"
+#include "mesh/dht/DhtRoutingTable.h"
 #include "mesh/dht/DhtTypes.h"
 #include "mesh/dht/client/DhtClient.h"
 #include "mesh/dht/serve/DhtServer.h"
@@ -50,12 +51,14 @@ public:
   }
 
   std::optional<PeerRoutingRecord> LocalRecord(const std::string& peer_id) const { return store_.Get(peer_id); }
+  const DhtRoutingTable& RoutingTable() const { return table_; }
   std::vector<PeerRoutingRecord> SnapshotRecords() const { return store_.Snapshot(); }
   DhtOpsStats Stats() const;
   std::string FormatOpsStatusJson() const;
 
 private:
   DhtRecordStore store_;
+  DhtRoutingTable table_;
   AmpDhtProtocolConfig config_;
   DhtServer server_;
   DhtClient client_;

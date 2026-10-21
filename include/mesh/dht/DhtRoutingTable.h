@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -31,7 +32,7 @@ struct DhtContact {
  *   holds it down, or the ping went unanswered) lets the most recent replacement in.
  * - **Diversity:** at most `kMaxPerSubnet` entries per IPv4 /24 (IPv6 /48) per bucket.
  *
- * Not thread-safe: owned and driven on the mesh's io lane.
+ * Thread-safe: the server's workers and the client's callbacks share one table.
  */
 class DhtRoutingTable {
 public:
@@ -54,18 +55,28 @@ public:
     std::optional<DhtContact> ping;
   };
 
+  /** No self yet (`Valid()` false) until `Reset`. */
+  explicit DhtRoutingTable(size_t k = kDefaultK);
   DhtRoutingTable(const std::string& self_peer_id, size_t k = kDefaultK);
 
-  bool Valid() const { return self_key_.has_value(); }
-  const DhtKey& SelfKey() const { return *self_key_; }
+  DhtRoutingTable(const DhtRoutingTable&) = delete;
+  DhtRoutingTable& operator=(const DhtRoutingTable&) = delete;
+
+  /** Start over around `self_peer_id` (empty: no self); a no-op when it is already ours. */
+  void Reset(const std::string& self_peer_id);
+  bool Valid() const;
+  /** Our own key (all zero before `Reset`). */
+  DhtKey SelfKey() const;
 
   /** `peer_id` answered an authenticated DHT RPC (or sent one): admit or refresh it. */
   HeardResult NoteHeard(const std::string& peer_id, const std::string& multiaddr, int64_t now_ms);
   /** Drop `peer_id` (gone, or a ping went unanswered); the bucket's newest replacement moves in. */
   void Remove(const std::string& peer_id);
 
-  /** Up to `n` contacts closest to `target`, closest first. */
-  std::vector<DhtContact> Closest(const DhtKey& target, size_t n) const;
+  /** Up to `n` contacts closest to `target`, closest first; never `exclude_peer_id`. */
+  std::vector<DhtContact> Closest(const DhtKey& target, size_t n, const std::string& exclude_peer_id = {}) const;
+  /** The contact for `peer_id`, if it is one. */
+  std::optional<DhtContact> Find(const std::string& peer_id) const;
   /** Buckets with contacts, none heard from since `older_than_ms` (refresh candidates). */
   std::vector<int> StaleBuckets(int64_t older_than_ms) const;
   size_t Size() const;
@@ -78,7 +89,9 @@ private:
   };
 
   static std::string SubnetOf(const std::string& multiaddr);
+  Bucket* BucketOfLocked(const std::string& peer_id, std::optional<DhtKey>* key_out = nullptr);
 
+  mutable std::mutex mutex_;
   std::optional<DhtKey> self_key_;
   std::string self_peer_id_;
   size_t k_;

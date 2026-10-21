@@ -2,6 +2,7 @@
 
 #include "mesh/types/MeshConfigTypes.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -33,6 +34,19 @@ struct PeerRoutingRecord {
   std::string public_key_b64;
 };
 
+/**
+ * A `find_peer_result.closer_peers` entry (docs/DHT.md § 4.3): a DHT participant near the target
+ * key, from the responder's routing table — a hint to ask, never a table entry by itself.
+ */
+struct DhtCloserPeer {
+  std::string peer_id;
+  /** Ends in `/p2p/<peer_id>`, so dialling it authenticates the peer. */
+  std::string multiaddr;
+};
+
+/** How many `closer_peers` a responder offers (the contract's `k_closer`). */
+inline constexpr size_t kDhtCloserPeers = 8;
+
 struct DhtFindPeerResult {
   std::string peer_id;
   PeerRoutingRecord record;
@@ -44,6 +58,8 @@ struct DhtOpsStats {
   bool started = false;
   bool participate = false;
   size_t cached_records = 0;
+  /** Routing-table contacts (docs/DHT.md § 4.2). */
+  size_t routing_contacts = 0;
   uint64_t inbound_find_peer = 0;
   uint64_t inbound_store = 0;
   uint64_t inbound_rate_limited = 0;

@@ -133,5 +133,28 @@ TEST(DhtRoutingTableTest, ClosestIsSortedByDistance) {
   EXPECT_FALSE(table.StaleBuckets(1000).empty()) << "every bucket was last heard before t=1000";
 }
 
+TEST(DhtRoutingTableTest, ClosestLeavesOutTheAskerAndResetStartsOver) {
+  DhtRoutingTable table;
+  EXPECT_FALSE(table.Valid());
+  EXPECT_EQ(table.NoteHeard(Pid(1), Ma(10, 0, 1, 1), 0).heard, DhtRoutingTable::Heard::Rejected) << "no self yet";
+  table.Reset("QmSeAfNode");
+  ASSERT_TRUE(table.Valid());
+  for (int i = 0; i < 5; ++i) {
+    (void)table.NoteHeard(Pid(i), Ma(10, 0, i, 1), i);
+  }
+  const DhtKey target = *DhtKeyOfPeerId(Pid(2));
+  EXPECT_EQ(table.Closest(target, 1).front().peer_id, Pid(2));
+  const auto without = table.Closest(target, 10, Pid(2));
+  EXPECT_EQ(without.size(), 4u);
+  EXPECT_TRUE(std::none_of(without.begin(), without.end(), [](const DhtContact& c) { return c.peer_id == Pid(2); }));
+  ASSERT_TRUE(table.Find(Pid(3)).has_value());
+  EXPECT_EQ(table.Find(Pid(3))->multiaddr, Ma(10, 0, 3, 1));
+
+  table.Reset("QmSeAfNode");
+  EXPECT_EQ(table.Size(), 5u) << "the same self: kept";
+  table.Reset("QmOtherSeAf");
+  EXPECT_EQ(table.Size(), 0u) << "another self: start over";
+}
+
 } // namespace
 } // namespace pp::mesh

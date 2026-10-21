@@ -3,6 +3,7 @@
 
 #include "common/SettledWait.h"
 #include "mesh/testing/mesh_test_harness.h"
+#include "mesh/testing/mesh_triple_harness.h"
 
 #include <gtest/gtest.h>
 namespace pp::mesh {
@@ -101,6 +102,51 @@ TEST(AmpDhtProtocolTest, LookupToASilentPeerSettlesAndFreesItsSlot) {
   }
   client.Stop();
   harness->runtime_b->SetProtocolHandler(kDhtProtocolId, {});
+}
+
+// The routing table admits participants: a node whose store was accepted, and a node that
+// answered as a participant (with the dial address from its own record). docs/DHT.md § 4.2.
+TEST(AmpDhtProtocolTest, ParticipantsEnterTheRoutingTable) {
+  auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto h = std::move(*created);
+  ASSERT_TRUE(static_cast<bool>(h->mgr_a().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(h->mgr_b().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+
+  AmpDhtProtocol node_a(*h->runtime_a);
+  AmpDhtProtocol node_r(*h->runtime_r);
+  AmpDhtProtocol node_b(*h->runtime_b);
+  const auto configure = [](AmpDhtProtocol& node, const std::string& peer_id, const std::string& ma,
+                            const pp::amp::MshIdentity& id, std::vector<std::string> query_peers) {
+    AmpDhtProtocolConfig cfg;
+    cfg.local_peer_id = peer_id;
+    cfg.listen_multiaddrs = {ma};
+    cfg.device_signing_secret = id.ml_dsa_secret_key;
+    cfg.device_signing_public = id.ml_dsa_public_key;
+    cfg.query_peer_keys = std::move(query_peers);
+    cfg.participate = true;
+    node.Configure(cfg);
+    node.Start();
+  };
+  configure(node_r, h->peer_id_r, h->ma_r, h->relay, {});
+  configure(node_a, h->peer_id_a, h->ma_a, h->alice, {h->peer_id_r});
+  configure(node_b, h->peer_id_b, h->ma_b, h->bob, {h->peer_id_r});
+
+  // Each publishes to R (a store) and looks R up (R answers with its own record).
+  h->PumpUntil([&]() {
+    return node_r.RoutingTable().Contains(h->peer_id_a) && node_r.RoutingTable().Contains(h->peer_id_b) &&
+           node_a.RoutingTable().Contains(h->peer_id_r) && node_b.RoutingTable().Contains(h->peer_id_r);
+  }, 4000);
+  EXPECT_TRUE(node_r.RoutingTable().Contains(h->peer_id_a));
+  EXPECT_TRUE(node_r.RoutingTable().Contains(h->peer_id_b));
+  ASSERT_TRUE(node_a.RoutingTable().Contains(h->peer_id_r));
+  EXPECT_EQ(node_a.RoutingTable().Find(h->peer_id_r)->multiaddr, h->ma_r) << "from R's own record";
+  EXPECT_FALSE(node_a.RoutingTable().Contains(h->peer_id_b)) << "never heard from B";
+  EXPECT_EQ(node_r.Stats().routing_contacts, 2u);
+
+  node_a.Stop();
+  node_b.Stop();
+  node_r.Stop();
 }
 
 /** Lab acceptance: two participating Nodes discover each other's ADP addrs (no Brief HTTP). */

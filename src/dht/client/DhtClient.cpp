@@ -21,6 +21,10 @@ std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
   return std::vector<uint8_t>(json_utf8.begin(), json_utf8.end());
 }
 
+int64_t NowMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+}
+
 std::chrono::milliseconds ControlTimeout(const MeshDhtConfig& tunables) {
   const int ms = tunables.find_peer_timeout_ms > 0 ? tunables.find_peer_timeout_ms : 5000;
   return std::chrono::milliseconds(ms);
@@ -55,7 +59,8 @@ DhtClient::Failure DhtClient::WrapLinkFailure(const pp::amp::PeerLinkManager::Fa
   }
 }
 
-DhtClient::DhtClient(pp::amp::MeshRuntime& runtime, DhtRecordStore& store) : runtime_(runtime), store_(store) {}
+DhtClient::DhtClient(pp::amp::MeshRuntime& runtime, DhtRecordStore& store, DhtRoutingTable& table)
+    : runtime_(runtime), store_(store), table_(table) {}
 
 void DhtClient::Configure(const AmpDhtProtocolConfig& config) { config_ = config; }
 
@@ -106,6 +111,63 @@ std::vector<std::string> DhtClient::FilteredQueryPeerKeys() {
     }
   }
   return keys;
+}
+
+void DhtClient::NoteHeard(const std::string& peer_id, const std::string& dial_addr) {
+  if (peer_id.empty() || dial_addr.empty()) {
+    return;
+  }
+  const int64_t now_ms = NowMs();
+  const DhtRoutingTable::HeardResult heard = table_.NoteHeard(peer_id, dial_addr, now_ms);
+  if (heard.heard == DhtRoutingTable::Heard::Pending && heard.ping &&
+      now_ms - heard.ping->last_heard_ms >= kQuietBeforePingMs) {
+    PingContact(*heard.ping);
+  }
+}
+
+void DhtClient::NoteAnswered(const std::string& peer_key, const common::Object& response,
+                             const std::optional<PeerRoutingRecord>& its_record) {
+  if (!response.getIf<bool>("participant").value_or(false)) {
+    return;
+  }
+  const pp::amp::PeerLink* link = runtime_.Links().FindLink(peer_key);
+  if (!link) {
+    return;
+  }
+  const std::string peer_id = link->RemotePeerId();
+  if (its_record && its_record->peer_id == peer_id) {
+    NoteHeard(peer_id, PeerRoutingRecordDialAddr(*its_record));
+  } else if (auto stored = store_.Get(peer_id)) {
+    NoteHeard(peer_id, PeerRoutingRecordDialAddr(*stored));
+  }  // no record of it yet: admitted once one is cached (the publish tick warms the query peers')
+}
+
+void DhtClient::PingContact(const DhtContact& contact) {
+  {
+    std::lock_guard lock(ping_mutex_);
+    if (!pinging_.insert(contact.peer_id).second) {
+      return;
+    }
+  }
+  if (!runtime_.Links().GetLinkSnapshot(contact.peer_id).has_endpoint) {
+    (void)runtime_.Links().RegisterEndpoint(contact.peer_id, contact.multiaddr);
+  }
+  common::Object request;
+  request.set("op", "ping");
+  request.set("req_id", util::GenerateUuid());
+  request.set("version", int64_t{kDhtWireVersion});
+  Rpc(contact.peer_id, request, [this, contact](RpcRoe resp) {
+    {
+      std::lock_guard lock(ping_mutex_);
+      pinging_.erase(contact.peer_id);
+    }
+    if (resp && resp->getString("op").value_or("") == "pong" &&
+        resp->getString("peer_id").value_or("") == contact.peer_id) {
+      table_.NoteHeard(contact.peer_id, contact.multiaddr, NowMs());
+    } else if (resp || resp.error().GetCode() != Err::NotStarted) {
+      table_.Remove(contact.peer_id);  // a replacement moves in
+    }
+  });
 }
 
 void DhtClient::Rpc(const std::string& peer_key, common::Object request, std::function<void(RpcRoe)> on_response) {
@@ -343,6 +405,7 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
     Rpc(peer_key, request,
                [this, state, target_peer_id, peer_key, finish_lookup](RpcRoe resp) mutable {
                  bool saw_bad = false;
+                 std::optional<PeerRoutingRecord> self_answer;  // the responder's own, verified
                  {
                    std::lock_guard lock(state->mutex);
                    if (resp) {
@@ -375,6 +438,7 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
                                continue;
                              }
                              parsed->public_key_b64 = pp::Base64Encode(key);
+                             self_answer = *parsed;
                              if (!state->best_self || parsed->seq > state->best_self->seq) {
                                state->best_self = std::move(*parsed);
                              }
@@ -397,6 +461,8 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
                  }
                  if (saw_bad) {
                    NoteSoftReputationBad(peer_key);
+                 } else if (resp && resp->getString("op").value_or("") == "find_peer_result") {
+                   NoteAnswered(peer_key, *resp, self_answer);
                  }
                  if (state->pending->fetch_sub(1, std::memory_order_acq_rel) != 1) {
                    return;

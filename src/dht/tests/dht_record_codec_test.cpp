@@ -92,6 +92,27 @@ TEST(DhtRecordCodecTest, ARecordWithItsKeyChecksOnItsOwn) {
   EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(altered));
 }
 
+// closer_peers are hints from a stranger: only well-formed ones that bind their PeerId pass.
+TEST(DhtRecordCodecTest, CloserPeersKeepOnlyWellFormedHints) {
+  const std::string a = "QmTWkSQAcGsETogTFKrPJ3GzdHG3vP9UwXVyp2HeK9YBvP";
+  const std::string b = "QmeKYz9h9AozszFqAkRzwxx4xGheEMYRVrLHuh7EMG7Bie";
+  const auto ma = [](const std::string& peer) { return "/ip4/203.0.113.7/udp/443/adp/1.0.0/p2p/" + peer; };
+  common::Object response;
+  response.set("closer_peers", DhtCloserPeersToArray({
+                                   {a, ma(a)},
+                                   {b, ma(a)},        // the address names someone else
+                                   {a, ma(a)},        // twice
+                                   {"Qm0lI", ma("Qm0lI")},  // not base58
+                                   {b, ma(b)},
+                               }));
+  const auto peers = DhtCloserPeersFromResponse(response);
+  ASSERT_EQ(peers.size(), 2u);
+  EXPECT_EQ(peers[0].peer_id, a);
+  EXPECT_EQ(peers[1].peer_id, b);
+  EXPECT_EQ(DhtCloserPeersFromResponse(response, 1).size(), 1u);
+  EXPECT_TRUE(DhtCloserPeersFromResponse(common::Object{}).empty());
+}
+
 TEST(DhtRecordCodecTest, RejectsExpiredRecord) {
   PeerRoutingRecord record;
   record.peer_id = "12D3KooWExpired";

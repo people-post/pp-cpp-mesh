@@ -4,10 +4,14 @@
 namespace pp::mesh {
 
 AmpDhtProtocol::AmpDhtProtocol(pp::amp::MeshRuntime& runtime, WorkerPost post_worker)
-    : server_(runtime, store_, std::move(post_worker)), client_(runtime, store_) {}
+    : server_(runtime, store_, table_,
+              [this](const std::string& peer_id, const std::string& dial_addr) { client_.NoteHeard(peer_id, dial_addr); },
+              std::move(post_worker)),
+      client_(runtime, store_, table_) {}
 
 void AmpDhtProtocol::Configure(AmpDhtProtocolConfig config) {
   config_ = std::move(config);
+  table_.Reset(config_.local_peer_id);
   server_.Configure(config_);
   client_.Configure(config_);
 }
@@ -33,6 +37,7 @@ DhtOpsStats AmpDhtProtocol::Stats() const {
   stats.started = IsStarted();
   stats.participate = config_.participate;
   stats.cached_records = store_.Size();
+  stats.routing_contacts = table_.Size();
   const DhtServer::Stats inbound = server_.InboundStats();
   stats.inbound_find_peer = inbound.inbound_find_peer;
   stats.inbound_store = inbound.inbound_store;
@@ -51,6 +56,7 @@ std::string AmpDhtProtocol::FormatOpsStatusJson() const {
   object.set("started", stats.started);
   object.set("participate", stats.participate);
   object.set("cached_records", static_cast<int64_t>(stats.cached_records));
+  object.set("routing_contacts", static_cast<int64_t>(stats.routing_contacts));
   object.set("inbound_find_peer", static_cast<int64_t>(stats.inbound_find_peer));
   object.set("inbound_store", static_cast<int64_t>(stats.inbound_store));
   object.set("inbound_rate_limited", static_cast<int64_t>(stats.inbound_rate_limited));

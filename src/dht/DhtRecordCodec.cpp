@@ -1,10 +1,13 @@
 #include "mesh/dht/DhtRecordCodec.h"
 
+#include "mesh/dht/DhtKey.h"
+
 #include "amp/link/PeerId.h"
 #include "common/Utilities.h"
 #include "crypto/MlDsa.h"
 #include "crypto/SodiumUtil.h"
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <string_view>
@@ -168,6 +171,54 @@ Roe<void> VerifyPeerRoutingRecordStandalone(const PeerRoutingRecord& record) {
     return Error("bad signature");
   }
   return {};
+}
+
+std::string PeerRoutingRecordDialAddr(const PeerRoutingRecord& record) {
+  for (const std::string& ma : record.multiaddrs) {
+    if (ma.find("/adp/") != std::string::npos) {
+      return ma;
+    }
+  }
+  return record.multiaddrs.empty() ? std::string() : record.multiaddrs.front();
+}
+
+common::Value DhtCloserPeersToArray(const std::vector<DhtCloserPeer>& peers) {
+  std::vector<common::Value> elements;
+  elements.reserve(peers.size());
+  for (const DhtCloserPeer& peer : peers) {
+    common::Object entry;
+    entry.set("peer_id", peer.peer_id);
+    entry.set("multiaddr", peer.multiaddr);
+    elements.emplace_back(std::make_shared<common::Object>(std::move(entry)));
+  }
+  return common::makeArray(std::move(elements));
+}
+
+std::vector<DhtCloserPeer> DhtCloserPeersFromResponse(const common::Object& response, const size_t max) {
+  std::vector<DhtCloserPeer> out;
+  const common::Array* entries = response.getArray("closer_peers");
+  if (!entries) {
+    return out;
+  }
+  for (const common::Value& item : entries->elements) {
+    if (out.size() >= max) {
+      break;
+    }
+    const common::Object* entry = common::asObject(item);
+    if (!entry) {
+      continue;
+    }
+    DhtCloserPeer peer{entry->getString("peer_id").value_or(""), entry->getString("multiaddr").value_or("")};
+    if (peer.peer_id.empty() || !DhtKeyOfPeerId(peer.peer_id) ||
+        pp::amp::PeerIdFromMultiaddr(peer.multiaddr) != peer.peer_id) {
+      continue;
+    }
+    if (std::any_of(out.begin(), out.end(), [&](const DhtCloserPeer& p) { return p.peer_id == peer.peer_id; })) {
+      continue;
+    }
+    out.push_back(std::move(peer));
+  }
+  return out;
 }
 
 bool PeerRoutingRecordExpired(const PeerRoutingRecord& record, const int64_t now_seconds,

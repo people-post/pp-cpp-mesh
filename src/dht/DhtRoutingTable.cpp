@@ -4,8 +4,49 @@
 
 namespace pp::mesh {
 
-DhtRoutingTable::DhtRoutingTable(const std::string& self_peer_id, const size_t k)
-    : self_key_(DhtKeyOfPeerId(self_peer_id)), self_peer_id_(self_peer_id), k_(k > 0 ? k : kDefaultK) {}
+DhtRoutingTable::DhtRoutingTable(const size_t k) : k_(k > 0 ? k : kDefaultK) {}
+
+DhtRoutingTable::DhtRoutingTable(const std::string& self_peer_id, const size_t k) : DhtRoutingTable(k) {
+  Reset(self_peer_id);
+}
+
+void DhtRoutingTable::Reset(const std::string& self_peer_id) {
+  std::lock_guard lock(mutex_);
+  if (self_key_ && self_peer_id == self_peer_id_) {
+    return;
+  }
+  self_key_ = self_peer_id.empty() ? std::nullopt : DhtKeyOfPeerId(self_peer_id);
+  self_peer_id_ = self_peer_id;
+  for (Bucket& bucket : buckets_) {
+    bucket = Bucket{};
+  }
+}
+
+bool DhtRoutingTable::Valid() const {
+  std::lock_guard lock(mutex_);
+  return self_key_.has_value();
+}
+
+DhtKey DhtRoutingTable::SelfKey() const {
+  std::lock_guard lock(mutex_);
+  return self_key_.value_or(DhtKey{});
+}
+
+DhtRoutingTable::Bucket* DhtRoutingTable::BucketOfLocked(const std::string& peer_id,
+                                                         std::optional<DhtKey>* key_out) {
+  if (!self_key_ || peer_id.empty() || peer_id == self_peer_id_) {
+    return nullptr;
+  }
+  const auto key = DhtKeyOfPeerId(peer_id);
+  const int index = key ? DhtBucketIndex(*self_key_, *key) : -1;
+  if (index < 0) {
+    return nullptr;
+  }
+  if (key_out) {
+    *key_out = key;
+  }
+  return &buckets_[static_cast<size_t>(index)];
+}
 
 std::string DhtRoutingTable::SubnetOf(const std::string& multiaddr) {
   // "/ip4/a.b.c.d/..." → "4:a.b.c"; "/ip6/x:x:x:..." → "6:x:x:x" (/48); else "" (no cap).
@@ -38,18 +79,13 @@ std::string DhtRoutingTable::SubnetOf(const std::string& multiaddr) {
 DhtRoutingTable::HeardResult DhtRoutingTable::NoteHeard(const std::string& peer_id, const std::string& multiaddr,
                                                     const int64_t now_ms) {
   HeardResult result;
-  if (!self_key_ || peer_id.empty() || peer_id == self_peer_id_) {
+  std::lock_guard lock(mutex_);
+  std::optional<DhtKey> key;
+  Bucket* found = BucketOfLocked(peer_id, &key);
+  if (!found) {
     return result;
   }
-  const auto key = DhtKeyOfPeerId(peer_id);
-  if (!key) {
-    return result;
-  }
-  const int index = DhtBucketIndex(*self_key_, *key);
-  if (index < 0) {
-    return result;
-  }
-  Bucket& bucket = buckets_[static_cast<size_t>(index)];
+  Bucket& bucket = *found;
   auto same = [&](const DhtContact& c) { return c.peer_id == peer_id; };
   if (auto it = std::find_if(bucket.contacts.begin(), bucket.contacts.end(), same); it != bucket.contacts.end()) {
     DhtContact contact = *it;
@@ -88,15 +124,12 @@ DhtRoutingTable::HeardResult DhtRoutingTable::NoteHeard(const std::string& peer_
 }
 
 void DhtRoutingTable::Remove(const std::string& peer_id) {
-  if (!self_key_) {
+  std::lock_guard lock(mutex_);
+  Bucket* found = BucketOfLocked(peer_id);
+  if (!found) {
     return;
   }
-  const auto key = DhtKeyOfPeerId(peer_id);
-  const int index = key ? DhtBucketIndex(*self_key_, *key) : -1;
-  if (index < 0) {
-    return;
-  }
-  Bucket& bucket = buckets_[static_cast<size_t>(index)];
+  Bucket& bucket = *found;
   auto same = [&](const DhtContact& c) { return c.peer_id == peer_id; };
   const auto before = bucket.contacts.size();
   std::erase_if(bucket.contacts, same);
@@ -107,10 +140,18 @@ void DhtRoutingTable::Remove(const std::string& peer_id) {
   }
 }
 
-std::vector<DhtContact> DhtRoutingTable::Closest(const DhtKey& target, const size_t n) const {
+std::vector<DhtContact> DhtRoutingTable::Closest(const DhtKey& target, const size_t n,
+                                                 const std::string& exclude_peer_id) const {
   std::vector<DhtContact> all;
-  for (const Bucket& bucket : buckets_) {
-    all.insert(all.end(), bucket.contacts.begin(), bucket.contacts.end());
+  {
+    std::lock_guard lock(mutex_);
+    for (const Bucket& bucket : buckets_) {
+      for (const DhtContact& c : bucket.contacts) {
+        if (c.peer_id != exclude_peer_id) {
+          all.push_back(c);
+        }
+      }
+    }
   }
   const size_t take = std::min(n, all.size());
   std::partial_sort(all.begin(), all.begin() + static_cast<std::ptrdiff_t>(take), all.end(),
@@ -120,6 +161,7 @@ std::vector<DhtContact> DhtRoutingTable::Closest(const DhtKey& target, const siz
 }
 
 std::vector<int> DhtRoutingTable::StaleBuckets(const int64_t older_than_ms) const {
+  std::lock_guard lock(mutex_);
   std::vector<int> stale;
   for (size_t i = 0; i < buckets_.size(); ++i) {
     const auto& contacts = buckets_[i].contacts;
@@ -132,6 +174,7 @@ std::vector<int> DhtRoutingTable::StaleBuckets(const int64_t older_than_ms) cons
 }
 
 size_t DhtRoutingTable::Size() const {
+  std::lock_guard lock(mutex_);
   size_t n = 0;
   for (const Bucket& bucket : buckets_) {
     n += bucket.contacts.size();
@@ -139,15 +182,18 @@ size_t DhtRoutingTable::Size() const {
   return n;
 }
 
-bool DhtRoutingTable::Contains(const std::string& peer_id) const {
+bool DhtRoutingTable::Contains(const std::string& peer_id) const { return Find(peer_id).has_value(); }
+
+std::optional<DhtContact> DhtRoutingTable::Find(const std::string& peer_id) const {
+  std::lock_guard lock(mutex_);
   for (const Bucket& bucket : buckets_) {
     for (const DhtContact& c : bucket.contacts) {
       if (c.peer_id == peer_id) {
-        return true;
+        return c;
       }
     }
   }
-  return false;
+  return std::nullopt;
 }
 
 } // namespace pp::mesh

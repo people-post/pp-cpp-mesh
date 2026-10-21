@@ -71,6 +71,10 @@ persisted in v1; rebuilt from the query peers at start).
 - `find_peer_result.closer_peers`: up to `k_closer` (proposal: 8) entries from the responder's
   table closest to the target key, `{peer_id, multiaddr}` — filled now (always empty today). The
   contract says "≤ α"; that is too few to converge, so it changes to `≤ k_closer`.
+- `find_peer_result` and `pong` say `participant: true|false` (does the responder take part).
+  A peer is admitted from its answers only when it says so; one whose `store` is accepted is a
+  participant by definition. A table entry's dial address always comes from the peer's own
+  signed record (never from someone else's hint).
 - No new ops: `find_peer` doubles as FIND_NODE (the asker uses `closer_peers` whether or not a
   record came back); `ping` as is; `store` as is (self record only).
 - `version` stays 1: a v1 node sends empty `closer_peers`, which a new node treats as "no hints".
@@ -121,7 +125,9 @@ hops reach media ranking as Public candidates.
 
 ## 7. Build order
 
-Status: step 1 done (`DhtKey`, `DhtRoutingTable`, unit tests).
+Status: steps 1–2 done — `DhtKey`, `DhtRoutingTable` (thread-safe, shared by server and client);
+the server fills `closer_peers` (never the asker) and admits accepted `store` senders; the client
+admits participants that answer and pings a full bucket's oldest when it has been quiet 15 min.
 
 1. Key256, XOR, buckets, admission / eviction / diversity — pure, unit-tested.
 2. `closer_peers` filled by the server from the table; the table fed by authenticated RPCs.
@@ -129,4 +135,4 @@ Status: step 1 done (`DhtKey`, `DhtRoutingTable`, unit tests).
 4. Publish to the k closest; the publish gate; refresh.
 5. Soft reputation narrowed to misbehaviour; liveness from the reach record.
 6. The lab; contract update (MESH_DHT.md: `closer_peers ≤ k_closer`, admission, publish target,
-   `public_key_b64` in the record).
+   `public_key_b64` in the record, `participant` in answers).
