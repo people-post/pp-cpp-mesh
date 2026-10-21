@@ -141,4 +141,7 @@ admits participants that answer and pings a full bucket's oldest when it has bee
 4. Publish to the k closest; the publish gate; refresh.
 5. Soft reputation narrowed to misbehaviour; liveness from the reach record.
 6. The lab; contract update (MESH_DHT.md: `closer_peers ≤ k_closer`, admission, publish target,
-   `public_key_b64` in the record, `participant` in answers).
+   `public_key_b64` in the record, `participant` in answers). Before it: pp-browser
+   `scripts/test/pp_node_dht_smoke.sh` fails today, and did before this work — its nodes start
+   with the platform defaults (so they also dial the public seeds), and the B → A link is dropped
+   about 5 s after the reachability probe takes it over, so neither DHT exchange completes.
