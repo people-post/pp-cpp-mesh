@@ -121,6 +121,8 @@ hops reach media ranking as Public candidates.
 
 ## 7. Build order
 
+Status: step 1 done (`DhtKey`, `DhtRoutingTable`, unit tests).
+
 1. Key256, XOR, buckets, admission / eviction / diversity — pure, unit-tested.
 2. `closer_peers` filled by the server from the table; the table fed by authenticated RPCs.
 3. Iterative lookup in `DhtClient::FindPeer` (replaces the one-round fan-out); negative cache.
