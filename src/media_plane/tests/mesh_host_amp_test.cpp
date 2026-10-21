@@ -20,6 +20,7 @@
 #include "crypto/PeerId.h"
 
 #include <gtest/gtest.h>
+#include <optional>
 
 #include <algorithm>
 #include <sodium.h>
@@ -298,6 +299,44 @@ TEST(MeshHostAmpTest, TheReachRecordFollowsAPeerUpAndGone) {
   f.host.OnLocalNetworkChanged(LocalNetworkChange{true, true, true});
   EXPECT_EQ(record.Facts(f.peer_b, connectivity.NetworkGeneration()).state, PeerReachState::Unknown)
       << "judged on the old network";
+  connectivity.Clear();
+  f.host.Stop();
+}
+
+// docs/PEER_REACH.md § 8: a link that still reads Connected to a peer that is gone, asked to prove it
+// is alive, is evicted within the grace — and the record holds the peer down before the caller hears.
+TEST(MeshHostAmpTest, VerifyingASilentLinkMarksThePeerDownFirst) {
+  ASSERT_GE(sodium_init(), 0);
+  SilentPeerFixture f;
+  MeshConnectivity connectivity;
+  f.after_attach = [&]() {
+    MeshConnectivityDeps deps;
+    deps.mesh = [&f]() { return &f.host; };
+    connectivity.SetDeps(std::move(deps));
+    connectivity.Wire();
+  };
+  f.SetUp();
+  if (::testing::Test::HasFatalFailure()) {
+    return;
+  }
+  f.Run(5, 10);
+  auto chat = f.host.ChatDeps();
+  ASSERT_TRUE(chat.has_value());
+  ASSERT_TRUE(chat->links.IsConnected(f.peer_b)) << "B went silent, but its hot link still reads Connected";
+
+  std::optional<bool> alive;
+  std::optional<PeerReachState> state_when_answered;
+  chat->links.VerifyLink(f.peer_b, std::chrono::milliseconds(0), [&](bool ok) {
+    alive = ok;
+    state_when_answered = connectivity.ReachFacts(f.peer_b).state;
+  });
+  for (int i = 0; i < 40 && !alive; ++i) {
+    f.Run(1, 100);
+  }
+  ASSERT_TRUE(alive.has_value()) << "answered within the grace";
+  EXPECT_FALSE(*alive);
+  EXPECT_TRUE(f.Dropped(pp::amp::LinkDropReason::Unresponsive));
+  EXPECT_EQ(state_when_answered, PeerReachState::Down);
   connectivity.Clear();
   f.host.Stop();
 }

@@ -185,6 +185,11 @@ public:
     runtime_.WithIoLock([&] { links_.AbortInflightDial(peer_key); });
   }
 
+  void VerifyLink(const std::string& peer_key, const std::chrono::milliseconds heard_within,
+                  std::function<void(bool alive)> done) override {
+    runtime_.WithIoLock([&] { links_.VerifyLink(peer_key, heard_within, std::move(done)); });
+  }
+
   void DropLink(const std::string& peer_key) override {
     // Amp schedules the drop on Tick (reason "requested" in the MeshLink log); both ends evict.
     const size_t n = runtime_.RequestDropLink(peer_key);

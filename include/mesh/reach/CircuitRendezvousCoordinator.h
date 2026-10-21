@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 namespace pp::mesh {
 
@@ -93,7 +94,10 @@ private:
     size_t connected = 0;
     int dials_in_flight = 0;
   };
-  ParkCount CountParkOnIo() const;
+  /** `verifying`: seeds a park is checking (Connected, not counted until they answer — § 8). */
+  ParkCount CountParkOnIo(const std::unordered_set<std::string>* verifying = nullptr) const;
+  /** A park's first check: ask every Connected seed heard from too long ago to prove it is alive. */
+  void VerifyParkSeedsOnIo(const std::shared_ptr<SeedPark>& park);
 
   void WarmBootstrapSeedSessionsOnIo();
   void ReserveOnBootstrapSeedsOnIo();

@@ -47,6 +47,9 @@ PeerReachFailure LossFailure(const pp::amp::LinkEvent& event) {
   if (event.reason == pp::amp::LinkDropReason::TransportFailed) {
     return PeerReachFailure::Unreachable;
   }
+  if (event.reason == pp::amp::LinkDropReason::Unresponsive) {
+    return PeerReachFailure::NoAnswer;  // asked to prove it is alive, it did not answer
+  }
   return PeerReachFailure::None;
 }
 

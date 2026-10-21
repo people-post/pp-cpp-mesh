@@ -91,6 +91,8 @@ TEST(PeerReachRecordTest, OnlyALossThatMeansGoneCounts) {
   EXPECT_EQ(record.Facts("QmNoRoute", kNet).last_failure, PeerReachFailure::Unreachable);
   record.OnLinkEvent(DialFailed("QmRace", LinkDropReason::DualDialLost), 0, kNet);
   EXPECT_EQ(record.Facts("QmRace", kNet).state, PeerReachState::Unknown) << "it answered on the other dial";
+  record.OnLinkEvent(Lost("QmSilent", LinkDropReason::Unresponsive, 0), 0, kNet);
+  EXPECT_EQ(record.Facts("QmSilent", kNet).last_failure, PeerReachFailure::NoAnswer) << "it did not answer a probe";
 }
 
 TEST(PeerReachRecordTest, AFailedDialNamesItsPeerOrNothing) {

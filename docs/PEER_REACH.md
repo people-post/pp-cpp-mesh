@@ -243,13 +243,11 @@ Each step ships on its own (unit tests + the pp-browser labs):
 
 ## 8. Open
 
-- **A seed that dies while its link still looks Connected** (§1.4): the park trusts a stale link.
-  Step 3 covers a same-LAN pair (the LAN dial runs before the park) and every call after Amp
-  drops the link (the record holds the seed down). Left open: a pair that is not on one LAN,
-  inside the liveness window. Dialing the held-back private Preferred after the circuit misses was
-  considered and left out — the peer's own circuit toward us still needs our seed link intact
-  (39412f), and a private dial across two NATs rarely lands. A shorter liveness window for seed
-  links during a park is the remaining option.
+- **A seed that dies while its link still looks Connected** (§1.4): addressed. A park asks every
+  Connected seed not heard from in the last 5 s to prove it is alive (Amp `VerifyLink`: a probe;
+  no answer within ~2 s evicts the link as `unresponsive`, the record marks the seed down) and
+  counts it only once it answers. A live seed costs the park one round trip; a dead one ~2 s
+  instead of a circuit through it. Same-LAN pairs dial before the park anyway (§ 5).
 - **Persisting Down marks** across restarts: not now (§4.1); revisit if cold starts stay slow.
 - **Targets per role** (§3.1) are first guesses; the labs will tell.
 

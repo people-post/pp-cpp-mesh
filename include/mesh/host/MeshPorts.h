@@ -152,6 +152,18 @@ public:
   virtual void ClearDialBackoff(const std::string& /*peer_key*/) {}
   /** Abort in-flight EnsureAssociation without arming a new backoff (default no-op). */
   virtual void AbortInflightDial(const std::string& /*peer_key*/) {}
+  /**
+   * Whether the Connected link to `peer_key` is alive (Amp `PeerLinkManager::VerifyLink`): true at
+   * once when heard from within `heard_within`, else after a probe's answer; false when it is
+   * evicted as unresponsive (within ~2 s) or there is none. `done` runs on the IO strand, off this
+   * call's stack. Default (fakes): true.
+   */
+  virtual void VerifyLink(const std::string& /*peer_key*/, std::chrono::milliseconds /*heard_within*/,
+                          std::function<void(bool alive)> done) {
+    if (done) {
+      done(true);
+    }
+  }
 
   /**
    * Close the live link for this dial key / PeerId so the manager evicts it on the next Tick

@@ -38,6 +38,13 @@ void RegisterDialableEndpoint(IChatPeerLinks& links, const MeshHopCandidate& hop
  */
 constexpr std::chrono::milliseconds kSeedParkGrace{2000};
 
+/**
+ * A Connected seed heard from longer ago than this is asked to prove it is alive before a park
+ * counts it (docs/PEER_REACH.md § 8): a seed that died keeps reading Connected for its whole
+ * liveness window, and a call would go for a circuit through it. A live one answers in a round trip.
+ */
+constexpr std::chrono::milliseconds kSeedHeardWithin{5000};
+
 } // namespace
 
 /** One EnsureBootstrapSeedParkedAsync wait: settles once (listener, deadline or immediate check). */
@@ -54,6 +61,9 @@ struct CircuitRendezvousCoordinator::SeedPark {
   /** When the deadline answers; redials (io lane only) are weighed against what is left of it. */
   std::chrono::steady_clock::time_point deadline_at{};
   int redials = 0;
+  /** Seeds being asked to prove they are alive (io lane only); counted once they answer. */
+  std::unordered_set<std::string> verifying;
+  bool verify_started = false;
 };
 
 /** Serial cold dial + reserve over the selected cold relays, until enough are live. */
@@ -173,7 +183,8 @@ std::string CircuitRendezvousCoordinator::StickyRelay() const {
   return deps_.last_good_relay ? deps_.last_good_relay() : std::string();
 }
 
-CircuitRendezvousCoordinator::ParkCount CircuitRendezvousCoordinator::CountParkOnIo() const {
+CircuitRendezvousCoordinator::ParkCount CircuitRendezvousCoordinator::CountParkOnIo(
+    const std::unordered_set<std::string>* verifying) const {
   ParkCount count;
   MeshHost* m = mesh();
   auto chat = m ? m->ChatDeps() : std::nullopt;
@@ -186,7 +197,11 @@ CircuitRendezvousCoordinator::ParkCount CircuitRendezvousCoordinator::CountParkO
     if (snap.base.phase == pp::amp::PeerLinkPhase::Connected) {
       if (snap.transport != pp::amp::TransportClass::Carrier) {
         ++count.usable;
-        ++count.connected;
+        if (verifying && verifying->count(seed) > 0) {
+          ++count.dials_in_flight;  // its verdict may still land it
+        } else {
+          ++count.connected;
+        }
       }
       continue;
     }
@@ -436,8 +451,8 @@ void CircuitRendezvousCoordinator::OnSeedDialMissed(IChatPeerLinks& links, const
   }
   // A seed held down now may leave enough Connected; else answer now instead of at the deadline,
   // unless another seed's dial (the cold walk's, or a redial for it) may still land.
-  const ParkCount count = CountParkOnIo();
   for (const auto& park : waiting) {
+    const ParkCount count = CountParkOnIo(&park->verifying);
     CheckSeedPark(park, /*at_deadline=*/false);
     if (SeedParkCannotLand(count.connected > 0, count.dials_in_flight,
                            may_pass && ShouldRedialSeedForPark(left_ms(*park), park->redials))) {
@@ -579,11 +594,41 @@ void CircuitRendezvousCoordinator::AbandonSeedPark(const std::shared_ptr<SeedPar
   park->on_done(false);
 }
 
+void CircuitRendezvousCoordinator::VerifyParkSeedsOnIo(const std::shared_ptr<SeedPark>& park) {
+  park->verify_started = true;
+  MeshHost* m = mesh();
+  auto chat = m ? m->ChatDeps() : std::nullopt;
+  if (!chat) {
+    return;
+  }
+  for (const std::string& seed : BootstrapSeedPeerIds()) {
+    const pp::amp::LinkSnapshotEx snap = chat->links.SnapshotByPeerId(seed);
+    if (snap.base.phase != pp::amp::PeerLinkPhase::Connected || snap.transport == pp::amp::TransportClass::Carrier) {
+      continue;
+    }
+    park->verifying.insert(seed);
+    // The answer comes on the IO strand; a seed that does not answer is evicted (the record marks it
+    // down first) and the park finds one seed fewer.
+    chat->links.VerifyLink(seed, kSeedHeardWithin, deferred_.Bind([this, park, seed](bool alive) {
+      PostIoOrRun(deferred_.Bind([this, park, seed, alive]() {
+        park->verifying.erase(seed);
+        if (!alive) {
+          log().warning << "bootstrap seed park: seed did not answer a probe peer=" << seed;
+        }
+        CheckSeedPark(park, /*at_deadline=*/false);
+      }));
+    }));
+  }
+}
+
 void CircuitRendezvousCoordinator::CheckSeedPark(const std::shared_ptr<SeedPark>& park, bool at_deadline) {
   if (park->settled.load(std::memory_order_acquire)) {
     return;
   }
-  const ParkCount count = CountParkOnIo();
+  if (!park->verify_started) {
+    VerifyParkSeedsOnIo(park);
+  }
+  const ParkCount count = CountParkOnIo(&park->verifying);
   if (count.usable == 0) {
     log().warning << "bootstrap seed park failed at once (no seed usable: held down or no endpoint)";
     FinishSeedPark(park, false);
