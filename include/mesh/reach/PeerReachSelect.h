@@ -92,6 +92,23 @@ inline ReachSelection SelectForRole(const std::vector<ReachCandidate>& ordered, 
 }
 
 /**
+ * Peers for a job the app drives (directory queries, DHT lookups): up ones first, then the
+ * record's latest successes, then the rest in the app's order — none held down — at most `max`.
+ */
+inline std::vector<std::string> ChooseForJob(const std::vector<ReachCandidate>& ordered, const int64_t now_ms,
+                                             const std::size_t max) {
+  ReachSelection pick = SelectForRole(ordered, now_ms, /*live_target=*/max, /*max_cold=*/max);
+  std::vector<std::string> out = std::move(pick.connected);
+  for (std::string& id : pick.cold) {
+    out.push_back(std::move(id));
+  }
+  if (out.size() > max) {
+    out.resize(max);
+  }
+  return out;
+}
+
+/**
  * How many seeds a park needs Connected: the target, or every seed not held down when there are
  * fewer. 0 when every seed is held down — the park cannot land.
  */

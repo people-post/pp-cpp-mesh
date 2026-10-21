@@ -1,5 +1,6 @@
 #include "mesh/reach/PunchIntroducerWalk.h"
 
+#include "mesh/reach/PeerReachSelect.h"
 #include "mesh/reachability/punch/AmpPunchCoordinator.h"
 #include "mesh/reachability/punch/PunchLogic.h"
 
@@ -69,13 +70,21 @@ void PunchIntroducerWalk::TryColdPunchAsync(const std::string& target_peer_id, D
   }
   IChatPeerLinks* links = &circuit->links;
   MeshPunchIntroducers introducers = deps_.introducers ? deps_.introducers() : MeshPunchIntroducers{};
-  auto has_ep = [links](const std::string& id) { return links->GetLinkSnapshot(id).has_endpoint; };
   auto is_conn = [links](const std::string& id) { return links->IsConnected(id); };
+  // Dialable now: an address, and not held down by the record (a link that is up counts whatever it says).
+  auto has_ep = [links, facts = deps_.reach_facts, now = PeerReachRecord::NowMs()](const std::string& id) {
+    if (!links->GetLinkSnapshot(id).has_endpoint) {
+      return false;
+    }
+    return links->IsConnected(id) || !facts || !ReachHeldDown(facts(id), now);
+  };
 
   // B29: if the first introducer misses (target unknown / channel fail), try the next. The attempt
   // holds its own retry function; the chain ends when it settles (no self-owning cycle past that).
   struct IntroAttempt {
     std::unordered_set<std::string> tried;
+    /** Introducers dialed cold (not connected when picked). */
+    size_t cold = 0;
     std::function<void()> try_next;
   };
   auto attempt = std::make_shared<IntroAttempt>();
@@ -88,6 +97,9 @@ void PunchIntroducerWalk::TryColdPunchAsync(const std::string& target_peer_id, D
     }
     auto intro = PickPunchIntroducer(introducers.contact_peer_ids, introducers.seed_peer_ids, target_peer_id, has_ep,
                                      is_conn, self->tried);
+    if (intro && !is_conn(*intro) && self->cold >= kReachMaxColdDialsPerRound) {
+      intro.reset();  // enough cold dials for one walk
+    }
     if (!intro) {
       if (signaling_punch_) {
         log().info << "punch introducers exhausted — H012 signaling fallback target=" << target_peer_id;
@@ -103,6 +115,9 @@ void PunchIntroducerWalk::TryColdPunchAsync(const std::string& target_peer_id, D
       return;
     }
     self->tried.insert(*intro);
+    if (!is_conn(*intro)) {
+      ++self->cold;
+    }
     punch->TryColdPunchAsync(
         *intro, target_peer_id, punch->LocalCandidateAddrs(),
         [self, on_done](AmpPunchCoordinator::PunchRoe punched) {

@@ -93,5 +93,14 @@ TEST(PeerReachSelectTest, OnlyAMissThatMayPassIsRedialed) {
   EXPECT_TRUE(SeedMissMayPass(Down("s", kNow + 60'000, PeerReachFailure::Refused).facts, kNow)) << "up, busy";
 }
 
+// A job the app drives (directory, DHT): up first, then latest successes, never a peer held down.
+TEST(PeerReachSelectTest, AJobGetsUpPeersThenRecentSuccessesWithinItsCap) {
+  const auto picked = ChooseForJob({Unknown("u1"), Down("gone", kNow + 1), Live("old", 1), Connected("up"),
+                                    Live("new", 9), Unknown("u2")},
+                                   kNow, 4);
+  EXPECT_EQ(picked, (Ids{"up", "new", "old", "u1"}));
+  EXPECT_TRUE(ChooseForJob({Down("gone", kNow + 1)}, kNow, 3).empty()) << "nothing worth asking";
+}
+
 } // namespace
 } // namespace pp::mesh

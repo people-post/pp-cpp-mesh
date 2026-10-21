@@ -181,6 +181,14 @@ public:
   const PeerReachRecord& ReachRecord() const { return *reach_record_; }
   /** The record as of the mesh's current network (a Down mark from before a network change reads Unknown). */
   uint64_t NetworkGeneration() const;
+  /** What the record says about `peer_id` on the current network. Any thread. */
+  PeerReachFacts ReachFacts(const std::string& peer_id) const;
+  /**
+   * Peers for a job the app drives — directory queries, DHT lookups (docs/PEER_REACH.md § 5):
+   * `candidates` in the app's order; those with a link up first, then the record's latest
+   * successes, then the rest; none the record holds down; at most `max`. Any thread.
+   */
+  std::vector<std::string> ChoosePeers(const std::vector<std::string>& candidates, size_t max) const;
 
 private:
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }

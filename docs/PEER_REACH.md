@@ -1,6 +1,7 @@
 # Peer reach: what we know about reaching peers, and choosing seeds
 
-Status: design agreed 2026-10-21; build order § 7 — steps 1–2 implemented (local branches).
+Status: design agreed 2026-10-21; build order § 7 — steps 1–4 implemented in pp-cpp-mesh (local
+branches; amp v2.25.0 and common v1.2.1 released); step 5 (pp-browser) and 6 open.
 
 A mesh node reaches other peers for many jobs — a call's peer, a media hop, a rendezvous relay, a
 punch introducer, a directory provider, a DHT peer. Today each job builds its own candidate list,
@@ -194,7 +195,14 @@ Rules built on it:
   same 192.168.1.0/24 look alike, so that dial gets 1.5 s (a LAN handshake takes milliseconds);
   without an answer it is abandoned and the reach parks as before. Reach only: the awaiting side
   keeps its seed link untouched.
-- **Introducers / directory / DHT query peers / probe:** the same selection with their role.
+- **Introducers:** the punch walk skips an introducer the record holds down (unless its link is
+  up) and dials at most kReachMaxColdDialsPerRound introducers that are not connected, per walk.
+- **Directory / DHT query peers:** the app drives these jobs, so the mesh offers the selection:
+  `MeshConnectivity::ChoosePeers(candidates, max)` — up peers first, then the record's latest
+  successes, then the rest in the app's order, none held down. `ReachFacts(peer_id)` is the
+  published view (media ranking's `recently_failed`).
+- **Probe:** left as it is. It runs at mesh start (the record is empty) and right after a network
+  change (every Down mark reads Unknown then) — the record has nothing to say at either moment.
 
 ## 6. Where the DHT fits
 
@@ -209,8 +217,9 @@ Rules built on it:
 
 ## 7. Build order
 
-Status: 1–3 done (pp-cpp-amp `feat/dial-failed-event`, pp-cpp-mesh
-`fix/seed-park-settles-on-connect`, local; the pp-browser side fills `PeerReachPorts::local_listen_addrs`).
+Status: 1–4 done in pp-cpp-mesh (`fix/seed-park-settles-on-connect`, then `feat/reach-roles`,
+local); pp-cpp-amp v2.25.0 released. pp-browser fills `PeerReachPorts::local_listen_addrs`
+(`fix/seed-reach-selection`, local). Open: step 5 (the app side), step 6.
 
 Each step ships on its own (unit tests + the pp-browser labs):
 
@@ -219,10 +228,13 @@ Each step ships on its own (unit tests + the pp-browser labs):
 3. **Seed selection for rendezvous** (§5): bounded park and reserve, "all Down → answer now",
    the same-LAN private dial. Fixes `seed_down`; add a lab `seed_dies_in_use` (seeds used, then
    stopped; call inside and after the liveness window).
-4. **Introducers, directory and DHT query peers, the probe** move to `SelectForRole`.
-5. **The app's lists**: one candidate list with roles in `MeshHopPolicy`; `bootstrap_seeds` /
-   `punch_introducers` / effective-bootstrap merging go; media ranking reads `recently_failed`
-   from the view; DHT hops get a scope.
+4. **Introducers** use the record; **directory and DHT query peers** get `ChoosePeers` for the app
+   to call; the probe stays (§ 5).
+5. **The app's lists** (pp-browser): directory refresh (`ConversationsHub`) and DHT query peers
+   (`NodeMeshServices`) call `ChoosePeers`; media ranking (`CallHopRanking`) reads
+   `recently_failed` from `ReachFacts`; DHT hops get a relay scope; then one candidate list with
+   roles in `MeshHopPolicy` — `bootstrap_seeds` / `punch_introducers` / effective-bootstrap
+   merging go.
 6. **DHT completion** — separate design (§6).
 
 ## 8. Open

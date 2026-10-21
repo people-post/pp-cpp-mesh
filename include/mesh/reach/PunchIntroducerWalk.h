@@ -3,6 +3,7 @@
 #include "common/CodedFailure.h"
 #include "common/Error.h"
 #include "common/Module.h"
+#include "mesh/reach/PeerReachRecord.h"
 #include "mesh/reachability/punch/PunchLinkOps.h"
 #include "mesh/host/MeshHost.h"
 
@@ -22,6 +23,8 @@ struct PunchIntroducerDeps {
   std::function<MeshHost*()> mesh;
   /** Product policy: who may introduce us (contacts, seeds) — `domain/mesh` does not read contacts. */
   std::function<MeshPunchIntroducers()> introducers;
+  /** What the reach record says about a peer on the current network (none: every peer Unknown). */
+  std::function<PeerReachFacts(const std::string& peer_id)> reach_facts;
 };
 
 /**
@@ -29,6 +32,9 @@ struct PunchIntroducerDeps {
  * a cold punch walks introducers in order, moving on when one does not know the target (B29), and
  * falls back to a consumer's own signaling once they are exhausted (H012); an upgrade punch goes
  * through a given introducer (circuit → direct). Mechanism is `AmpPunchCoordinator`.
+ *
+ * The walk skips an introducer the reach record holds down (unless its link is up) and dials at
+ * most kReachMaxColdDialsPerRound introducers that are not connected (docs/PEER_REACH.md § 5).
  *
  * Threading: called from reach on the Amp IO strand; completions from the punch
  * coordinator. Deps and the signaling hook are set by the owner before traffic.

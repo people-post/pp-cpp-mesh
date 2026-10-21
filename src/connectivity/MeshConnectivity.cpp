@@ -1,5 +1,7 @@
 #include "mesh/connectivity/MeshConnectivity.h"
 
+#include "mesh/reach/PeerReachSelect.h"
+
 #include "mesh/reach/AmpCircuitHopReach.h"
 #include "mesh/reachability/punch/AmpPunchCoordinator.h"
 #include "mesh/reachability/Reachability.h"
@@ -94,7 +96,12 @@ void MeshConnectivity::SetDeps(MeshConnectivityDeps deps) {
   RunEdge([&]() {
     deps_ = std::move(deps);
     // The IO side (punch walk, rendezvous) reads the owner's policy snapshot, never the providers.
-    punch_.SetDeps({deps_.mesh, [this]() { return HopPolicy()->punch_introducers; }});
+    // What the record says about a peer, on the current network (rendezvous and punch read it).
+    auto reach_facts = [mesh = deps_.mesh, record = reach_record_](const std::string& peer_id) {
+      MeshHost* m = mesh ? mesh() : nullptr;
+      return record->Facts(peer_id, m ? m->NetworkChangeGeneration() : 0);
+    };
+    punch_.SetDeps({deps_.mesh, [this]() { return HopPolicy()->punch_introducers; }, reach_facts});
     CircuitRendezvousDeps rendezvous;
     rendezvous.mesh = deps_.mesh;
     rendezvous.rendezvous_candidates = [this]() { return HopPolicy()->rendezvous_candidates; };
@@ -103,10 +110,7 @@ void MeshConnectivity::SetDeps(MeshConnectivityDeps deps) {
       ICircuitHopReach* reach = CircuitReach();
       return reach ? reach->LastGoodRelayPeerKey() : std::string();
     };
-    rendezvous.reach_facts = [mesh = deps_.mesh, record = reach_record_](const std::string& peer_id) {
-      MeshHost* m = mesh ? mesh() : nullptr;
-      return record->Facts(peer_id, m ? m->NetworkChangeGeneration() : 0);
-    };
+    rendezvous.reach_facts = reach_facts;
     rendezvous_.SetDeps(std::move(rendezvous));
   });
 }
@@ -155,6 +159,23 @@ void MeshConnectivity::Wire() {
 uint64_t MeshConnectivity::NetworkGeneration() const {
   MeshHost* m = mesh();
   return m ? m->NetworkChangeGeneration() : 0;
+}
+
+PeerReachFacts MeshConnectivity::ReachFacts(const std::string& peer_id) const {
+  return reach_record_->Facts(peer_id, NetworkGeneration());
+}
+
+std::vector<std::string> MeshConnectivity::ChoosePeers(const std::vector<std::string>& candidates,
+                                                       const size_t max) const {
+  MeshHost* m = mesh();
+  auto chat = m ? m->ChatDeps() : std::nullopt;
+  const uint64_t gen = NetworkGeneration();
+  std::vector<ReachCandidate> view;
+  view.reserve(candidates.size());
+  for (const std::string& id : candidates) {
+    view.push_back({id, chat && chat->links.IsConnected(id), reach_record_->Facts(id, gen)});
+  }
+  return ChooseForJob(view, PeerReachRecord::NowMs(), max);
 }
 
 void MeshConnectivity::WireReachRecord(MeshHost* m) {
