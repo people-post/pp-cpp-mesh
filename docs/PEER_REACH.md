@@ -177,12 +177,21 @@ Rules built on it:
 - **No dedicated periodic check.** The directory refresh supplies the regular signal. One round
   runs after mesh start and after a network change **only if** no outcome is recent; none while
   the app is backgrounded (mobile).
-- **The park:** reserve / wait on the selected set, not the whole surface; "all Connected" means
-  "all selected". When every rendezvous candidate is Down, the park answers **not parked at once**
-  (calls stop waiting for a seed that is known gone).
+- **The park:** reserve on the selected set (every Connected relay, then the cold walk), and
+  settle once enough are Connected — the target, or every relay not held down (and dialable)
+  when there are fewer; ≥1 after a short grace or at the deadline, as before. When none is left
+  (every rendezvous candidate held down), the park answers **not parked at once** (calls stop
+  waiting for a seed that is known gone). A miss is redialed within the park only when it may
+  pass (the record does not hold the peer down, or it refused — up but busy).
+- **Circuit dial:** the relays circuit reach may bridge through leave out those held down
+  (unless Connected) — a StartBridge through one would only time out.
 - **PeerReach:** the park before a private dial uses the selection; with every rendezvous peer
-  Down it is skipped (nothing to protect). A same-LAN private Preferred (one of our /24s) is
-  dialed without the park — the dual-NAT case the park guards (fd4e3de) cannot arise there.
+  Down it answers at once and the private dial goes ahead. A same-LAN private Preferred (on one
+  of our listen addresses' /24s, `PeerReachPorts::local_listen_addrs`) is dialed first, without
+  the park — the dual-NAT case the park guards (fd4e3de) cannot arise there. Two homes on the
+  same 192.168.1.0/24 look alike, so that dial gets 1.5 s (a LAN handshake takes milliseconds);
+  without an answer it is abandoned and the reach parks as before. Reach only: the awaiting side
+  keeps its seed link untouched.
 - **Introducers / directory / DHT query peers / probe:** the same selection with their role.
 
 ## 6. Where the DHT fits
@@ -198,8 +207,8 @@ Rules built on it:
 
 ## 7. Build order
 
-Status: 1 and 2 done (pp-cpp-amp `feat/dial-failed-event`, pp-cpp-mesh
-`fix/seed-park-settles-on-connect`, local).
+Status: 1–3 done (pp-cpp-amp `feat/dial-failed-event`, pp-cpp-mesh
+`fix/seed-park-settles-on-connect`, local; the pp-browser side fills `PeerReachPorts::local_listen_addrs`).
 
 Each step ships on its own (unit tests + the pp-browser labs):
 
@@ -217,9 +226,12 @@ Each step ships on its own (unit tests + the pp-browser labs):
 ## 8. Open
 
 - **A seed that dies while its link still looks Connected** (§1.4): the park trusts a stale link.
-  Options: treat a refused circuit on a just-used seed as Down and fall back to the private dial;
-  or shorten the liveness window for seed links during a park. Needs its own look before step 3
-  lands.
+  Step 3 covers a same-LAN pair (the LAN dial runs before the park) and every call after Amp
+  drops the link (the record holds the seed down). Left open: a pair that is not on one LAN,
+  inside the liveness window. Dialing the held-back private Preferred after the circuit misses was
+  considered and left out — the peer's own circuit toward us still needs our seed link intact
+  (39412f), and a private dial across two NATs rarely lands. A shorter liveness window for seed
+  links during a park is the remaining option.
 - **Persisting Down marks** across restarts: not now (§4.1); revisit if cold starts stay slow.
 - **Targets per role** (§3.1) are first guesses; the labs will tell.
 

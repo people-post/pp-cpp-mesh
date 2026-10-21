@@ -81,6 +81,11 @@ struct PeerReachPorts {
   IDialRegistry* dial = nullptr;
   ICircuitHopReach* circuit = nullptr;
   std::shared_ptr<pp::SerialExecutor> lane;
+  /**
+   * This node's listen multiaddrs, read on the lane. A peer whose private Preferred sits on one of
+   * their /24s is dialed once, briefly, before the seed park (docs/PEER_REACH.md § 5). None: never.
+   */
+  std::function<std::vector<std::string>()> local_listen_addrs;
 };
 
 /**
@@ -174,6 +179,8 @@ private:
   void Finish(const AttemptPtr& a, Roe<PeerReachResult> result);
   bool TrySettleConnected(const AttemptPtr& a);
   bool MaybeParkBeforePrivateDial(const AttemptPtr& a);
+  bool MaybeDialOnOurLan(const AttemptPtr& a);
+  void OnLanDialDone(const AttemptPtr& a, bool ok, bool connected_now, bool direct_now);
   bool MaybeStartAssociation(const AttemptPtr& a);
   void OnAssociationDone(const AttemptPtr& a, Roe<void> assoc, bool connected_now, bool direct_now);
   bool MaybeStartCircuit(const AttemptPtr& a);
@@ -186,12 +193,15 @@ private:
   bool AnyCircuitHop(const Attempt& a) const;
   bool AnyConnectedRelayed(const Attempt& a) const;
   bool PreferredIsPublic(const Attempt& a) const;
+  /** The private IPv4 Preferred shares a /24 with one of this node's listen addrs. */
+  bool PreferredOnOurLan(const Attempt& a) const;
   void ClearBackoff(const Attempt& a);
 
   std::atomic<IDialRegistry*> dial_{nullptr};
   std::atomic<ICircuitHopReach*> circuit_{nullptr};
   mutable std::mutex mu_;  // a leaf: never held while posting or calling out
   std::shared_ptr<pp::SerialExecutor> lane_;  // mu_
+  std::function<std::vector<std::string>()> local_listen_addrs_;  // mu_
   SeedParkAwait seed_park_;
   int64_t dial_budget_ms_;
   PeerReachId next_id_ = 1;

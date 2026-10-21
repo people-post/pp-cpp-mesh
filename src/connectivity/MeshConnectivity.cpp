@@ -103,6 +103,10 @@ void MeshConnectivity::SetDeps(MeshConnectivityDeps deps) {
       ICircuitHopReach* reach = CircuitReach();
       return reach ? reach->LastGoodRelayPeerKey() : std::string();
     };
+    rendezvous.reach_facts = [mesh = deps_.mesh, record = reach_record_](const std::string& peer_id) {
+      MeshHost* m = mesh ? mesh() : nullptr;
+      return record->Facts(peer_id, m ? m->NetworkChangeGeneration() : 0);
+    };
     rendezvous_.SetDeps(std::move(rendezvous));
   });
 }

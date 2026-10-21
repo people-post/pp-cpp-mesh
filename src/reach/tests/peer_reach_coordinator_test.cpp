@@ -13,6 +13,7 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace pp::mesh {
 namespace {
@@ -46,6 +47,10 @@ public:
     bool ok = false;
     {
       std::lock_guard lock(mu);
+      if (ensure_hangs) {
+        held = std::move(on_done);  // no answer: it answers when aborted
+        return;
+      }
       ok = ensure_connects;
       if (ok) {
         connected.insert(peer_key);
@@ -66,7 +71,17 @@ public:
     return std::nullopt;
   }
   void ClearDialBackoff(const std::string& /*peer_key*/) override { clear_backoff_calls.fetch_add(1); }
-  void AbortInflightDial(const std::string& /*peer_key*/) override { abort_calls.fetch_add(1); }
+  void AbortInflightDial(const std::string& /*peer_key*/) override {
+    abort_calls.fetch_add(1);
+    std::function<void(Roe<void>)> aborted;
+    {
+      std::lock_guard lock(mu);
+      aborted = std::move(held);
+    }
+    if (aborted) {
+      aborted(Error("amp link: dial aborted"));
+    }
+  }
   void DropLink(const std::string& peer_key) override {
     drop_calls.fetch_add(1);
     std::lock_guard lock(mu);
@@ -98,6 +113,9 @@ public:
   std::unordered_set<std::string> carrier_only;
   std::unordered_set<std::string> circuit_hops;
   bool ensure_connects = false;
+  /** Dials get no answer until aborted. */
+  bool ensure_hangs = false;
+  std::function<void(Roe<void>)> held;
   std::atomic<int> ensure_calls{0};
   std::atomic<int> clear_backoff_calls{0};
   std::atomic<int> drop_calls{0};
@@ -323,6 +341,72 @@ TEST_F(PeerReachCoordinatorTest, APeerConnectingDuringTheSeedParkSettlesTheReach
       late(false);  // the park gives up afterwards: harmless
     }
   }
+}
+
+// A peer whose private Preferred is on our /24 is dialed before the seed park: no seed needed,
+// and a gone seed no longer holds the dial for the whole park.
+TEST_F(PeerReachCoordinatorTest, ReachDialsASameLanPeerBeforeTheSeedPark) {
+  std::atomic<int> parks{0};
+  reach_->SetSeedParkAwait([&parks](std::function<void(bool)> /*done*/, int /*timeout_ms*/) {
+    parks.fetch_add(1);  // a park that never answers (the seed is gone)
+  });
+  reach_->SetDeps(PeerReachPorts{dial_.get(), circuit_.get(), lane_, [] {
+                                   return std::vector<std::string>{"/ip4/10.0.0.9/udp/5/adp/1.0.0/p2p/12D3KooWSelf"};
+                                 }});
+  reach_->SetDialBudgetMsForTest(10000);
+  dial_->endpoints[kPeer] = kPrivateMa;
+  dial_->ensure_connects = true;
+  auto out = Run(Request());
+  ASSERT_TRUE(WaitDone(out, std::chrono::seconds(1))) << "waiting on the seed park";
+  ASSERT_TRUE(*out->result) << out->result->error().message;
+  EXPECT_EQ((*out->result)->kind, PeerLinkKind::Direct);
+  EXPECT_EQ(parks.load(), 0);
+  EXPECT_EQ(dial_->ensure_calls.load(), 1);
+}
+
+// Two homes on the same private /24: the "LAN" dial gets no answer — abandoned after a moment,
+// then the reach parks and goes on as before.
+TEST_F(PeerReachCoordinatorTest, ASameLanDialWithNoAnswerIsAbandonedForThePark) {
+  std::atomic<int> parks{0};
+  std::atomic<int> dials_when_parked{-1};
+  reach_->SetSeedParkAwait([&](std::function<void(bool)> done, int /*timeout_ms*/) {
+    if (parks.fetch_add(1) == 0) {
+      dials_when_parked.store(dial_->ensure_calls.load());
+    }
+    done(true);
+  });
+  reach_->SetDeps(PeerReachPorts{dial_.get(), circuit_.get(), lane_, [] {
+                                   return std::vector<std::string>{"/ip4/10.0.0.9/udp/5/adp/1.0.0/p2p/12D3KooWSelf"};
+                                 }});
+  reach_->SetDialBudgetMsForTest(10000);
+  dial_->endpoints[kPeer] = kPrivateMa;
+  dial_->ensure_hangs = true;
+  auto out = Run(Request());
+  ASSERT_TRUE(WaitDone(out, std::chrono::seconds(5)));
+  ASSERT_TRUE(*out->result) << out->result->error().message;
+  EXPECT_EQ((*out->result)->kind, PeerLinkKind::Relayed) << "parked, then the circuit";
+  EXPECT_EQ(dials_when_parked.load(), 1) << "the LAN dial, abandoned before the park";
+  EXPECT_GE(dial_->abort_calls.load(), 1);
+  EXPECT_EQ(dial_->ensure_calls.load(), 1) << "after the park, the private Preferred is skipped";
+}
+
+// A private Preferred on another subnet parks first, as before.
+TEST_F(PeerReachCoordinatorTest, APrivatePeerOffOurSubnetParksFirst) {
+  std::atomic<int> parks{0};
+  reach_->SetSeedParkAwait([&parks](std::function<void(bool)> done, int /*timeout_ms*/) {
+    parks.fetch_add(1);
+    done(true);
+  });
+  reach_->SetDeps(PeerReachPorts{dial_.get(), circuit_.get(), lane_, [] {
+                                   return std::vector<std::string>{"/ip4/10.0.1.9/udp/5/adp/1.0.0/p2p/12D3KooWSelf"};
+                                 }});
+  dial_->endpoints[kPeer] = kPrivateMa;
+  dial_->ensure_connects = true;
+  auto out = Run(Request());
+  ASSERT_TRUE(WaitDone(out, std::chrono::seconds(5)));
+  ASSERT_TRUE(*out->result) << out->result->error().message;
+  EXPECT_GE(parks.load(), 1);
+  EXPECT_EQ(dial_->ensure_calls.load(), 0) << "parked: the private Preferred is skipped";
 }
 
 // The same while the park before the circuit runs (the private dial missed): nothing is bridging yet.

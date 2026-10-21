@@ -4,6 +4,7 @@
 #include "common/Module.h"
 #include "mesh/types/MeshHopTypes.h"
 #include "mesh/host/MeshHost.h"
+#include "mesh/reach/PeerReachRecord.h"
 #include "common/Lifetime.h"
 
 #include <cstddef>
@@ -22,6 +23,8 @@ struct CircuitRendezvousDeps {
   std::function<std::vector<MeshHopCandidate>()> bootstrap_seeds;
   /** Circuit reach's last good relay — the sticky R1 when none was chosen / announced. */
   std::function<std::string()> last_good_relay;
+  /** What the reach record says about a peer on the current network (none: every peer Unknown). */
+  std::function<PeerReachFacts(const std::string& peer_id)> reach_facts;
 };
 
 /**
@@ -30,6 +33,11 @@ struct CircuitRendezvousDeps {
  * - **park side**: make this node ServeDial-reachable through them — warm seeds, StartReserve over
  *   the surface (connected first, then a bounded serial cold walk), late-reserve a chosen R1, await
  *   a seed park (H010), and re-park when a surface peer reconnects after a path change (B27).
+ *
+ * Both sides choose from the reach record (docs/PEER_REACH.md § 5): a relay it holds down is not
+ * dialed, the cold walk stops at kRendezvousLiveTarget live relays and spends at most
+ * kReachMaxColdDialsPerRound dials, and a park waits for that many — answering at once when every
+ * relay is held down.
  *
  * Threading: entry points on any thread; association / reserve work, park checks and their timers
  * (Amp's clock) run on the mesh's io lane; callbacks capturing `this` are dropped after
@@ -54,7 +62,11 @@ public:
   void ReserveOnBootstrapSeeds();
   /** StartReserve a specific R1 (chosen / announced by the peer); no-op when empty. */
   void PreferLateReserve(const std::string& relay_peer_id);
-  /** Reserve, then on_done(true) once seeds are Connected, or false at timeout (H010). */
+  /**
+   * Reserve, then on_done(true) once enough rendezvous relays are Connected (the target, or every
+   * one not held down when fewer), false at timeout or at once when the record holds every one down
+   * (H010).
+   */
   void EnsureBootstrapSeedParkedAsync(std::function<void(bool parked)> on_done, int timeout_ms = 12000);
 
   /** B27: arm re-park on reconnect for the running mesh (after the owner wires it). */
@@ -70,17 +82,24 @@ private:
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }
   void PostIoOrRun(std::function<void()> task) const;
   std::vector<MeshHopCandidate> RendezvousCandidates(const std::string& exclude_peer_id = {}) const;
-  std::vector<std::string> BootstrapSeedPeerIds() const;
-  bool AnyBootstrapSeedConnectedOnIo() const;
-  bool AllBootstrapSeedsConnectedOnIo() const;
+  PeerReachFacts Facts(const std::string& peer_id) const;
+  /** The relay this node parks on first: the chosen / announced R1, else circuit reach's last good one. */
+  std::string StickyRelay() const;
+  /** Rendezvous relays Connected (carrier-only ones never count) and not held down, on the io lane. */
+  struct ParkCount {
+    size_t usable = 0;
+    size_t connected = 0;
+    int dials_in_flight = 0;
+  };
+  ParkCount CountParkOnIo() const;
 
   void WarmBootstrapSeedSessionsOnIo();
   void ReserveOnBootstrapSeedsOnIo();
   /** Rendezvous surface registered and ordered for parking (sticky R1 / connected first). */
   std::vector<MeshHopCandidate> OrderedParkSurface(IChatPeerLinks& links);
   void StartReserveOnRelay(const std::string& relay, const char* label);
-  void ReserveColdSurface(const std::shared_ptr<ColdPark>& park, size_t index, size_t cold_started);
-  /** A dial to `hop` missed: when it is a seed a park waits on, dial it again (or fail the park). */
+  void ReserveColdSurface(const std::shared_ptr<ColdPark>& park, size_t index);
+  /** A dial to `hop` missed: when a park waits on it, dial it again if the miss may pass (or fail the park). */
   void OnSeedDialMissed(IChatPeerLinks& links, const MeshHopCandidate& hop);
   std::vector<std::shared_ptr<SeedPark>> WaitingParks();
   void PreferLateReserveOnIo(const std::string& relay_peer_id);
