@@ -99,11 +99,13 @@ struct PunchServer::Impl {
   }
 
   void FailSession(const std::shared_ptr<pp::amp::ChannelSession>& session, const std::string& epoch_id,
-                   const std::string& error) {
-    AmpPunchLog().warning << "punch introduce failed epoch=" << epoch_id << " error=" << error;
+                   const PunchRefusal refusal, const std::string& error) {
+    AmpPunchLog().warning << "punch introduce failed epoch=" << epoch_id << " code=" << PunchRefusalWire(refusal)
+                          << " error=" << error;
     PunchResult result;
     result.epoch_id = epoch_id;
     result.ok = false;
+    result.refusal = refusal;
     result.error = error;
     (void)session->EnqueueOutbound(JsonToBody(EncodePunchResult(result)));
     PostDeferred([session]() {
@@ -148,12 +150,12 @@ struct PunchServer::Impl {
     sync_to_target.window_ms = window_ms;
 
     if (!initiator_session->EnqueueOutbound(JsonToBody(EncodePunchSync(sync_to_initiator)))) {
-      FailSession(initiator_session, epoch_id, "punch: failed to send sync to initiator");
+      FailSession(initiator_session, epoch_id, PunchRefusal::SendFailed, "punch: failed to send sync to initiator");
       return;
     }
     if (target_session && !target_session->IsClosed()) {
       if (!target_session->EnqueueOutbound(JsonToBody(EncodePunchSync(sync_to_target)))) {
-        FailSession(initiator_session, epoch_id, "punch: failed to send sync to target");
+        FailSession(initiator_session, epoch_id, PunchRefusal::SendFailed, "punch: failed to send sync to target");
         return;
       }
     }
@@ -175,7 +177,8 @@ struct PunchServer::Impl {
 
     const std::string target_key = ResolvePeerKey(Links(), req.target_peer_id);
     if (target_key.empty()) {
-      FailSession(initiator_session, epoch_id, "punch: target endpoint unknown to introducer");
+      FailSession(initiator_session, epoch_id, PunchRefusal::TargetUnknown,
+                  "punch: target endpoint unknown to introducer");
       return;
     }
 
@@ -196,12 +199,19 @@ struct PunchServer::Impl {
             }
             if (!value) {
               target_session->Close();
-              FailSession(initiator_session, epoch_id, value.error().message);
+              // The target leg's failure, as the initiator's refusal: it declined us, or this
+              // introducer could not get to it (the initiator then asks another).
+              const PunchErr leg = value.error().GetCode();
+              FailSession(initiator_session, epoch_id,
+                          leg == PunchErr::Declined                                     ? PunchRefusal::Declined
+                          : leg == PunchErr::ProtocolError || leg == PunchErr::Generic ? PunchRefusal::Generic
+                                                                                        : PunchRefusal::TargetUnknown,
+                          value.error().message);
               return;
             }
             if (SanitizePunchAddrs(value->addrs).empty()) {
               target_session->Close();
-              FailSession(initiator_session, epoch_id, "punch: target returned no candidates");
+              FailSession(initiator_session, epoch_id, PunchRefusal::NoCandidates, "punch: target returned no candidates");
               return;
             }
             SendSyncPair(initiator_session, target_session, initiator_peer_id, epoch_id, window_ms, req, *value);
@@ -258,6 +268,12 @@ struct PunchServer::Impl {
                             if (!root) {
                               finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
                                   PunchFailure::Of(PunchErr::ProtocolError, "punch: invalid target candidates json")));
+                              return false;
+                            }
+                            if (auto refused = DecodePunchResult(*root); refused && !refused->ok) {
+                              finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(PunchFailure::Of(
+                                  refused->refusal == PunchRefusal::Declined ? PunchErr::Declined : PunchErr::PunchFailed,
+                                  detail::AppendFrom("punch: target refused", "target", refused->error))));
                               return false;
                             }
                             auto decoded = DecodePunchCandidates(*root);
@@ -317,6 +333,7 @@ struct PunchServer::Impl {
       result.epoch_id = sync.epoch_id;
       result.ok = burst.ok;
       result.winner_multiaddr = burst.dialed;
+      result.refusal = burst.ok ? PunchRefusal::Ok : PunchRefusal::NoPath;
       result.error = burst.ok ? "" : burst.error;
       (void)session->EnqueueOutbound(JsonToBody(EncodePunchResult(result)));
       PostDeferred([session]() {
@@ -352,7 +369,7 @@ struct PunchServer::Impl {
     if (op == "connect" && *phase == "await_first") {
       auto req = DecodePunchConnect(*root);
       if (!req) {
-        FailSession(session, "", "punch: invalid connect");
+        FailSession(session, "", PunchRefusal::BadRequest, "punch: invalid connect");
         return;
       }
       *phase = "introducing";
@@ -363,7 +380,7 @@ struct PunchServer::Impl {
     if (op == "offer" && *phase == "await_first") {
       auto offer = DecodePunchOffer(*root);
       if (!offer) {
-        FailSession(session, "", "punch: invalid offer");
+        FailSession(session, "", PunchRefusal::BadRequest, "punch: invalid offer");
         return;
       }
       if (!AllowsDirect(disclosure.load(std::memory_order_acquire), offer->initiator_peer_id)) {
@@ -371,7 +388,7 @@ struct PunchServer::Impl {
         AmpPunchLog().info << "punch target declined epoch=" << offer->epoch_id
                            << " (initiator outside the direct-connections audience)";
         CountServed("target_declined");
-        FailSession(session, offer->epoch_id, "punch: target declines this initiator");
+        FailSession(session, offer->epoch_id, PunchRefusal::Declined, "punch: target declines this initiator");
         return;
       }
       *phase = "await_sync";
@@ -382,7 +399,7 @@ struct PunchServer::Impl {
       reply.addrs = local_addrs ? SanitizePunchAddrs(*local_addrs) : std::vector<std::string>{};
       reply.nonce = offer->epoch_id;
       if (!session->EnqueueOutbound(JsonToBody(EncodePunchCandidates(reply)))) {
-        FailSession(session, offer->epoch_id, "punch: failed to send candidates");
+        FailSession(session, offer->epoch_id, PunchRefusal::SendFailed, "punch: failed to send candidates");
         return;
       }
       return;
@@ -390,7 +407,7 @@ struct PunchServer::Impl {
     if (op == "sync" && *phase == "await_sync") {
       auto sync = DecodePunchSync(*root);
       if (!sync) {
-        FailSession(session, "", "punch: invalid sync");
+        FailSession(session, "", PunchRefusal::BadRequest, "punch: invalid sync");
         return;
       }
       *phase = "bursting";

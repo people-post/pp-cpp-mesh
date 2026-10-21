@@ -4,7 +4,9 @@
 #include "common/metrics/MetricsRegistry.h"
 #include "mesh/l4/circuit/CircuitBundleLogic.h"
 #include "mesh/l4/circuit/CircuitChannelPolicy.h"
+#include "mesh/l4/circuit/CircuitRelayTypes.h"
 #include "mesh/l4/circuit/CircuitServeDialPolicy.h"
+#include "common/CodedFailure.h"
 
 #include "amp/L3/ChannelBridge.h"
 #include "amp/L3/ChannelSession.h"
@@ -43,10 +45,14 @@ std::string BodyToJson(const std::vector<uint8_t>& body) {
   return std::string(body.begin(), body.end());
 }
 
-std::vector<uint8_t> ErrorBody(const std::string& message) {
+/** A refusal: its code for the dialer's logic, its text for logs (docs/ERRORS.md). */
+std::vector<uint8_t> ErrorBody(const CircuitRefusal refusal, const std::string& message) {
   common::Object err;
   err.set("v", int64_t{1});
   err.set("ok", false);
+  if (const char* code = CircuitRefusalWire(refusal); *code != '\0') {
+    err.set("code", std::string(code));
+  }
   err.set("error", message);
   return JsonToBody(common::DumpJson(err));
 }
@@ -56,24 +62,25 @@ std::vector<uint8_t> ErrorBody(const std::string& message) {
  * dial key that was not known before — the bridge owns it and forgets it when the tunnel ends
  * (the target peer id is dialer-supplied: one key per id ever requested, otherwise).
  */
-Roe<std::pair<std::string, std::string>> NormalizeAmpCircuitTarget(pp::amp::PeerLinkManager& links,
-                                                                   const CircuitBridgeTarget& target,
-                                                                   std::string& registered_key) {
+using RefusalFailure = CodedFailure<CircuitRefusal>;
+
+CodedRoe<std::pair<std::string, std::string>, CircuitRefusal> NormalizeAmpCircuitTarget(
+    pp::amp::PeerLinkManager& links, const CircuitBridgeTarget& target, std::string& registered_key) {
   if (target.target_multiaddr.empty() && target.target_peer_id.empty()) {
-    return Error("missing circuit bridge target");
+    return RefusalFailure::Of(CircuitRefusal::BadRequest, "missing circuit bridge target");
   }
   if (!target.target_multiaddr.empty()) {
     auto parsed = pp::amp::ParseAdpMultiaddr(target.target_multiaddr);
     if (!parsed) {
-      return parsed.error();
+      return RefusalFailure::Of(CircuitRefusal::BadRequest, parsed.error().message);
     }
     const std::string peer_id = !target.target_peer_id.empty() ? target.target_peer_id : parsed->peer_id;
     if (peer_id.empty()) {
-      return Error("circuit target multiaddr missing peer id");
+      return RefusalFailure::Of(CircuitRefusal::BadRequest, "circuit target multiaddr missing peer id");
     }
     const bool known = links.GetLinkSnapshot(peer_id).has_endpoint;
     if (auto registered = links.RegisterEndpoint(peer_id, target.target_multiaddr); !registered) {
-      return registered.error();
+      return RefusalFailure::Of(CircuitRefusal::BadRequest, registered.error().message);
     }
     if (!known) {
       registered_key = peer_id;
@@ -84,7 +91,7 @@ Roe<std::pair<std::string, std::string>> NormalizeAmpCircuitTarget(pp::amp::Peer
   if (CircuitPeerIdOnlyHasLiveFarLeg(links.CountConnectedLinksForPeerId(target.target_peer_id))) {
     return std::make_pair(target.target_peer_id, std::string{});
   }
-  return Error(std::string(kCircuitTargetPeerNotRegistered));
+  return RefusalFailure::Of(CircuitRefusal::TargetNotReserved, std::string(kCircuitTargetPeerNotRegistered));
 }
 
 int64_t SteadyMs(const Clock::time_point t) {
@@ -338,9 +345,9 @@ struct CircuitRelayServer::Impl {
   }
 
   /** Requires `mu`. The dialer hears why (never an opaque timeout), then the tunnel goes. */
-  void FailNear(Tunnel& tunnel, const std::string& message) {
+  void FailNear(Tunnel& tunnel, const CircuitRefusal refusal, const std::string& message) {
     if (tunnel.near_session) {
-      tunnel.near_session->EnqueueOutbound(ErrorBody(message));
+      tunnel.near_session->EnqueueOutbound(ErrorBody(refusal, message));
     }
     TearDown(tunnel, false, message);
   }
@@ -428,7 +435,7 @@ struct CircuitRelayServer::Impl {
     for (const auto id : far_wait_expired) {
       std::lock_guard lock(mu);
       if (auto* tunnel = Find(id); tunnel && !tunnel->finished && tunnel->phase == CircuitTunnelPhase::ServeDial) {
-        FailNear(*tunnel, std::string(kCircuitTargetPeerNotRegistered));
+        FailNear(*tunnel, CircuitRefusal::TargetNotReserved, std::string(kCircuitTargetPeerNotRegistered));
       }
     }
     for (const auto id : timed_out) {
@@ -439,11 +446,13 @@ struct CircuitRelayServer::Impl {
         const bool serve_dial = tunnel->phase == CircuitTunnelPhase::ServeDial;
         const bool far_wait = serve_dial && tunnel->serve_far_wait_deadline_ms != 0;
         const bool peer_id_only = tunnel->target.target_multiaddr.empty() && !tunnel->target.target_peer_id.empty();
-        const std::string err_msg = far_wait || (serve_dial && peer_id_only)
+        const bool not_reserved = far_wait || (serve_dial && peer_id_only);
+        const std::string err_msg = not_reserved
                                         ? std::string(kCircuitTargetPeerNotRegistered)
                                         : (serve_dial ? "relay target stream timed out" : "circuit-relay bridge timed out");
         if (serve_dial) {
-          FailNear(*tunnel, err_msg);
+          FailNear(*tunnel, not_reserved ? CircuitRefusal::TargetNotReserved : CircuitRefusal::TargetUnreachable,
+                   err_msg);
         } else {
           TearDown(*tunnel, false, err_msg);
         }
@@ -517,7 +526,7 @@ struct CircuitRelayServer::Impl {
         return;
       }
       if (!channel) {
-        FailNear(*tunnel, channel.error().message);
+        FailNear(*tunnel, CircuitRefusal::TargetUnreachable, channel.error().message);
         return;
       }
       if (!runtime->Links().FindLink(dial_key)) {
@@ -533,7 +542,7 @@ struct CircuitRelayServer::Impl {
         return;
       }
       if (!open) {
-        FailNear(*tunnel, "relay target stream timed out");
+        FailNear(*tunnel, CircuitRefusal::TargetUnreachable, "relay target stream timed out");
         return;
       }
       auto* link = runtime->Links().FindLink(dial_key);
@@ -570,7 +579,7 @@ struct CircuitRelayServer::Impl {
       return false;
     }
     if (tunnel.serve_far_wait_deadline_ms != 0 && SteadyMs(Clock::now()) >= tunnel.serve_far_wait_deadline_ms) {
-      FailNear(tunnel, std::string(kCircuitTargetPeerNotRegistered));
+      FailNear(tunnel, CircuitRefusal::TargetNotReserved, std::string(kCircuitTargetPeerNotRegistered));
       return true;
     }
     ArmFarLegWait(tunnel);
@@ -586,12 +595,15 @@ struct CircuitRelayServer::Impl {
     tunnel.phase = CircuitTunnelPhase::ServeDial;
     const auto decision = AdmitBridge(tunnel);
     if (decision == CircuitAdmitDecision::RefuseStranger) {
-      FailNear(tunnel, "relay scope: stranger refused");
+      FailNear(tunnel, CircuitRefusal::Refused, "relay scope: stranger refused");
       return;
     }
     if (decision != CircuitAdmitDecision::Allow) {
-      FailNear(tunnel, decision == CircuitAdmitDecision::RefuseBadOp ? "unsupported op"
-                                                                     : "circuit-relay service not ready");
+      if (decision == CircuitAdmitDecision::RefuseBadOp) {
+        FailNear(tunnel, CircuitRefusal::BadRequest, "unsupported op");
+      } else {
+        FailNear(tunnel, CircuitRefusal::NotReady, "circuit-relay service not ready");
+      }
       return;
     }
 
@@ -624,7 +636,7 @@ struct CircuitRelayServer::Impl {
 
     auto normalized = NormalizeAmpCircuitTarget(runtime->Links(), tunnel.target, tunnel.registered_target_key);
     if (!normalized) {
-      FailNear(tunnel, normalized.error().message);
+      FailNear(tunnel, normalized.error().GetCode(), normalized.error().message);
       return;
     }
     tunnel.resolved_multiaddr = normalized->second;
@@ -638,7 +650,7 @@ struct CircuitRelayServer::Impl {
     if (CircuitServeDialOpenOnLiveLink(normalized->second.empty())) {
       auto* live = runtime->Links().FindLinkByPeerId(target_key);
       if (!live || live->Phase() != pp::amp::PeerLinkPhase::Connected || !live->Mux()) {
-        FailNear(tunnel, std::string(kCircuitTargetPeerNotRegistered));
+        FailNear(tunnel, CircuitRefusal::TargetNotReserved, std::string(kCircuitTargetPeerNotRegistered));
         return;
       }
       const std::string dial_key = live->PeerKey();
@@ -659,7 +671,7 @@ struct CircuitRelayServer::Impl {
               return;
             }
             if (!assoc) {
-              FailNear(*tunnel, assoc.error().message);
+              FailNear(*tunnel, CircuitRefusal::TargetUnreachable, assoc.error().message);
               return;
             }
           }
@@ -688,8 +700,8 @@ struct CircuitRelayServer::Impl {
       CountStandbyLocked(remote, admit);
     }
     const auto decision = DecideCircuitAdmit(admit);
-    auto refuse = [&](const std::string& message) {
-      near_session->EnqueueOutbound(ErrorBody(message));
+    auto refuse = [&](const CircuitRefusal refusal, const std::string& message) {
+      near_session->EnqueueOutbound(ErrorBody(refusal, message));
       near_session->Close();
     };
     if (decision == CircuitAdmitDecision::RefuseStandbyFull) {
@@ -697,14 +709,18 @@ struct CircuitRelayServer::Impl {
       CircuitTunnelLog().info << "circuit standby refused dialer=" << remote
                               << " priority=" << CircuitStandbyPriorityWire(admit.standby_priority)
                               << " standby=" << admit.standby_total;
-      refuse("relay busy: standby refused");
+      refuse(CircuitRefusal::Busy, "relay busy: standby refused");
       return;
     }
     if (decision != CircuitAdmitDecision::Allow) {
       (op == "reserve" ? metrics.reserve_refused : metrics.bridge_refused_admission).Inc();
-      refuse(decision == CircuitAdmitDecision::RefuseStranger
-                 ? "relay scope: stranger refused"
-                 : (decision == CircuitAdmitDecision::RefuseBadOp ? "unsupported op" : "circuit-relay service not ready"));
+      if (decision == CircuitAdmitDecision::RefuseStranger) {
+        refuse(CircuitRefusal::Refused, "relay scope: stranger refused");
+      } else if (decision == CircuitAdmitDecision::RefuseBadOp) {
+        refuse(CircuitRefusal::BadRequest, "unsupported op");
+      } else {
+        refuse(CircuitRefusal::NotReady, "circuit-relay service not ready");
+      }
       return;
     }
     if (op == "reserve") {
@@ -751,7 +767,7 @@ struct CircuitRelayServer::Impl {
     if (remote.empty()) {
       metrics.reserve_refused.Inc();
       CircuitTunnelLog().warning << "circuit reserve refused: remote peer id unknown";
-      refuse("circuit reserve: remote peer id unknown");
+      refuse(CircuitRefusal::Refused, "circuit reserve: remote peer id unknown");
       return;
     }
     const int timeout_ms = static_cast<int>(root.getNonNegInt("timeout_ms").value_or(30000));
@@ -795,7 +811,7 @@ struct CircuitRelayServer::Impl {
                          }
                          auto root = common::TryParseObject(BodyToJson(*frame));
                          if (!root) {
-                           near_session->EnqueueOutbound(ErrorBody("invalid circuit-relay json"));
+                           near_session->EnqueueOutbound(ErrorBody(CircuitRefusal::BadRequest, "invalid circuit-relay json"));
                            return false;
                          }
                          PostIo([this, near_session, remote, root = *root]() { HandleRequest(near_session, remote, root); });

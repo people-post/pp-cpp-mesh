@@ -169,9 +169,9 @@ public:
   bool PeerLanConfirmed(const std::string& peer_id) const;
 
   // --- reach --------------------------------------------------------------------------------
-  Roe<void> TryEnsureCircuitHopReachable(const std::string& hop_peer_id);
-  Roe<void> TryEnsurePeerReachable(const std::string& peer_key);
-  void TryEnsurePeerReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done);
+  CircuitReachRoe TryEnsureCircuitHopReachable(const std::string& hop_peer_id);
+  CircuitReachRoe TryEnsurePeerReachable(const std::string& peer_key);
+  void TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done);
   /** Rendezvous relays: dial surface for reach, parking so this node is reachable (stable object). */
   CircuitRendezvousCoordinator& Rendezvous() { return rendezvous_; }
   /**

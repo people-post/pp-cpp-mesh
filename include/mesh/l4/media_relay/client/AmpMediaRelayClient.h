@@ -27,16 +27,16 @@ public:
   bool IsStarted() const override;
 
   void RequestQuoteAsync(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,
-                         std::function<void(Roe<MediaRelayQuote>)> on_done, int timeout_ms = 8000) override;
-  Roe<MediaRelayQuote> RequestQuote(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,
+                         std::function<void(MediaRelayRoe<MediaRelayQuote>)> on_done, int timeout_ms = 8000) override;
+  MediaRelayRoe<MediaRelayQuote> RequestQuote(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,
                                     int timeout_ms = 8000) override;
 
   void AcceptAndAttachAsync(const std::string& hop_peer_key, const std::string& quote_id,
                             const std::string& session_id, const std::string& auth_stub,
                             std::function<void(MediaDataFrame)> on_frame,
-                            std::function<void(Roe<MediaRelayAttachResult>)> on_done,
+                            std::function<void(MediaRelayRoe<MediaRelayAttachResult>)> on_done,
                             int timeout_ms = 8000) override;
-  Roe<MediaRelayAttachResult> AcceptAndAttach(const std::string& hop_peer_key, const std::string& quote_id,
+  MediaRelayRoe<MediaRelayAttachResult> AcceptAndAttach(const std::string& hop_peer_key, const std::string& quote_id,
                                               const std::string& session_id, const std::string& auth_stub,
                                               std::function<void(MediaDataFrame)> on_frame,
                                               int timeout_ms = 8000) override;
@@ -44,10 +44,10 @@ public:
   void StartClientFrameReader() override;
   uint64_t AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> observer) override;
   void RemoveClientTransportLostObserver(uint64_t token) override;
-  Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& session_id,
+  MediaRelayRoe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& session_id,
                                                std::function<void(MediaDataFrame)> on_frame) override;
-  Roe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) override;
-  Roe<void> SendFrame(const MediaDataFrame& frame) override;
+  MediaRelayRoe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) override;
+  MediaRelayRoe<void> SendFrame(const MediaDataFrame& frame) override;
   void Detach() override;
   bool IsAttached() const override;
   bool IsLocalHopAttached() const override;

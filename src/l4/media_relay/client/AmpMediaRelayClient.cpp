@@ -10,6 +10,12 @@ namespace pp::mesh {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+using Err = MediaRelayErr;
+using Failure = MediaRelayFailure;
+
+Failure TimedOut(const char* what, const std::string& hop_peer_key) {
+  return Failure::Of(Err::Timeout, std::string("media-relay ") + what + " timed out (hop=" + hop_peer_key + ")");
+}
 
 } // namespace
 
@@ -29,19 +35,19 @@ bool AmpMediaRelayClient::IsStarted() const { return coordinator_.IsStarted(); }
 
 void AmpMediaRelayClient::RequestQuoteAsync(const std::string& hop_peer_key,
                                             const MediaRelayQuoteRequest& request,
-                                            std::function<void(Roe<MediaRelayQuote>)> on_done,
+                                            std::function<void(MediaRelayRoe<MediaRelayQuote>)> on_done,
                                             const int timeout_ms) {
   if (!on_done) {
     return;
   }
   if (!IsStarted()) {
-    on_done(Error("media-relay not available"));
+    on_done(Failure::Of(Err::NotStarted, "media-relay not available"));
     return;
   }
 
   auto settled = std::make_shared<std::atomic<bool>>(false);
-  auto finish_once = std::make_shared<std::function<void(Roe<MediaRelayQuote>)>>();
-  *finish_once = [on_done = std::move(on_done), settled](Roe<MediaRelayQuote> value) {
+  auto finish_once = std::make_shared<std::function<void(MediaRelayRoe<MediaRelayQuote>)>>();
+  *finish_once = [on_done = std::move(on_done), settled](MediaRelayRoe<MediaRelayQuote> value) {
     if (settled->exchange(true, std::memory_order_acq_rel)) {
       return;
     }
@@ -52,46 +58,44 @@ void AmpMediaRelayClient::RequestQuoteAsync(const std::string& hop_peer_key,
   const auto deadline = Clock::now() + std::chrono::milliseconds(wait_ms);
   const auto id = coordinator_.StartQuote(
       hop_peer_key, request,
-      [finish_once](Roe<MediaRelayQuote> result) { (*finish_once)(std::move(result)); }, timeout_ms);
+      [finish_once](MediaRelayRoe<MediaRelayQuote> result) { (*finish_once)(std::move(result)); }, timeout_ms);
   if (!id) {
-    (*finish_once)(Error("media-relay quote not started"));
-    return;
+    return;  // refused: the coordinator posts why
   }
   AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline, [finish_once, hop_peer_key]() {
-    (*finish_once)(Error(std::string("media-relay quote timed out (hop=") + hop_peer_key + ")"));
+    (*finish_once)(TimedOut("quote", hop_peer_key));
   },
                           post_after_);
 }
 
-Roe<MediaRelayQuote> AmpMediaRelayClient::RequestQuote(const std::string& hop_peer_key,
+MediaRelayRoe<MediaRelayQuote> AmpMediaRelayClient::RequestQuote(const std::string& hop_peer_key,
                                                        const MediaRelayQuoteRequest& request,
                                                        const int timeout_ms) {
-  SettledWait<MediaRelayQuote> wait;
-  RequestQuoteAsync(hop_peer_key, request, [wait](Roe<MediaRelayQuote> result) { wait.Finish(std::move(result)); },
+  SettledWait<MediaRelayQuote, Failure> wait;
+  RequestQuoteAsync(hop_peer_key, request, [wait](MediaRelayRoe<MediaRelayQuote> result) { wait.Finish(std::move(result)); },
                     timeout_ms);
   const int wait_ms = (timeout_ms > 0 ? timeout_ms : 8000) + 2000;
   const auto deadline = Clock::now() + std::chrono::milliseconds(wait_ms);
   AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
-  return wait.Wait(std::chrono::milliseconds(1),
-                   Error(std::string("media-relay quote timed out (hop=") + hop_peer_key + ")"));
+  return wait.Wait(std::chrono::milliseconds(1), TimedOut("quote", hop_peer_key));
 }
 
 void AmpMediaRelayClient::AcceptAndAttachAsync(const std::string& hop_peer_key, const std::string& quote_id,
                                                const std::string& session_id, const std::string& auth_stub,
                                                std::function<void(MediaDataFrame)> on_frame,
-                                               std::function<void(Roe<MediaRelayAttachResult>)> on_done,
+                                               std::function<void(MediaRelayRoe<MediaRelayAttachResult>)> on_done,
                                                const int timeout_ms) {
   if (!on_done) {
     return;
   }
   if (!IsStarted()) {
-    on_done(Error("media-relay not available"));
+    on_done(Failure::Of(Err::NotStarted, "media-relay not available"));
     return;
   }
 
   auto settled = std::make_shared<std::atomic<bool>>(false);
-  auto finish_once = std::make_shared<std::function<void(Roe<MediaRelayAttachResult>)>>();
-  *finish_once = [on_done = std::move(on_done), settled](Roe<MediaRelayAttachResult> value) {
+  auto finish_once = std::make_shared<std::function<void(MediaRelayRoe<MediaRelayAttachResult>)>>();
+  *finish_once = [on_done = std::move(on_done), settled](MediaRelayRoe<MediaRelayAttachResult> value) {
     if (settled->exchange(true, std::memory_order_acq_rel)) {
       return;
     }
@@ -102,28 +106,26 @@ void AmpMediaRelayClient::AcceptAndAttachAsync(const std::string& hop_peer_key, 
   const auto deadline = Clock::now() + std::chrono::milliseconds(wait_ms);
   const auto id = coordinator_.StartAttach(
       hop_peer_key, quote_id, session_id, auth_stub, std::move(on_frame),
-      [finish_once](Roe<MediaRelayAttachResult> result) { (*finish_once)(std::move(result)); }, timeout_ms);
+      [finish_once](MediaRelayRoe<MediaRelayAttachResult> result) { (*finish_once)(std::move(result)); }, timeout_ms);
   if (!id) {
-    (*finish_once)(Error("media-relay attach not started"));
-    return;
+    return;  // refused: the coordinator posts why
   }
   AmpScheduleUntilSettled(post_io_, io_pump_, settled, deadline, [finish_once, hop_peer_key]() {
-    (*finish_once)(Error(std::string("media-relay attach timed out (hop=") + hop_peer_key + ")"));
+    (*finish_once)(TimedOut("attach", hop_peer_key));
   },
                           post_after_);
 }
 
-Roe<MediaRelayAttachResult> AmpMediaRelayClient::AcceptAndAttach(
+MediaRelayRoe<MediaRelayAttachResult> AmpMediaRelayClient::AcceptAndAttach(
     const std::string& hop_peer_key, const std::string& quote_id, const std::string& session_id,
     const std::string& auth_stub, std::function<void(MediaDataFrame)> on_frame, const int timeout_ms) {
-  SettledWait<MediaRelayAttachResult> wait;
+  SettledWait<MediaRelayAttachResult, Failure> wait;
   AcceptAndAttachAsync(hop_peer_key, quote_id, session_id, auth_stub, std::move(on_frame),
-                       [wait](Roe<MediaRelayAttachResult> result) { wait.Finish(std::move(result)); }, timeout_ms);
+                       [wait](MediaRelayRoe<MediaRelayAttachResult> result) { wait.Finish(std::move(result)); }, timeout_ms);
   const int wait_ms = (timeout_ms > 0 ? timeout_ms : 8000) + 2000;
   const auto deadline = Clock::now() + std::chrono::milliseconds(wait_ms);
   AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
-  return wait.Wait(std::chrono::milliseconds(1),
-                   Error(std::string("media-relay attach timed out (hop=") + hop_peer_key + ")"));
+  return wait.Wait(std::chrono::milliseconds(1), TimedOut("attach", hop_peer_key));
 }
 
 void AmpMediaRelayClient::StartClientFrameReader() { coordinator_.StartClientFrameReader(); }
@@ -136,16 +138,16 @@ void AmpMediaRelayClient::RemoveClientTransportLostObserver(uint64_t token) {
   coordinator_.RemoveClientTransportLostObserver(token);
 }
 
-Roe<MediaRelayAttachResult> AmpMediaRelayClient::AttachAsLocalHop(
+MediaRelayRoe<MediaRelayAttachResult> AmpMediaRelayClient::AttachAsLocalHop(
     const std::string& session_id, std::function<void(MediaDataFrame)> on_frame) {
   return coordinator_.AttachAsLocalHop(session_id, std::move(on_frame));
 }
 
-Roe<void> AmpMediaRelayClient::Subscribe(const uint32_t stream_id, const uint16_t channel_id) {
+MediaRelayRoe<void> AmpMediaRelayClient::Subscribe(const uint32_t stream_id, const uint16_t channel_id) {
   return coordinator_.Subscribe(stream_id, channel_id);
 }
 
-Roe<void> AmpMediaRelayClient::SendFrame(const MediaDataFrame& frame) {
+MediaRelayRoe<void> AmpMediaRelayClient::SendFrame(const MediaDataFrame& frame) {
   return coordinator_.SendFrame(frame);
 }
 

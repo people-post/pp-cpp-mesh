@@ -24,7 +24,61 @@ logging::Logger& AmpReachLog() {
   return log;
 }
 
+using Err = CircuitReachErr;
+using Failure = CircuitReachFailure;
+
+Failure Aborted() {
+  return Failure::Of(Err::Aborted, "circuit hop aborted");
+}
+
 } // namespace
+
+CircuitReachFailure AmpCircuitHopReach::WrapTunnelFailure(const CircuitClientCoordinator::Failure& tunnel) {
+  Err code = Err::Generic;
+  switch (tunnel.GetCode()) {
+  case CircuitTunnelErr::NotStarted:
+    code = Err::Unavailable;
+    break;
+  case CircuitTunnelErr::BadRequest:
+    code = Err::BadRequest;
+    break;
+  case CircuitTunnelErr::RelayNoEndpoint:
+    code = Err::RelayUnusable;
+    break;
+  case CircuitTunnelErr::RelayLinkFailed:
+  case CircuitTunnelErr::ChannelFailed:
+  case CircuitTunnelErr::Closed:
+  case CircuitTunnelErr::BadReply:
+    code = Err::RelayUnreachable;
+    break;
+  case CircuitTunnelErr::Timeout:
+    code = Err::Timeout;
+    break;
+  case CircuitTunnelErr::Aborted:
+    code = Err::Aborted;
+    break;
+  case CircuitTunnelErr::TargetNotReserved:
+    code = Err::TargetNotReserved;
+    break;
+  case CircuitTunnelErr::TargetUnreachable:
+    code = Err::TargetUnreachable;
+    break;
+  case CircuitTunnelErr::RelayBusy:
+  case CircuitTunnelErr::RelayRefused:
+    code = Err::RelayRefused;
+    break;
+  case CircuitTunnelErr::Ok:
+  case CircuitTunnelErr::Generic:
+    code = Err::Generic;
+    break;
+  }
+  return Failure::Of(code, detail::AppendFrom("circuit hop reach failed", "tunnel", tunnel.message));
+}
+
+CircuitReachFailure AmpCircuitHopReach::WrapPunchFailure(const PunchIntroducerWalk::Failure& punch) {
+  const Err code = punch.GetCode() == PunchIntroducerWalk::Err::Unavailable ? Err::Unavailable : Err::PunchFailed;
+  return Failure::Of(code, detail::AppendFrom("circuit hop reach: punch failed", "punch", punch.message));
+}
 
 AmpCircuitHopReach::AmpCircuitHopReach(CircuitClientCoordinator& circuit, AmpCircuitHopRegistry& hops,
                                        IChatPeerLinks& links, IoPump io_pump,
@@ -36,27 +90,26 @@ AmpCircuitHopReach::AmpCircuitHopReach(CircuitClientCoordinator& circuit, AmpCir
       collect_relays_(std::move(collect_relays)), try_punch_(std::move(try_punch)),
       try_punch_via_introducer_(std::move(try_punch_via_introducer)) {}
 
-void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_id,
-                                                    std::function<void(Roe<void>)> on_done) {
+void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_id, CircuitReachDone on_done) {
   if (!on_done) {
     return;
   }
   if (hop_peer_id.empty()) {
-    on_done(Error("missing hop peer"));
+    on_done(Failure::Of(Err::BadRequest, "missing hop peer"));
     return;
   }
   auto run = [this, hop_peer_id, on_done = std::move(on_done)]() mutable {
     if (hops_.Find(hop_peer_id, kMediaRelayProtocolId)) {
-      on_done(Roe<void>());
+      on_done(CircuitReachRoe());
       return;
     }
     if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint) {
-      on_done(Roe<void>());
+      on_done(CircuitReachRoe());
       return;
     }
-    auto after_punch = [this, hop_peer_id, on_done = std::move(on_done)](Roe<void> /*punched*/) mutable {
+    auto after_punch = [this, hop_peer_id, on_done = std::move(on_done)](PunchIntroducerWalk::WalkRoe /*punched*/) mutable {
       if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint || links_.IsConnected(hop_peer_id)) {
-        on_done(Roe<void>());
+        on_done(CircuitReachRoe());
         return;
       }
       EnsureViaCircuitAsync(hop_peer_id, kMediaRelayProtocolId, /*register_endpoint=*/true,
@@ -66,7 +119,7 @@ void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_
       try_punch_(hop_peer_id, std::move(after_punch));
       return;
     }
-    after_punch(Error("no punch"));
+    after_punch(PunchIntroducerWalk::Failure::Of(PunchIntroducerWalk::Err::Unavailable, "no punch"));
   };
   if (post_io_) {
     post_io_(std::move(run));
@@ -75,19 +128,18 @@ void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_
   }
 }
 
-void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key,
-                                                          std::function<void(Roe<void>)> on_done,
-                                                          const bool allow_circuit) {
+void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done,
+                                                     const bool allow_circuit) {
   if (!on_done) {
     return;
   }
   if (peer_key.empty()) {
-    on_done(Error("missing peer"));
+    on_done(Failure::Of(Err::BadRequest, "missing peer"));
     return;
   }
   auto run = [this, peer_key, allow_circuit, on_done = std::move(on_done)]() mutable {
   if (links_.IsConnected(peer_key)) {
-    on_done(Roe<void>());
+    on_done(CircuitReachRoe());
     return;
   }
   // has_endpoint alone is not Connected — call-media OpenChannel hangs if we skip dial
@@ -107,7 +159,7 @@ void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key
     return !pp::Lifetime::Alive(tok, gen);
   };
   auto settled = std::make_shared<std::atomic<bool>>(false);
-  auto finish = [settled, on_done = std::move(on_done)](Roe<void> result) mutable {
+  auto finish = [settled, on_done = std::move(on_done)](CircuitReachRoe result) mutable {
     if (settled->exchange(true, std::memory_order_acq_rel)) {
       return;
     }
@@ -115,33 +167,41 @@ void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key
       on_done(std::move(result));
     }
   };
-  auto run_punch = [this, peer_key, finish, settled, aborted](std::shared_ptr<Error> last_err) mutable {
+  auto run_punch = [this, peer_key, finish, settled, aborted](std::shared_ptr<Failure> last_err) mutable {
     if (aborted()) {
-      finish(Error("circuit hop aborted"));
+      finish(Aborted());
       return;
     }
     if (!try_punch_) {
       if (links_.IsConnected(peer_key)) {
-        finish(Roe<void>());
+        finish(CircuitReachRoe());
       } else {
-        finish(last_err ? *last_err : Error("peer circuit reach failed"));
+        finish(last_err ? *last_err : Failure::Of(Err::NotConnected, "peer circuit reach failed"));
       }
       return;
     }
     AmpReachLog().info << "TryEnsurePeerReachable punch after circuit miss target=" << peer_key;
-    try_punch_(peer_key, [this, peer_key, finish, settled, last_err, aborted](Roe<void>) mutable {
+    try_punch_(peer_key, [this, peer_key, finish, settled, last_err, aborted](PunchIntroducerWalk::WalkRoe punched) mutable {
       if (settled->load(std::memory_order_acquire)) {
         return;
       }
       if (aborted()) {
-        finish(Error("circuit hop aborted"));
+        finish(Aborted());
         return;
       }
       if (links_.IsConnected(peer_key)) {
-        finish(Roe<void>());
+        finish(CircuitReachRoe());
         return;
       }
-      finish(last_err ? *last_err : Error("peer not connected after punch"));
+      // The circuit's miss says more than the punch's (the punch was the last resort); without
+      // one, the punch's.
+      if (last_err) {
+        finish(*last_err);
+      } else if (!punched) {
+        finish(WrapPunchFailure(punched.error()));
+      } else {
+        finish(Failure::Of(Err::NotConnected, "peer not connected after punch"));
+      }
     });
   };
 
@@ -155,25 +215,25 @@ void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key
   EnsureViaCircuitAsync(
       peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
       /*nested_session=*/true,
-      [this, peer_key, finish, settled, run_punch, aborted](Roe<void> via) mutable {
+      [this, peer_key, finish, settled, run_punch, aborted](CircuitReachRoe via) mutable {
         if (settled->load(std::memory_order_acquire)) {
           return;
         }
         if (aborted()) {
-          finish(Error("circuit hop aborted"));
+          finish(Aborted());
           return;
         }
         if (links_.IsConnected(peer_key)) {
-          finish(Roe<void>());
+          finish(CircuitReachRoe());
           return;
         }
         // Do not fall through to punch after an intentional abort (Leave / ConnectFailed).
-        if (!via && via.error().message.find("aborted") != std::string::npos) {
+        if (!via && via.error().GetCode() == Err::Aborted) {
           finish(via);
           return;
         }
-        auto last_err = std::make_shared<Error>(
-            !via ? via.error() : Error("peer not connected after circuit"));
+        auto last_err = std::make_shared<Failure>(
+            !via ? via.error() : Failure::Of(Err::NotConnected, "peer not connected after circuit"));
         run_punch(std::move(last_err));
       });
   };
@@ -184,28 +244,29 @@ void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key
   }
 }
 
-void AmpCircuitHopReach::TryEnsureRelayedAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
+void AmpCircuitHopReach::TryEnsureRelayedAsync(const std::string& peer_key, CircuitReachDone on_done,
                                                const CircuitStandbyPriority standby_priority) {
   if (!on_done) {
     return;
   }
   if (peer_key.empty()) {
-    on_done(Error("missing peer"));
+    on_done(Failure::Of(Err::BadRequest, "missing peer"));
     return;
   }
   auto run = [this, peer_key, standby_priority, on_done = std::move(on_done)]() mutable {
     if (links_.IsConnectedRelayed(peer_key)) {
-      on_done(Roe<void>());
+      on_done(CircuitReachRoe());
       return;
     }
     AmpReachLog().info << "TryEnsureRelayed circuit (a relayed link beside any direct one) target=" << peer_key;
     EnsureViaCircuitAsync(peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
-                          /*nested_session=*/true, [this, peer_key, on_done = std::move(on_done)](Roe<void> via) mutable {
+                          /*nested_session=*/true, [this, peer_key, on_done = std::move(on_done)](CircuitReachRoe via) mutable {
                             if (links_.IsConnectedRelayed(peer_key)) {
-                              on_done(Roe<void>());
+                              on_done(CircuitReachRoe());
                               return;
                             }
-                            on_done(via ? Roe<void>(Error("no relayed link after circuit")) : via);
+                            on_done(via ? CircuitReachRoe(Failure::Of(Err::NotConnected, "no relayed link after circuit"))
+                                        : via);
                           },
                           standby_priority);
   };
@@ -219,7 +280,7 @@ void AmpCircuitHopReach::TryEnsureRelayedAsync(const std::string& peer_key, std:
 void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id,
                                                const std::string& target_protocol,
                                                const bool register_endpoint, const bool nested_session,
-                                               std::function<void(Roe<void>)> on_done,
+                                               CircuitReachDone on_done,
                                                const CircuitStandbyPriority standby_priority) {
   if (!on_done) {
     return;
@@ -230,36 +291,36 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   auto run = [this, target_peer_id, target_protocol, register_endpoint, nested_session, standby_priority,
               on_done = std::move(on_done)]() mutable {
   if (!circuit_.IsStarted()) {
-    on_done(Error("amp circuit-relay not available"));
+    on_done(Failure::Of(Err::Unavailable, "amp circuit-relay not available"));
     return;
   }
   if (target_peer_id.empty() || target_protocol.empty()) {
-    on_done(Error("amp circuit hop incomplete"));
+    on_done(Failure::Of(Err::BadRequest, "amp circuit hop incomplete"));
     return;
   }
   if (!nested_session && hops_.Find(target_peer_id, target_protocol)) {
-    on_done(Roe<void>());
+    on_done(CircuitReachRoe());
     return;
   }
   // A nested session exists to give the peer a relay carrier link: only one of those settles it
   // (a direct link beside it does not — relay standby / TX-only escalation want the relay).
   if (nested_session && links_.IsConnectedRelayed(target_peer_id)) {
-    on_done(Roe<void>());
+    on_done(CircuitReachRoe());
     return;
   }
   if (!nested_session && links_.GetLinkSnapshot(target_peer_id).has_endpoint) {
-    on_done(Roe<void>());
+    on_done(CircuitReachRoe());
     return;
   }
   if (!collect_relays_) {
-    on_done(Error("no dialable circuit relays"));
+    on_done(Failure::Of(Err::NoRelays, "no dialable circuit relays"));
     return;
   }
   auto collected = collect_relays_(target_peer_id);
   if (collected.empty()) {
     AmpReachLog().info << "EnsureViaCircuit no dialable circuit relays target=" << target_peer_id
                        << " nested=" << (nested_session ? 1 : 0);
-    on_done(Error("no dialable circuit relays"));
+    on_done(Failure::Of(Err::NoRelays, "no dialable circuit relays"));
     return;
   }
 
@@ -293,7 +354,8 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
     }
   }
 
-  auto last_fail = std::make_shared<std::string>("circuit hop reach failed");
+  // The last relay's miss: what the reach reports when it runs out.
+  auto last_fail = std::make_shared<Failure>(Failure::Of(Err::RelayUnusable, "circuit hop reach failed"));
   auto bridges_started = std::make_shared<std::size_t>(0);
   auto sticky_retried = std::make_shared<bool>(false);
   const auto envelope_deadline = Clock::now() + std::chrono::milliseconds(kCircuitReachEnvelopeMs);
@@ -307,19 +369,19 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                 try_relay, on_done = std::move(on_done)](size_t index) mutable {
     if (aborted()) {
       AmpReachLog().info << "EnsureViaCircuit aborted target=" << target_peer_id << " index=" << index;
-      on_done(Error("circuit hop aborted"));
+      on_done(Aborted());
       return;
     }
     if (index >= relays->size()) {
       AmpReachLog().info << "EnsureViaCircuit exhausted relays target=" << target_peer_id
-                         << " tried_bridges=" << *bridges_started << " last=" << *last_fail;
-      on_done(Error(*last_fail));
+                         << " tried_bridges=" << *bridges_started << " last=" << last_fail->message;
+      on_done(*last_fail);
       return;
     }
     if (*bridges_started >= kCircuitMaxStartBridgeAttempts) {
       AmpReachLog().info << "EnsureViaCircuit bridge cap target=" << target_peer_id
-                         << " bridges=" << *bridges_started << " last=" << *last_fail;
-      on_done(Error(*last_fail));
+                         << " bridges=" << *bridges_started << " last=" << last_fail->message;
+      on_done(*last_fail);
       return;
     }
     const int64_t remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -329,21 +391,25 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
     if (bridge_timeout_ms <= 0) {
       AmpReachLog().info << "EnsureViaCircuit envelope exhausted target=" << target_peer_id
                          << " remaining_ms=" << remaining_ms << " bridges=" << *bridges_started
-                         << " last=" << *last_fail;
-      on_done(Error(*last_fail));
+                         << " last=" << last_fail->message;
+      // The envelope ran out: a timeout, unless a relay said something more telling.
+      on_done(last_fail->GetCode() == Err::RelayUnusable
+                  ? Failure::Of(Err::Timeout, detail::AppendFrom("circuit hop reach: envelope exhausted", "last",
+                                                                 last_fail->message))
+                  : *last_fail);
       return;
     }
 
     const std::string relay_key = (*relays)[index];
     if (relay_key == target_peer_id) {
       AmpReachLog().info << "EnsureViaCircuit skip self-relay target=" << target_peer_id;
-      *last_fail = "circuit hop reach failed: relay is target";
+      *last_fail = Failure::Of(Err::RelayUnusable, "circuit hop reach failed: relay is target");
       (*try_relay)(index + 1);
       return;
     }
     if (!links_.GetLinkSnapshot(relay_key).has_endpoint) {
       AmpReachLog().info << "EnsureViaCircuit skip relay=" << relay_key << " reason=!endpoint";
-      *last_fail = "circuit hop reach failed: relay !endpoint";
+      *last_fail = Failure::Of(Err::RelayUnusable, "circuit hop reach failed: relay !endpoint");
       (*try_relay)(index + 1);
       return;
     }
@@ -354,7 +420,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
           relay_ma && !CircuitHopMultiaddrIsUdpDialable(*relay_ma)) {
         AmpReachLog().info << "EnsureViaCircuit skip relay=" << relay_key
                            << " reason=undialable_preferred preferred_ma=" << *relay_ma;
-        *last_fail = "circuit hop reach failed: relay preferred undialable";
+        *last_fail = Failure::Of(Err::RelayUnusable, "circuit hop reach failed: relay preferred undialable");
         (*try_relay)(index + 1);
         return;
       }
@@ -383,7 +449,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
             circuit_.CancelTunnel(id);
           }
           if (aborted()) {
-            on_done(Error("circuit hop aborted"));
+            on_done(Aborted());
             return;
           }
           auto go = [try_relay, next_index]() { (*try_relay)(next_index); };
@@ -394,11 +460,11 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
             go();
           }
         };
-    auto on_bridge = std::make_shared<std::function<void(Roe<CircuitTunnelBridgeResult>)>>();
+    auto on_bridge = std::make_shared<CircuitClientCoordinator::BridgeFinished>();
     *on_bridge = [this, target_peer_id, target_protocol, register_endpoint, nested_session, relay_key,
                   sticky, settled, tunnel_id, last_fail, bridges_started, sticky_retried,
                   envelope_deadline, aborted, try_relay, index, advance_relay,
-                  on_done](Roe<CircuitTunnelBridgeResult> result) mutable {
+                  on_done](CircuitClientCoordinator::BridgeRoe result) mutable {
       if (settled->exchange(true, std::memory_order_acq_rel)) {
         return;
       }
@@ -409,18 +475,18 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
           circuit_.CancelTunnel(id);
         }
         AmpReachLog().info << "EnsureViaCircuit aborted after tunnel relay=" << relay_key;
-        on_done(Error("circuit hop aborted"));
+        on_done(Aborted());
         return;
       }
-      if (!result || !result->ok || !result->session) {
-        *last_fail = !result ? ("circuit hop reach failed: tunnel " + result.error().message)
-                             : (!result->ok ? ("circuit hop reach failed: tunnel rejected " + result->error)
-                                            : "circuit hop reach failed: tunnel no session");
+      if (!result || !result->session) {
+        const CircuitTunnelErr tunnel_code = !result ? result.error().GetCode() : CircuitTunnelErr::Generic;
+        *last_fail = !result ? WrapTunnelFailure(result.error())
+                             : Failure::Of(Err::RelayUnreachable, "circuit hop reach failed: tunnel no session");
         const std::string relay_ma = links_.PreferredMultiaddr(relay_key).value_or("");
         AmpReachLog().info << "EnsureViaCircuit tunnel miss relay=" << relay_key
-                           << " preferred_ma=" << relay_ma << " err=" << *last_fail;
-        const bool fast_fail = CircuitBridgeErrorIsFastFail(*last_fail);
-        const bool not_reg = last_fail->find("not registered") != std::string::npos;
+                           << " preferred_ma=" << relay_ma << " err=" << last_fail->message;
+        const bool fast_fail = !result && CircuitBridgeMissIsFastFail(tunnel_code);
+        const bool not_reg = tunnel_code == CircuitTunnelErr::TargetNotReserved;
         auto go_same = [advance_relay, index, id]() { (*advance_relay)(index, id); };
         // Same-relay not-reg: hop already event-waited; answerer may still be parking (H010).
         // Do not require sticky — first connect often has none.
@@ -455,7 +521,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
             std::chrono::duration_cast<std::chrono::milliseconds>(envelope_deadline - Clock::now())
                 .count());
         if (nest_ms <= 0) {
-          *last_fail = "circuit hop reach failed: nested timeout";
+          *last_fail = Failure::Of(Err::Timeout, "circuit hop reach failed: nested timeout");
           AmpReachLog().info << "EnsureViaCircuit nested envelope miss relay=" << relay_key;
           (*advance_relay)(index + 1, id);
           return;
@@ -473,13 +539,14 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                 if (id) {
                   circuit_.CancelTunnel(id);
                 }
-                on_done(Error("circuit hop aborted"));
+                on_done(Aborted());
                 return;
               }
               if (!nested) {
-                *last_fail = "circuit hop reach failed: nested " + nested.error().message;
+                *last_fail = Failure::Of(Err::NestedFailed, detail::AppendFrom("circuit hop reach failed: nested", "link",
+                                                                               nested.error().message));
                 AmpReachLog().info << "EnsureViaCircuit nested miss relay=" << relay_key
-                                   << " target=" << target_peer_id << " err=" << *last_fail;
+                                   << " target=" << target_peer_id << " err=" << last_fail->message;
                 (*advance_relay)(index + 1, id);
                 return;
               }
@@ -490,7 +557,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
               }
               AmpReachLog().info << "EnsureViaCircuit nested ok relay=" << relay_key
                                  << " target=" << target_peer_id;
-              on_done(Roe<void>());
+              on_done(CircuitReachRoe());
             });
         AmpScheduleUntilSettled(post_io_, io_pump_, nested_settled, nested_deadline,
                                 [this, nested_settled, last_fail, advance_relay, index, id = id,
@@ -503,10 +570,10 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                                     if (id) {
                                       circuit_.CancelTunnel(id);
                                     }
-                                    on_done(Error("circuit hop aborted"));
+                                    on_done(Aborted());
                                     return;
                                   }
-                                  *last_fail = "circuit hop reach failed: nested timeout";
+                                  *last_fail = Failure::Of(Err::NestedFailed, "circuit hop reach failed: nested timeout");
                                   AmpReachLog().info << "EnsureViaCircuit nested timeout relay=" << relay_key
                                                      << " cancelling tunnel before next relay";
                                   (*advance_relay)(index + 1, id);
@@ -520,13 +587,14 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
       }
       auto installed = hops_.Install(target_peer_id, relay_key, target_protocol, session, id);
       if (!installed) {
-        *last_fail = "circuit hop reach failed: install " + installed.error().message;
+        *last_fail = Failure::Of(Err::Generic, detail::AppendFrom("circuit hop reach failed: install", "hops",
+                                                                  installed.error().message));
         AmpReachLog().info << "EnsureViaCircuit install miss relay=" << relay_key
-                           << " err=" << *last_fail;
+                           << " err=" << last_fail->message;
         if (id) {
           circuit_.CancelTunnel(id);
         }
-        on_done(installed);
+        on_done(*last_fail);
         return;
       }
       last_good_relay_peer_key_ = relay_key;
@@ -534,20 +602,20 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         on_relay_chosen_(relay_key);
       }
       AmpReachLog().info << "EnsureViaCircuit ok relay=" << relay_key << " target=" << target_peer_id;
-      on_done(Roe<void>());
+      on_done(CircuitReachRoe());
     };
 
     ++(*bridges_started);
     *tunnel_id = circuit_.StartBridge(
         relay_key, bridge_target, {}, {},
-        [on_bridge](Roe<CircuitTunnelBridgeResult> result) {
+        [on_bridge](CircuitClientCoordinator::BridgeRoe result) {
           if (on_bridge && *on_bridge) {
             (*on_bridge)(std::move(result));
           }
         },
         static_cast<int>(bridge_timeout_ms));
     if (!*tunnel_id) {
-      *last_fail = "circuit hop reach failed: StartBridge rejected";
+      *last_fail = Failure::Of(Err::RelayUnusable, "circuit hop reach failed: StartBridge rejected");
       AmpReachLog().info << "EnsureViaCircuit StartBridge reject relay=" << relay_key;
       (*advance_relay)(index + 1, {});
       return;
@@ -570,10 +638,10 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                                 if (*tunnel_id) {
                                   circuit_.CancelTunnel(*tunnel_id);
                                 }
-                                on_done(Error("circuit hop aborted"));
+                                on_done(Aborted());
                                 return;
                               }
-                              *last_fail = "circuit hop reach failed: tunnel timeout";
+                              *last_fail = Failure::Of(Err::Timeout, "circuit hop reach failed: tunnel timeout");
                               AmpReachLog().info << "EnsureViaCircuit tunnel timeout relay=" << relay_key
                                                  << " cancelling tunnel before next relay";
                               // Timeouts are not sticky-retry — hop was dialing / hung.
@@ -620,41 +688,40 @@ void AmpCircuitHopReach::AbortPending() {
                      << " cancelled_tunnel=" << (id ? 1 : 0);
 }
 
-Roe<void> AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
+CircuitReachRoe AmpCircuitHopReach::TryEnsureHopReachable(const std::string& hop_peer_id) {
   if (stopping_ && stopping_()) {
     AmpReachLog().debug << "TryEnsureHopReachable rejected: shutting down";
-    return Error("shutdown in progress");
+    return Failure::Of(Err::Unavailable, "shutdown in progress");
   }
-  SettledWait<void> wait;
-  TryEnsureHopReachableAsync(hop_peer_id, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
+  SettledWait<void, Failure> wait;
+  TryEnsureHopReachableAsync(hop_peer_id, [wait](CircuitReachRoe value) { wait.Finish(std::move(value)); });
   const auto deadline = Clock::now() + std::chrono::milliseconds(30000);
   AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
-  return wait.Wait(std::chrono::milliseconds(1), Error("circuit hop reach timed out"));
+  return wait.Wait(std::chrono::milliseconds(1), Failure::Of(Err::Timeout, "circuit hop reach timed out"));
 }
 
-Roe<void> AmpCircuitHopReach::TryEnsurePeerReachable(const std::string& peer_key) {
+CircuitReachRoe AmpCircuitHopReach::TryEnsurePeerReachable(const std::string& peer_key) {
   if (stopping_ && stopping_()) {
     AmpReachLog().debug << "TryEnsurePeerReachable rejected: shutting down";
-    return Error("shutdown in progress");
+    return Failure::Of(Err::Unavailable, "shutdown in progress");
   }
-  SettledWait<void> wait;
-  TryEnsurePeerReachableAsync(peer_key, [wait](Roe<void> value) { wait.Finish(std::move(value)); });
+  SettledWait<void, Failure> wait;
+  TryEnsurePeerReachableAsync(peer_key, [wait](CircuitReachRoe value) { wait.Finish(std::move(value)); });
   const auto deadline = Clock::now() + std::chrono::milliseconds(30000);
   AmpParkUntil([&] { return wait.IsSettled(); }, deadline, io_pump_);
-  return wait.Wait(std::chrono::milliseconds(1), Error("call-media circuit reach timed out"));
+  return wait.Wait(std::chrono::milliseconds(1), Failure::Of(Err::Timeout, "call-media circuit reach timed out"));
 }
 
-void AmpCircuitHopReach::TryUpgradeToDirectAsync(const std::string& peer_key,
-                                                 std::function<void(Roe<void>)> on_done) {
+void AmpCircuitHopReach::TryUpgradeToDirectAsync(const std::string& peer_key, CircuitReachDone on_done) {
   if (!on_done) {
     return;
   }
   if (peer_key.empty()) {
-    on_done(Error("missing upgrade peer"));
+    on_done(Failure::Of(Err::BadRequest, "missing upgrade peer"));
     return;
   }
   if (!try_punch_via_introducer_) {
-    on_done(Error("circuit upgrade punch unavailable"));
+    on_done(Failure::Of(Err::Unavailable, "circuit upgrade punch unavailable"));
     return;
   }
   std::optional<AmpCircuitHopRegistry::Hop> hop = hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId);
@@ -662,23 +729,23 @@ void AmpCircuitHopReach::TryUpgradeToDirectAsync(const std::string& peer_key,
     hop = hops_.Find(peer_key, kMediaRelayProtocolId);
   }
   if (!hop) {
-    on_done(Error("no circuit hop to upgrade"));
+    on_done(Failure::Of(Err::NoCircuit, "no circuit hop to upgrade"));
     return;
   }
   // The circuit's relay introduces the punch. The circuit itself is left alone: the call moves
   // onto the direct link make-before-break (call-path-resilience k3) and releases its relayed path.
   try_punch_via_introducer_(hop->relay_peer_key, peer_key,
-                            [this, peer_key, on_done = std::move(on_done)](Roe<void> punched) mutable {
+                            [this, peer_key, on_done = std::move(on_done)](PunchIntroducerWalk::WalkRoe punched) mutable {
                               if (!punched) {
-                                on_done(std::move(punched));
+                                on_done(WrapPunchFailure(punched.error()));
                                 return;
                               }
                               const auto snap = links_.SnapshotByPeerId(peer_key);
                               if (snap.base.phase != pp::amp::PeerLinkPhase::Connected || snap.base.carrier_backed) {
-                                on_done(Error("upgrade punch did not yield a direct link"));
+                                on_done(Failure::Of(Err::NotConnected, "upgrade punch did not yield a direct link"));
                                 return;
                               }
-                              on_done(Roe<void>());
+                              on_done(CircuitReachRoe());
                             });
 }
 

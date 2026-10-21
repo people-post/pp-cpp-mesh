@@ -7,6 +7,8 @@
 #include "mesh/types/RelayScope.h"
 
 #include <gtest/gtest.h>
+#include <thread>
+#include <chrono>
 
 #include <atomic>
 #include <mutex>
@@ -80,10 +82,11 @@ protected:
 
   struct BridgeWait {
     std::atomic<bool> done{false};
-    Roe<CircuitTunnelBridgeResult> result = Error("pending");
+    CircuitClientCoordinator::BridgeRoe result =
+        CircuitClientCoordinator::Failure::Of(CircuitTunnelErr::Generic, "pending");
 
     CircuitClientCoordinator::BridgeFinished Fn() {
-      return [this](Roe<CircuitTunnelBridgeResult> r) {
+      return [this](CircuitClientCoordinator::BridgeRoe r) {
         result = std::move(r);
         done.store(true, std::memory_order_release);
       };
@@ -118,7 +121,7 @@ TEST_F(CircuitRelayServerClientTest, BridgeForwardsPayload) {
   ASSERT_TRUE(id);
   wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(wait.result) << wait.result.error().message;
-  ASSERT_TRUE(wait.result->ok) << wait.result->error;
+  ASSERT_TRUE(wait.result) << wait.result.error().message;
   ASSERT_TRUE(wait.result->session);
 
   const std::vector<uint8_t> payload = {'c', 'i', 'r', 'c', 'u', 'i', 't'};
@@ -146,7 +149,7 @@ TEST_F(CircuitRelayServerClientTest, BridgedTunnelIsReleasedWhenItsChannelEnds) 
     BridgeWait wait;
     ASSERT_TRUE(client_->StartBridge("relay", target, {}, {}, wait.Fn(), 8000));
     wait.PumpUntilDone(*harness_);
-    ASSERT_TRUE(wait.result && wait.result->ok && wait.result->session);
+    ASSERT_TRUE(wait.result && wait.result->session);
     EXPECT_EQ(client_->TunnelCount(), 1u);
     wait.result->session->Close();
     harness_->PumpUntil([this] { return client_->TunnelCount() == 0; });
@@ -166,7 +169,7 @@ TEST_F(CircuitRelayServerClientTest, RelayForgetsATargetEndpointItRegisteredForO
   BridgeWait wait;
   ASSERT_TRUE(client_->StartBridge("relay", target, {}, {}, wait.Fn(), 8000));
   wait.PumpUntilDone(*harness_);
-  ASSERT_TRUE(wait.result && wait.result->ok && wait.result->session);
+  ASSERT_TRUE(wait.result && wait.result->session);
   EXPECT_TRUE(harness_->mgr_r().GetLinkSnapshot(harness_->peer_id_b).has_endpoint);
   wait.result->session->Close();
   harness_->PumpUntil([this] { return !harness_->mgr_r().GetLinkSnapshot(harness_->peer_id_b).has_endpoint; });
@@ -201,7 +204,7 @@ TEST_F(CircuitRelayServerClientTest, BridgeForwardsReversePayload) {
   ASSERT_TRUE(id);
   wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(wait.result) << wait.result.error().message;
-  ASSERT_TRUE(wait.result->ok);
+  ASSERT_TRUE(wait.result) << wait.result.error().message;
 
   harness_->PumpUntil([this] { return static_cast<bool>(target_session_); });
   ASSERT_TRUE(target_session_);
@@ -236,7 +239,26 @@ TEST_F(CircuitRelayServerClientTest, StrangerRefusedWhenContactsOnly) {
   ASSERT_TRUE(id);
   wait.PumpUntilDone(*harness_);
   ASSERT_FALSE(wait.result);
-  EXPECT_NE(wait.result.error().message.find("stranger"), std::string::npos);
+  EXPECT_EQ(wait.result.error().GetCode(), CircuitTunnelErr::RelayRefused) << wait.result.error().message;
+}
+
+// A peer-id-only bridge to a peer not parked on the relay: the relay says so by its code — the
+// dialer retries that relay once (the answerer may still be parking), never by reading text.
+TEST_F(CircuitRelayServerClientTest, ABridgeToAPeerNotParkedSaysSoByItsCode) {
+  CircuitBridgeTarget target;
+  target.target_peer_id = "12D3KooWNobodyParkedHere";
+  target.target_protocol = kAmpBridgeTargetProtocol;
+  BridgeWait wait;
+  ASSERT_TRUE(client_->StartBridge("relay", target, {}, {}, wait.Fn(), 2000));
+  // The relay waits for the target on real time (its far-leg deadline), not the harness clock.
+  const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!wait.done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < until) {
+    harness_->PumpAll();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  ASSERT_TRUE(wait.done.load(std::memory_order_acquire));
+  ASSERT_FALSE(wait.result);
+  EXPECT_EQ(wait.result.error().GetCode(), CircuitTunnelErr::TargetNotReserved) << wait.result.error().message;
 }
 
 TEST_F(CircuitRelayServerClientTest, ReserveThenBridge) {
@@ -249,7 +271,7 @@ TEST_F(CircuitRelayServerClientTest, ReserveThenBridge) {
     ASSERT_TRUE(rid);
     reserve_wait.PumpUntilDone(*harness_);
     ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
-    ASSERT_TRUE(reserve_wait.result->ok) << reserve_wait.result->error;
+    ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
     EXPECT_EQ(client_b_->Phase(rid), CircuitTunnelPhase::Reserved);
   }
 
@@ -263,7 +285,7 @@ TEST_F(CircuitRelayServerClientTest, ReserveThenBridge) {
   ASSERT_TRUE(id);
   wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(wait.result) << wait.result.error().message;
-  ASSERT_TRUE(wait.result->ok) << wait.result->error;
+  ASSERT_TRUE(wait.result) << wait.result.error().message;
 
   const std::vector<uint8_t> payload = {'r', 'e', 's', 'v'};
   ASSERT_TRUE(wait.result->session->EnqueueOutbound(payload));
@@ -287,7 +309,7 @@ TEST_F(CircuitRelayServerClientTest, ReserveKeepsRelayLinkHotUntilReleased) {
   ASSERT_TRUE(rid);
   reserve_wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
-  ASSERT_TRUE(reserve_wait.result->ok) << reserve_wait.result->error;
+  ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
   ASSERT_EQ(client_b_->Phase(rid), CircuitTunnelPhase::Reserved);
 
   EXPECT_EQ(client_b_->ParkedRelayCount(), 1u) << "a held reservation is parking";
@@ -323,7 +345,7 @@ TEST_F(CircuitRelayServerClientTest, ReserveThenBridgePeerIdOnly) {
     ASSERT_TRUE(rid);
     reserve_wait.PumpUntilDone(*harness_);
     ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
-    ASSERT_TRUE(reserve_wait.result->ok) << reserve_wait.result->error;
+    ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
   }
   // Link may be keyed as alias/inbound — IsConnected(peer_id) only checks exact key.
   harness_->PumpUntil(
@@ -341,9 +363,8 @@ TEST_F(CircuitRelayServerClientTest, ReserveThenBridgePeerIdOnly) {
   auto id = client_->StartBridge("relay", target, {}, {}, wait.Fn(), 8000);
   ASSERT_TRUE(id);
   wait.PumpUntilDone(*harness_);
-  ASSERT_TRUE(wait.result) << wait.result.error().message;
-  ASSERT_TRUE(wait.result->ok) << wait.result->error
-                               << " peer-id-only bridge must succeed when target is reserved/Connected";
+  ASSERT_TRUE(wait.result) << wait.result.error().message
+                           << " peer-id-only bridge must succeed when target is reserved/Connected";
 
   const std::vector<uint8_t> payload = {'p', 'i', 'd'};
   ASSERT_TRUE(wait.result->session->EnqueueOutbound(payload));
@@ -365,10 +386,10 @@ TEST_F(CircuitRelayServerClientTest, AbortInflightKeepsStartedAndAllowsNewReserv
   EXPECT_TRUE(client_->IsStarted());
 
   std::atomic<bool> finished{false};
-  Roe<CircuitTunnelBridgeResult> result = Error("unset");
+  CircuitClientCoordinator::BridgeRoe result = CircuitClientCoordinator::Failure::Of(CircuitTunnelErr::Generic, "unset");
   auto id = client_->StartReserve(
       "relay",
-      [&](Roe<CircuitTunnelBridgeResult> r) {
+      [&](CircuitClientCoordinator::BridgeRoe r) {
         result = std::move(r);
         finished.store(true, std::memory_order_release);
       },
@@ -377,17 +398,16 @@ TEST_F(CircuitRelayServerClientTest, AbortInflightKeepsStartedAndAllowsNewReserv
   harness_->PumpUntil([&] { return finished.load(std::memory_order_acquire); });
   ASSERT_TRUE(finished.load(std::memory_order_acquire));
   ASSERT_TRUE(result) << result.error().message;
-  EXPECT_TRUE(result->ok) << result->error;
 }
 
 TEST_F(CircuitRelayServerClientTest, StopRejectsNewStartReserve) {
   client_->Stop();
   EXPECT_FALSE(client_->IsStarted());
   std::atomic<bool> finished{false};
-  Roe<CircuitTunnelBridgeResult> result = Error("unset");
+  CircuitClientCoordinator::BridgeRoe result = CircuitClientCoordinator::Failure::Of(CircuitTunnelErr::Generic, "unset");
   auto id = client_->StartReserve(
       "relay",
-      [&](Roe<CircuitTunnelBridgeResult> r) {
+      [&](CircuitClientCoordinator::BridgeRoe r) {
         result = std::move(r);
         finished.store(true, std::memory_order_release);
       },
@@ -396,7 +416,7 @@ TEST_F(CircuitRelayServerClientTest, StopRejectsNewStartReserve) {
   harness_->PumpUntil([&] { return finished.load(std::memory_order_acquire); });
   ASSERT_TRUE(finished.load(std::memory_order_acquire));
   ASSERT_FALSE(result);
-  EXPECT_NE(result.error().message.find("not started"), std::string::npos);
+  EXPECT_EQ(result.error().GetCode(), CircuitTunnelErr::NotStarted);
 }
 
 } // namespace

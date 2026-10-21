@@ -3,6 +3,7 @@
 #include "amp/link/MeshRuntime.h"
 #include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "mesh/l4/media_relay/MediaRelayBundleLogic.h"
+#include "mesh/l4/media_relay/MediaRelayErr.h"
 #include "mesh/l4/media_relay/MediaRelayTypes.h"
 #include "mesh/l4/media_relay/client/IMediaRelayClient.h"
 #include "mesh/l4/media_relay/serve/MediaRelayServer.h"
@@ -26,8 +27,13 @@ namespace pp::mesh {
  */
 class MediaRelayClientCoordinator {
 public:
-  using QuoteFinished = std::function<void(Roe<MediaRelayQuote>)>;
-  using AttachFinished = std::function<void(Roe<MediaRelayAttachResult>)>;
+  using Err = MediaRelayErr;
+  using Failure = MediaRelayFailure;
+  using QuoteFinished = std::function<void(MediaRelayRoe<MediaRelayQuote>)>;
+  using AttachFinished = std::function<void(MediaRelayRoe<MediaRelayAttachResult>)>;
+
+  /** Reaching the hop failed (its OpenChannel): our code, the link's chain in `message`. */
+  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& link);
   using FrameHandler = std::function<void(MediaDataFrame)>;
 
   explicit MediaRelayClientCoordinator(pp::amp::MeshRuntime& runtime, MediaRelayServer* local_server = nullptr);
@@ -59,10 +65,10 @@ public:
   void StartClientFrameReader();
   uint64_t AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> observer);
   void RemoveClientTransportLostObserver(uint64_t token);
-  Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& call_id,
-                                               std::function<void(MediaDataFrame)> on_frame);
-  Roe<void> Subscribe(uint32_t stream_id, uint16_t channel_id);
-  Roe<void> SendFrame(const MediaDataFrame& frame);
+  MediaRelayRoe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& call_id,
+                                                         std::function<void(MediaDataFrame)> on_frame);
+  MediaRelayRoe<void> Subscribe(uint32_t stream_id, uint16_t channel_id);
+  MediaRelayRoe<void> SendFrame(const MediaDataFrame& frame);
   void Detach();
   bool IsAttached() const;
   bool IsLocalHopAttached() const;

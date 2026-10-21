@@ -5,17 +5,21 @@
 #include "mesh/l4/circuit/CircuitBridgeTarget.h"
 #include "mesh/l4/circuit/CircuitBundleLogic.h"
 #include "mesh/l4/circuit/CircuitRelayTypes.h"
+#include "mesh/l4/circuit/CircuitTunnelErr.h"
 
+#include "amp/link/PeerLinkManager.h"
+#include "common/CodedFailure.h"
 #include "common/Error.h"
+
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
 
 namespace pp::mesh {
 
+/** A bridge or reservation the relay accepted. */
 struct CircuitTunnelBridgeResult {
-  bool ok = false;
-  std::string error;
   std::string resolved_multiaddr;
   /** Client circuit session after bridge ack (coordinator-owned; valid while Bridging). */
   std::shared_ptr<pp::amp::ChannelSession> session;
@@ -30,9 +34,18 @@ struct CircuitTunnelBridgeResult {
  */
 class CircuitClientCoordinator {
 public:
+  using Err = CircuitTunnelErr;
+  using Failure = CodedFailure<Err>;
+  using BridgeRoe = CodedRoe<CircuitTunnelBridgeResult, Err>;
+
   using FrameHandler = pp::amp::ChannelSession::FrameHandler;
   using ClosedCallback = pp::amp::ChannelSession::ClosedCallback;
-  using BridgeFinished = std::function<void(Roe<CircuitTunnelBridgeResult>)>;
+  using BridgeFinished = std::function<void(BridgeRoe)>;
+
+  /** Reaching the relay failed (its OpenChannel): our code, the link's chain in `message`. */
+  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& link);
+  /** A relay's refusal (its ack's code). */
+  static Failure FromRefusal(CircuitRefusal refusal, const std::string& relay_text);
 
   explicit CircuitClientCoordinator(pp::amp::MeshRuntime& runtime);
   ~CircuitClientCoordinator();

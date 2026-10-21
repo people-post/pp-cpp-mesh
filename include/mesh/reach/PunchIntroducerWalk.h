@@ -1,9 +1,12 @@
 #pragma once
 
+#include "common/CodedFailure.h"
 #include "common/Error.h"
 #include "common/Module.h"
+#include "mesh/reachability/punch/PunchLinkOps.h"
 #include "mesh/host/MeshHost.h"
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -32,6 +35,31 @@ struct PunchIntroducerDeps {
  */
 class PunchIntroducerWalk : public Module {
 public:
+  /** Why a punch did not land (docs/ERRORS.md). */
+  enum class Err : int32_t {
+    Ok = 0,
+    /** Punch is not running. */
+    Unavailable,
+    NoIntroducer,
+    /** Every introducer was asked; none could get to the target. */
+    IntroducersExhausted,
+    /** The target declines us. */
+    Declined,
+    /** The punch ran and no path won. */
+    NoPath,
+    /** Otherwise (protocol, send, timeout, the signaling fallback). */
+    Failed,
+    Generic,
+  };
+  using Failure = CodedFailure<Err>;
+  using WalkRoe = CodedRoe<void, Err>;
+  using Done = std::function<void(WalkRoe)>;
+
+  /** One punch's failure, as the walk's (its chain in `message`). */
+  static Failure WrapPunchFailure(const PunchFailure& punch);
+  /** The punch failed in a way another introducer may not: it cannot get to the target. */
+  static bool AnotherIntroducerMayHelp(PunchErr code);
+
   using SignalingPunchFn = std::function<void(const std::string& target_peer_id,
                                               const std::vector<std::string>& my_addrs,
                                               std::function<void(Roe<void>)> on_done)>;
@@ -44,9 +72,8 @@ public:
   /** Last-resort punch through a consumer's own signaling (calls: call-control). */
   void SetSignalingPunch(SignalingPunchFn punch);
 
-  void TryColdPunchAsync(const std::string& target_peer_id, std::function<void(Roe<void>)> on_done);
-  void TryUpgradePunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id,
-                            std::function<void(Roe<void>)> on_done);
+  void TryColdPunchAsync(const std::string& target_peer_id, Done on_done);
+  void TryUpgradePunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id, Done on_done);
 
 private:
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }

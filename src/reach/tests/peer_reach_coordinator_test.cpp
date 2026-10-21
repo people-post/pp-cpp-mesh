@@ -42,7 +42,7 @@ public:
     std::lock_guard lock(mu);
     return connected.count(peer_key) > 0 && carrier_only.count(peer_key) == 0;
   }
-  void EnsureAssociation(const std::string& peer_key, std::function<void(Roe<void>)> on_done) override {
+  void EnsureAssociation(const std::string& peer_key, IChatPeerLinks::LinkCb on_done) override {
     ensure_calls.fetch_add(1);
     bool ok = false;
     {
@@ -59,7 +59,8 @@ public:
     if (const int delay = miss_delay_ms.load(); !ok && delay > 0) {
       std::this_thread::sleep_for(std::chrono::milliseconds(delay));  // a slow miss
     }
-    on_done(ok ? Roe<void>() : Roe<void>(Error("amp link: dial in backoff")));
+    on_done(ok ? IChatPeerLinks::LinkRoe()
+               : IChatPeerLinks::LinkRoe(IChatPeerLinks::Failure::Of(miss_code, "amp link: dial missed")));
   }
   /** A failing dial reports its miss this late (the coordinator's budget may be spent by then). */
   std::atomic<int> miss_delay_ms{0};
@@ -73,13 +74,13 @@ public:
   void ClearDialBackoff(const std::string& /*peer_key*/) override { clear_backoff_calls.fetch_add(1); }
   void AbortInflightDial(const std::string& /*peer_key*/) override {
     abort_calls.fetch_add(1);
-    std::function<void(Roe<void>)> aborted;
+    IChatPeerLinks::LinkCb aborted;
     {
       std::lock_guard lock(mu);
       aborted = std::move(held);
     }
     if (aborted) {
-      aborted(Error("amp link: dial aborted"));
+      aborted(IChatPeerLinks::Failure::Of(IChatPeerLinks::Err::Generic, "amp link: dial aborted"));
     }
   }
   void DropLink(const std::string& peer_key) override {
@@ -115,7 +116,9 @@ public:
   bool ensure_connects = false;
   /** Dials get no answer until aborted. */
   bool ensure_hangs = false;
-  std::function<void(Roe<void>)> held;
+  IChatPeerLinks::LinkCb held;
+  /** What a missed dial reports. */
+  IChatPeerLinks::Err miss_code = IChatPeerLinks::Err::DialInBackoff;
   std::atomic<int> ensure_calls{0};
   std::atomic<int> clear_backoff_calls{0};
   std::atomic<int> drop_calls{0};
@@ -126,11 +129,11 @@ class FakeCircuitReach final : public ICircuitHopReach {
 public:
   explicit FakeCircuitReach(FakeDialRegistry& dial) : dial_(dial) {}
 
-  Roe<void> TryEnsureHopReachable(const std::string& /*hop*/) override { return {}; }
-  Roe<void> TryEnsurePeerReachable(const std::string& /*peer*/) override {
-    return Error("sync not used");
+  CircuitReachRoe TryEnsureHopReachable(const std::string& /*hop*/) override { return {}; }
+  CircuitReachRoe TryEnsurePeerReachable(const std::string& /*peer*/) override {
+    return CircuitReachFailure::Of(CircuitReachErr::Generic, "sync not used");
   }
-  void TryEnsurePeerReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
+  void TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done,
                                         const bool allow_circuit) override {
     calls.fetch_add(1);
     last_allow_circuit.store(allow_circuit);
@@ -140,7 +143,7 @@ public:
       on_done({});
       return;
     }
-    on_done(Error("circuit hop reach failed"));
+    on_done(CircuitReachFailure::Of(CircuitReachErr::TargetNotReserved, "circuit hop reach failed"));
   }
 
   std::atomic<int> calls{0};
@@ -173,12 +176,12 @@ protected:
   struct Outcome {
     std::mutex mu;
     std::atomic<bool> done{false};
-    std::optional<Roe<PeerReachResult>> result;
+    std::optional<PeerReachCoordinator::ReachRoe> result;
   };
 
   std::shared_ptr<Outcome> Run(PeerReachRequest req) {
     auto out = std::make_shared<Outcome>();
-    last_id_ = reach_->Ensure(std::move(req), [out](Roe<PeerReachResult> r) {
+    last_id_ = reach_->Ensure(std::move(req), [out](PeerReachCoordinator::ReachRoe r) {
       std::lock_guard lock(out->mu);
       out->result = std::move(r);
       out->done.store(true, std::memory_order_release);
@@ -542,7 +545,21 @@ TEST_F(PeerReachCoordinatorTest, UnreachablePeerFailsWithLastError) {
   auto out = Run(Request(PeerReachMode::Reach));
   ASSERT_TRUE(WaitDone(out, std::chrono::seconds(30)));
   ASSERT_FALSE(*out->result);
+  EXPECT_EQ(out->result->error().GetCode(), PeerReachCoordinator::Err::CircuitFailed) << "the circuit ran last";
   EXPECT_FALSE(out->result->error().message.empty());
+}
+
+// The direct dial's failure is the reach's when it ran last — callers branch on it (a transport
+// failure: dial a fresh link next time), never on the text.
+TEST_F(PeerReachCoordinatorTest, ADialFailureIsTheReachsCode) {
+  reach_->SetDeps({dial_.get(), nullptr, lane_});
+  dial_->endpoints[kPeer] = kPublicMa;
+  dial_->miss_code = IChatPeerLinks::Err::TransportFailed;
+  auto out = Run(Request(PeerReachMode::Reach));
+  ASSERT_TRUE(WaitDone(out, std::chrono::seconds(10)));
+  ASSERT_FALSE(*out->result);
+  EXPECT_EQ(out->result->error().GetCode(), PeerReachCoordinator::Err::TransportFailed)
+      << out->result->error().message;
 }
 
 TEST_F(PeerReachCoordinatorTest, CancelCompletesInlineOnce) {
@@ -550,8 +567,9 @@ TEST_F(PeerReachCoordinatorTest, CancelCompletesInlineOnce) {
   circuit_->connects = false;
   std::atomic<int> completions{0};
   const PeerReachId id =
-      reach_->Ensure(Request(), [&completions](Roe<PeerReachResult> r) {
-        EXPECT_FALSE(r);
+      reach_->Ensure(Request(), [&completions](PeerReachCoordinator::ReachRoe r) {
+        ASSERT_FALSE(r);
+        EXPECT_EQ(r.error().GetCode(), PeerReachCoordinator::Err::Cancelled);
         completions.fetch_add(1);
       });
   reach_->Cancel(id);
@@ -566,6 +584,7 @@ TEST_F(PeerReachCoordinatorTest, MissingDialRegistryFails) {
   auto out = Run(Request());
   ASSERT_TRUE(WaitDone(out, std::chrono::seconds(5)));
   ASSERT_FALSE(*out->result);
+  EXPECT_EQ(out->result->error().GetCode(), PeerReachCoordinator::Err::Unavailable);
 }
 
 TEST_F(PeerReachCoordinatorTest, NoLaneFailsAtOnce) {
@@ -573,6 +592,7 @@ TEST_F(PeerReachCoordinatorTest, NoLaneFailsAtOnce) {
   auto out = Run(Request());
   ASSERT_TRUE(out->done.load()) << "no mesh: completes inline";
   ASSERT_FALSE(*out->result);
+  EXPECT_EQ(out->result->error().GetCode(), PeerReachCoordinator::Err::Unavailable);
 }
 
 // docs/THREADING.md, rule 4: a reach's steps and watchdog are timers on its lane, which the
@@ -587,6 +607,7 @@ TEST_F(PeerReachCoordinatorTest, AnotherLaneFailsTheReachesInFlight) {
   reach_->SetDeps({dial_.get(), nullptr, other});
   ASSERT_TRUE(out->done.load()) << "failed inline by SetDeps";
   ASSERT_FALSE(*out->result);
+  EXPECT_EQ(out->result->error().GetCode(), PeerReachCoordinator::Err::Unavailable);
   EXPECT_EQ(out->result->error().message, "mesh stopped");
   reach_->SetDeps({dial_.get(), circuit_.get(), lane_});
   other->Stop();

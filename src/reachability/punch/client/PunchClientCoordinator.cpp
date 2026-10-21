@@ -209,7 +209,7 @@ void PunchClientCoordinator::RunPunchAsync(const std::string& introducer_peer_ke
                         [this, finish, target_peer_id](Roe<std::vector<uint8_t>> frame) {
                           if (!frame) {
                             (*finish)(PunchRoe::error(
-                                Failure::Of(Err::ProtocolError, "punch: failed to read introducer frame")));
+                                Failure::Of(Err::ChannelFailed, "punch: failed to read introducer frame")));
                             return false;
                           }
                           auto root = common::TryParseObject(std::string(frame->begin(), frame->end()));
@@ -230,8 +230,16 @@ void PunchClientCoordinator::RunPunchAsync(const std::string& introducer_peer_ke
                               PublishPunchWinnerAddrs(runtime_.Links(), target_peer_id, result->winner_multiaddr);
                               (*finish)(*result);
                             } else {
+                              // The introducer's refusal, by its code (docs/ERRORS.md).
+                              const Err code = result->refusal == PunchRefusal::TargetUnknown ? Err::TargetUnknown
+                                               : result->refusal == PunchRefusal::Declined    ? Err::Declined
+                                               : result->refusal == PunchRefusal::NoPath ||
+                                                       result->refusal == PunchRefusal::NoCandidates
+                                                   ? Err::PunchFailed
+                                                   : Err::ProtocolError;
                               (*finish)(PunchRoe::error(Failure::Of(
-                                  Err::PunchFailed, result->error.empty() ? "punch failed" : result->error)));
+                                  code, detail::AppendFrom("punch: introducer refused", "introducer",
+                                                           result->error.empty() ? "punch failed" : result->error))));
                             }
                             return false;
                           }

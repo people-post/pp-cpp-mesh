@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mesh/l4/media_relay/MediaRelayErr.h"
+
 #include "mesh/l4/media_relay/MediaRelayTypes.h"
 
 #include "common/Error.h"
@@ -49,24 +51,24 @@ public:
 
   virtual Roe<std::string> LocalPeerIdBase58() const = 0;
   virtual bool IsStarted() const = 0;
-  virtual Roe<MediaRelayQuote> RequestQuote(const std::string& hop_peer_key,
+  virtual MediaRelayRoe<MediaRelayQuote> RequestQuote(const std::string& hop_peer_key,
                                             const MediaRelayQuoteRequest& request,
                                             int timeout_ms = 8000) = 0;
   /** Prefer over sync RequestQuote when MeshPump + PostToIo are available. */
   virtual void RequestQuoteAsync(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,
-                                 std::function<void(Roe<MediaRelayQuote>)> on_done, int timeout_ms = 8000) {
+                                 std::function<void(MediaRelayRoe<MediaRelayQuote>)> on_done, int timeout_ms = 8000) {
     if (on_done) {
       on_done(RequestQuote(hop_peer_key, request, timeout_ms));
     }
   }
-  virtual Roe<MediaRelayAttachResult> AcceptAndAttach(
+  virtual MediaRelayRoe<MediaRelayAttachResult> AcceptAndAttach(
       const std::string& hop_peer_key, const std::string& quote_id, const std::string& session_id,
       const std::string& auth_stub, std::function<void(MediaDataFrame)> on_frame,
       int timeout_ms = 8000) = 0;
   virtual void AcceptAndAttachAsync(const std::string& hop_peer_key, const std::string& quote_id,
                                     const std::string& session_id, const std::string& auth_stub,
                                     std::function<void(MediaDataFrame)> on_frame,
-                                    std::function<void(Roe<MediaRelayAttachResult>)> on_done,
+                                    std::function<void(MediaRelayRoe<MediaRelayAttachResult>)> on_done,
                                     int timeout_ms = 8000) {
     if (on_done) {
       on_done(AcceptAndAttach(hop_peer_key, quote_id, session_id, auth_stub, std::move(on_frame), timeout_ms));
@@ -86,10 +88,10 @@ public:
   }
   virtual void RemoveClientTransportLostObserver(uint64_t /*token*/) {}
   /** In-call hop: join local HostSession without dialing self. */
-  virtual Roe<MediaRelayAttachResult> AttachAsLocalHop(
+  virtual MediaRelayRoe<MediaRelayAttachResult> AttachAsLocalHop(
       const std::string& session_id, std::function<void(MediaDataFrame)> on_frame) = 0;
-  virtual Roe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) = 0;
-  virtual Roe<void> SendFrame(const MediaDataFrame& frame) = 0;
+  virtual MediaRelayRoe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) = 0;
+  virtual MediaRelayRoe<void> SendFrame(const MediaDataFrame& frame) = 0;
   virtual void Detach() = 0;
   virtual bool IsAttached() const = 0;
   virtual bool IsLocalHopAttached() const = 0;

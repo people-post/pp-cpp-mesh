@@ -1,4 +1,5 @@
 #include "mesh/l4/media_relay/serve/MediaRelayAttachSm.h"
+#include "mesh/l4/media_relay/MediaRelayErr.h"
 #include "mesh/l4/media_relay/MediaRelayLogic.h"
 #include "mesh/l4/media_relay/MediaRelayTypes.h"
 
@@ -114,6 +115,17 @@ TEST(MediaRelayLogicTest, CallScopedAdmitAndCaps) {
   EXPECT_FALSE(MediaRelayCanOpenHostSession(4, kMediaRelayMaxHostSessions));
   EXPECT_TRUE(MediaRelayCanAddParticipant(7, kMediaRelayMaxParticipantsPerSession));
   EXPECT_FALSE(MediaRelayCanAddParticipant(8, kMediaRelayMaxParticipantsPerSession));
+}
+
+// A hop's refusal by its reply's code (docs/ERRORS.md); the text only for hops before codes.
+TEST(MediaRelayErrTest, AHopsRefusalReadsByItsCode) {
+  EXPECT_EQ(MediaRelayErrFromReply("busy", "words"), MediaRelayErr::HopBusy);
+  EXPECT_EQ(MediaRelayErrFromReply("auth_failed", "words"), MediaRelayErr::AuthFailed);
+  EXPECT_EQ(MediaRelayErrFromReply("unknown_quote", "words"), MediaRelayErr::UnknownQuote);
+  EXPECT_EQ(MediaRelayErrFromReply("refused", "media-relay busy"), MediaRelayErr::HopRefused) << "the code wins";
+  EXPECT_EQ(MediaRelayErrFromReply("", "media-relay busy"), MediaRelayErr::HopBusy);
+  EXPECT_EQ(MediaRelayErrFromReply("", "prefer contacts: stranger refused"), MediaRelayErr::HopRefused);
+  EXPECT_EQ(MediaRelayErrFromReply("", "auth failed"), MediaRelayErr::AuthFailed);
 }
 
 } // namespace

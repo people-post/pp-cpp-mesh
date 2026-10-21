@@ -16,18 +16,25 @@ logging::Logger& AttachLog() {
   return log;
 }
 
-Error PortsGoneError() {
-  return Error("mesh media stopped");
+using Err = MediaRelayErr;
+using Failure = MediaRelayFailure;
+
+Failure PortsGoneError() {
+  return Failure::Of(Err::Aborted, "mesh media stopped");
+}
+
+Failure HopNotDialable() {
+  return Failure::Of(Err::HopNoEndpoint, "hop not dialable");
 }
 
 void QuoteThenAttach(MediaRelayAttachPorts ports, MediaRelayAttachRequest request, MediaRelayAttachHooks hooks,
-                     std::function<void(Roe<MediaRelayAttached>)> on_done) {
+                     std::function<void(MediaRelayRoe<MediaRelayAttached>)> on_done) {
   if (!ports.Live()) {
     on_done(PortsGoneError());
     return;
   }
   if (!ports.dial->IsDialable(request.hop_peer_id)) {
-    on_done(Error("hop not dialable"));
+    on_done(HopNotDialable());
     return;
   }
   const std::string hop = request.hop_peer_id;
@@ -35,21 +42,25 @@ void QuoteThenAttach(MediaRelayAttachPorts ports, MediaRelayAttachRequest reques
   ports.relay->RequestQuoteAsync(
       hop, quote_request,
       [ports, request = std::move(request), hooks = std::move(hooks),
-       on_done = std::move(on_done)](Roe<MediaRelayQuote> quote) mutable {
-        if (!quote || !quote->ok) {
-          on_done(Error(quote ? quote->error : quote.error().message));
+       on_done = std::move(on_done)](MediaRelayRoe<MediaRelayQuote> quote) mutable {
+        if (!quote) {
+          on_done(quote.error());
+          return;
+        }
+        if (!quote->ok) {
+          on_done(Failure::Of(Err::BadReply, quote->error.empty() ? "quote not ok" : quote->error));
           return;
         }
         if (hooks.accept_quote) {
           if (auto accepted = hooks.accept_quote(*quote); !accepted) {
             AttachLog().info << "quote not accepted hop=" << request.hop_peer_id << " rate=" << quote->rate
                              << " err=" << accepted.error().message;
-            on_done(accepted.error());
+            on_done(Failure::Of(Err::QuoteDeclined, accepted.error().message));
             return;
           }
         }
         if (hooks.still_wanted && !hooks.still_wanted()) {
-          on_done(Error("attach aborted"));
+          on_done(Failure::Of(Err::Aborted, "attach aborted"));
           return;
         }
         if (!ports.Live()) {
@@ -63,9 +74,13 @@ void QuoteThenAttach(MediaRelayAttachPorts ports, MediaRelayAttachRequest reques
         attached.video_levels = quote->video_levels;
         ports.relay->AcceptAndAttachAsync(
             request.hop_peer_id, attached.quote_id, request.session_id, request.auth, std::move(hooks.on_frame),
-            [attached, on_done = std::move(on_done)](Roe<MediaRelayAttachResult> result) mutable {
-              if (!result || !result->ok) {
-                on_done(Error(result ? result->error : result.error().message));
+            [attached, on_done = std::move(on_done)](MediaRelayRoe<MediaRelayAttachResult> result) mutable {
+              if (!result) {
+                on_done(result.error());
+                return;
+              }
+              if (!result->ok) {
+                on_done(Failure::Of(Err::BadReply, result->error.empty() ? "attach not ok" : result->error));
                 return;
               }
               AttachLog().info << "AcceptAndAttach ok hop=" << attached.hop_peer_id
@@ -92,7 +107,7 @@ void ReachHopService(const MediaRelayAttachPorts& ports, const MediaRelayAttachR
     // the mesh's `work` executor, not the IO strand.
     ports.service_reach->TryEnsureHopReachableAsync(
         request.hop_peer_id,
-        [work = ports.work, next = std::move(next)](Roe<void>) mutable { PostOrRun(work, std::move(next)); });
+        [work = ports.work, next = std::move(next)](CircuitReachRoe) mutable { PostOrRun(work, std::move(next)); });
     return;
   }
   next();
@@ -101,16 +116,17 @@ void ReachHopService(const MediaRelayAttachPorts& ports, const MediaRelayAttachR
 } // namespace
 
 void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRequest request,
-                             MediaRelayAttachHooks hooks, std::function<void(Roe<MediaRelayAttached>)> on_done) {
+                             MediaRelayAttachHooks hooks,
+                             std::function<void(MediaRelayRoe<MediaRelayAttached>)> on_done) {
   if (!on_done) {
     return;
   }
   if (!ports.relay || !ports.dial) {
-    on_done(Error("media_relay not available"));
+    on_done(Failure::Of(Err::NotStarted, "media_relay not available"));
     return;
   }
   if (request.hop_peer_id.empty()) {
-    on_done(Error("missing hop_peer_id"));
+    on_done(Failure::Of(Err::BadRequest, "missing hop_peer_id"));
     return;
   }
   const MediaRelayAttachRequest reach_request = request;
@@ -121,16 +137,16 @@ void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttac
 }
 
 void QuoteMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRequest request,
-                          std::function<void(Roe<MediaRelayQuote>)> on_done) {
+                          std::function<void(MediaRelayRoe<MediaRelayQuote>)> on_done) {
   if (!on_done) {
     return;
   }
   if (!ports.relay || !ports.dial) {
-    on_done(Error("media_relay not available"));
+    on_done(Failure::Of(Err::NotStarted, "media_relay not available"));
     return;
   }
   if (request.hop_peer_id.empty()) {
-    on_done(Error("missing hop_peer_id"));
+    on_done(Failure::Of(Err::BadRequest, "missing hop_peer_id"));
     return;
   }
   const MediaRelayAttachRequest reach_request = request;
@@ -140,7 +156,7 @@ void QuoteMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRe
       return;
     }
     if (!ports.dial->IsDialable(request.hop_peer_id)) {
-      on_done(Error("hop not dialable"));
+      on_done(HopNotDialable());
       return;
     }
     ports.relay->RequestQuoteAsync(request.hop_peer_id, request.quote, std::move(on_done), kQuoteTimeoutMs);

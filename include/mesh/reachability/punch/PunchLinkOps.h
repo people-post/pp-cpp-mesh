@@ -26,7 +26,12 @@ enum class PunchErr : int32_t {
   Timeout,
   ChannelFailed,
   ProtocolError,
+  /** The burst ran and no path won. */
   PunchFailed,
+  /** The target declines this initiator. */
+  Declined,
+  /** The introducer does not know, or cannot reach, the target. */
+  TargetUnknown,
   Generic,
 };
 

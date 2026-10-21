@@ -443,12 +443,11 @@ void CircuitRendezvousCoordinator::StartReserveOnRelay(const std::string& relay,
   const std::string what = label;
   const auto id = m->AmpCircuitClient()->StartReserve(
       relay,
-      deferred_.Bind([this, relay, what](Roe<CircuitTunnelBridgeResult> result) {
-        if (!result || !result->ok) {
+      deferred_.Bind([this, relay, what](CircuitClientCoordinator::BridgeRoe result) {
+        if (!result) {
           // Live Brief may still lack op=reserve (dogfood fd4e3de "unsupported op"). A Connected
           // PeerLink alone is enough for peer-id-only ServeDial — log and keep the link.
-          log().warning << what << " miss peer=" << relay << " err="
-                        << (!result ? result.error().message : (result->error.empty() ? "rejected" : result->error));
+          log().warning << what << " miss peer=" << relay << " err=" << result.error().message;
           return;
         }
         log().info << what << " ok peer=" << relay;

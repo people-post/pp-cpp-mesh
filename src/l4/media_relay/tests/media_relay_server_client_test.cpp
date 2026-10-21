@@ -52,10 +52,10 @@ protected:
   template <typename Result>
   struct Wait {
     std::atomic<bool> done{false};
-    Roe<Result> result = Error("pending");
+    MediaRelayRoe<Result> result = MediaRelayFailure::Of(MediaRelayErr::Generic, "pending");
 
-    std::function<void(Roe<Result>)> Fn() {
-      return [this](Roe<Result> r) {
+    std::function<void(MediaRelayRoe<Result>)> Fn() {
+      return [this](MediaRelayRoe<Result> r) {
         result = std::move(r);
         done.store(true, std::memory_order_release);
       };
@@ -128,7 +128,7 @@ TEST_F(MediaRelayServerClientTest, AdmitRefusesStrangerOnQuote) {
   ASSERT_TRUE(id);
   wait.PumpUntilDone(*harness_);
   ASSERT_FALSE(wait.result);
-  EXPECT_NE(wait.result.error().message.find("stranger"), std::string::npos);
+  EXPECT_EQ(wait.result.error().GetCode(), MediaRelayErr::HopRefused) << wait.result.error().message;
 }
 
 // Shutdown order (MeshHost::Stop): L4 servers are freed before Amp tears down their channels. A
@@ -292,6 +292,7 @@ TEST_F(MediaRelayServerClientTest, StrictRelayRefusesAPublisherWithoutItsLevel) 
   ASSERT_TRUE(client_->StartQuote("hop", req, wait.Fn(), 5000));
   wait.PumpUntilDone(*harness_);
   ASSERT_FALSE(wait.result);
+  EXPECT_EQ(wait.result.error().GetCode(), MediaRelayErr::HopRefused);
   EXPECT_NE(wait.result.error().message.find("video level"), std::string::npos);
 }
 
@@ -410,7 +411,7 @@ TEST_F(AmpMediaRelayClientLossTest, EmptiedSessionAdmitsNonContactsOnlyWithinIts
   harness_->PumpBoth();  // the hop's tick drops the expired session
   auto refused = quote();
   ASSERT_FALSE(refused) << "after the grace the call is over";
-  EXPECT_NE(refused.error().message.find("stranger"), std::string::npos) << refused.error().message;
+  EXPECT_EQ(refused.error().GetCode(), MediaRelayErr::HopRefused) << refused.error().message;
 }
 
 // One-way media (a broadcaster only sends, a viewer only receives) leaves one end without RX:

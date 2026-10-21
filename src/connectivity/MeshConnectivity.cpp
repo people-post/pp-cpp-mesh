@@ -296,11 +296,11 @@ void MeshConnectivity::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io)
       circuit->tunnel, circuit->hops, circuit->links, io.io_pump,
       // Reach's dial surface and punch step are this object's reachability pieces (owned here, stable).
       [rendezvous = &rendezvous_](const std::string& exclude) { return rendezvous->DialableRelayIds(exclude); },
-      [punch = &punch_](const std::string& target_peer_id, std::function<void(Roe<void>)> on_done) {
+      [punch = &punch_](const std::string& target_peer_id, PunchIntroducerWalk::Done on_done) {
         punch->TryColdPunchAsync(target_peer_id, std::move(on_done));
       },
       [punch = &punch_](const std::string& introducer_peer_key, const std::string& target_peer_id,
-                        std::function<void(Roe<void>)> on_done) {
+                        PunchIntroducerWalk::Done on_done) {
         punch->TryUpgradePunchAsync(introducer_peer_key, target_peer_id, std::move(on_done));
       },
       io.post_io, io.post_after);
@@ -482,39 +482,39 @@ bool MeshConnectivity::PeerLanConfirmed(const std::string& peer_id) const {
 
 // --- reach ----------------------------------------------------------------------------------------
 
-Roe<void> MeshConnectivity::TryEnsureCircuitHopReachable(const std::string& hop_peer_id) {
+CircuitReachRoe MeshConnectivity::TryEnsureCircuitHopReachable(const std::string& hop_peer_id) {
   if (MeshHost* m = mesh(); m && m->IsStopping()) {
-    return Error("shutdown in progress");
+    return CircuitReachFailure::Of(CircuitReachErr::Unavailable, "shutdown in progress");
   }
   if (!circuit_hop_reach_) {
-    return Error("Amp circuit reach required");
+    return CircuitReachFailure::Of(CircuitReachErr::Unavailable, "Amp circuit reach required");
   }
   return circuit_hop_reach_->TryEnsureHopReachable(hop_peer_id);
 }
 
-Roe<void> MeshConnectivity::TryEnsurePeerReachable(const std::string& peer_key) {
+CircuitReachRoe MeshConnectivity::TryEnsurePeerReachable(const std::string& peer_key) {
   if (MeshHost* m = mesh(); m && m->IsStopping()) {
-    return Error("shutdown in progress");
+    return CircuitReachFailure::Of(CircuitReachErr::Unavailable, "shutdown in progress");
   }
   if (!circuit_hop_reach_) {
-    return Error("Amp circuit reach required");
+    return CircuitReachFailure::Of(CircuitReachErr::Unavailable, "Amp circuit reach required");
   }
   if (peer_key.empty()) {
-    return Error("missing peer");
+    return CircuitReachFailure::Of(CircuitReachErr::BadRequest, "missing peer");
   }
   return circuit_hop_reach_->TryEnsurePeerReachable(peer_key);
 }
 
-void MeshConnectivity::TryEnsurePeerReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done) {
+void MeshConnectivity::TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done) {
   if (!on_done) {
     return;
   }
   if (MeshHost* m = mesh(); m && m->IsStopping()) {
-    on_done(Error("shutdown in progress"));
+    on_done(CircuitReachFailure::Of(CircuitReachErr::Unavailable, "shutdown in progress"));
   } else if (!circuit_hop_reach_) {
-    on_done(Error("Amp circuit reach required"));
+    on_done(CircuitReachFailure::Of(CircuitReachErr::Unavailable, "Amp circuit reach required"));
   } else if (peer_key.empty()) {
-    on_done(Error("missing peer"));
+    on_done(CircuitReachFailure::Of(CircuitReachErr::BadRequest, "missing peer"));
   } else {
     circuit_hop_reach_->TryEnsurePeerReachableAsync(peer_key, std::move(on_done));
   }

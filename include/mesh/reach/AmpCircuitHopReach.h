@@ -4,6 +4,7 @@
 #include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "mesh/host/MeshPorts.h"
 #include "mesh/reach/MeshReachPorts.h"
+#include "mesh/reach/PunchIntroducerWalk.h"
 #include "common/Lifetime.h"
 
 #include <atomic>
@@ -29,33 +30,34 @@ public:
   using IoAfter = std::function<void(std::chrono::milliseconds, std::function<void()>)>;
   using CollectRelays = std::function<std::vector<std::string>(const std::string& exclude_peer_id)>;
   /** Optional L3.25b: Amp punch before circuit (H002). */
-  using TryPunchAsync =
-      std::function<void(const std::string& target_peer_id, std::function<void(Roe<void>)> on_done)>;
+  using TryPunchAsync = std::function<void(const std::string& target_peer_id, PunchIntroducerWalk::Done on_done)>;
   /** Optional L3.25c: punch via an explicit introducer (circuit R1). */
   using TryPunchViaIntroducerAsync =
       std::function<void(const std::string& introducer_peer_key, const std::string& target_peer_id,
-                         std::function<void(Roe<void>)> on_done)>;
+                         PunchIntroducerWalk::Done on_done)>;
+
+  /** One bridge's failure, as reach's (the tunnel's chain in `message`). */
+  static CircuitReachFailure WrapTunnelFailure(const CircuitClientCoordinator::Failure& tunnel);
+  /** The punch step's failure, as reach's. */
+  static CircuitReachFailure WrapPunchFailure(const PunchIntroducerWalk::Failure& punch);
 
   AmpCircuitHopReach(CircuitClientCoordinator& circuit, AmpCircuitHopRegistry& hops, IChatPeerLinks& links,
                      IoPump io_pump, CollectRelays collect_relays, TryPunchAsync try_punch = {},
                      TryPunchViaIntroducerAsync try_punch_via_introducer = {}, IoPost post_io = {},
                      IoAfter post_after = {});
 
-  void TryEnsureHopReachableAsync(const std::string& hop_peer_id,
-                                  std::function<void(Roe<void>)> on_done) override;
-  void TryEnsurePeerReachableAsync(const std::string& peer_key,
-                                        std::function<void(Roe<void>)> on_done,
-                                        bool allow_circuit = true) override;
-  void TryUpgradeToDirectAsync(const std::string& peer_key,
-                               std::function<void(Roe<void>)> on_done) override;
-  void TryEnsureRelayedAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
+  void TryEnsureHopReachableAsync(const std::string& hop_peer_id, CircuitReachDone on_done) override;
+  void TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done,
+                                   bool allow_circuit = true) override;
+  void TryUpgradeToDirectAsync(const std::string& peer_key, CircuitReachDone on_done) override;
+  void TryEnsureRelayedAsync(const std::string& peer_key, CircuitReachDone on_done,
                              CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None) override;
 
   /** Its mesh is going away (MeshHost::IsStopping): the synchronous waits below are refused. */
   void SetStopping(std::function<bool()> stopping) { stopping_ = std::move(stopping); }
 
-  Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override;
-  Roe<void> TryEnsurePeerReachable(const std::string& peer_key) override;
+  CircuitReachRoe TryEnsureHopReachable(const std::string& hop_peer_id) override;
+  CircuitReachRoe TryEnsurePeerReachable(const std::string& peer_key) override;
   void AbortPending() override;
   std::string LastGoodRelayPeerKey() const override { return last_good_relay_peer_key_; }
 
@@ -68,8 +70,7 @@ public:
 
 private:
   void EnsureViaCircuitAsync(const std::string& target_peer_id, const std::string& target_protocol,
-                             bool register_endpoint, bool nested_session,
-                             std::function<void(Roe<void>)> on_done,
+                             bool register_endpoint, bool nested_session, CircuitReachDone on_done,
                              CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None);
 
   void NoteInflightTunnel(CircuitTunnelId id);

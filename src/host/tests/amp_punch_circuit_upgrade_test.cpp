@@ -88,13 +88,20 @@ protected:
     harness_.reset();
   }
 
-  template <typename Result>
+  template <typename Result, typename E = Error>
   struct Wait {
+    using RoeT = pp::ResultOrError<Result, E>;
     std::atomic<bool> done{false};
-    Roe<Result> result = Error("pending");
+    RoeT result = Pending();
 
-    std::function<void(Roe<Result>)> Fn() {
-      return [this](Roe<Result> r) {
+    static E Pending() {
+      E pending;
+      pending.message = "pending";
+      return pending;
+    }
+
+    std::function<void(RoeT)> Fn() {
+      return [this](RoeT r) {
         result = std::move(r);
         done.store(true, std::memory_order_release);
       };
@@ -123,7 +130,7 @@ protected:
     target.target_multiaddr = harness_->ma_b;
     target.target_protocol = pp::amp::kAmpCircuitCarrierProtocolId;
 
-    Wait<CircuitTunnelBridgeResult> bridge_wait;
+    Wait<CircuitTunnelBridgeResult, CircuitClientCoordinator::Failure> bridge_wait;
     auto tunnel_id = circuit_a_->StartBridge("relay", target, {}, {}, bridge_wait.Fn(), 8000);
     if (!tunnel_id) {
       return Error("start bridge failed");
@@ -132,8 +139,8 @@ protected:
     if (!bridge_wait.result) {
       return Error(bridge_wait.result.error().message);
     }
-    if (!bridge_wait.result->ok || !bridge_wait.result->session) {
-      return Error(bridge_wait.result->error.empty() ? "bridge refused" : bridge_wait.result->error);
+    if (!bridge_wait.result->session) {
+      return Error("bridge without a session");
     }
 
     Wait<void> nested_wait;

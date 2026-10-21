@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 namespace pp::mesh {
@@ -29,7 +30,49 @@ std::string BodyToJson(const std::vector<uint8_t>& body) {
   return std::string(body.begin(), body.end());
 }
 
+using Err = CircuitClientCoordinator::Err;
+using Failure = CircuitClientCoordinator::Failure;
+
+Failure Aborted() {
+  return Failure::Of(Err::Aborted, "circuit-relay aborted");
+}
+
 } // namespace
+
+CircuitClientCoordinator::Failure CircuitClientCoordinator::WrapLinkFailure(
+    const pp::amp::PeerLinkManager::Failure& link) {
+  using LinkErr = pp::amp::PeerLinkManager::Err;
+  const Err code = link.GetCode() == LinkErr::EndpointNotRegistered ? Err::RelayNoEndpoint
+                   : link.GetCode() == LinkErr::ChannelOpenFailed   ? Err::ChannelFailed
+                                                                    : Err::RelayLinkFailed;
+  return Failure::Of(code, detail::AppendFrom("circuit-relay: relay link failed", "link", link.message));
+}
+
+CircuitClientCoordinator::Failure CircuitClientCoordinator::FromRefusal(const CircuitRefusal refusal,
+                                                                        const std::string& relay_text) {
+  Err code = Err::RelayRefused;
+  switch (refusal) {
+  case CircuitRefusal::TargetNotReserved:
+    code = Err::TargetNotReserved;
+    break;
+  case CircuitRefusal::TargetUnreachable:
+    code = Err::TargetUnreachable;
+    break;
+  case CircuitRefusal::Busy:
+    code = Err::RelayBusy;
+    break;
+  case CircuitRefusal::Refused:
+  case CircuitRefusal::NotReady:
+  case CircuitRefusal::BadRequest:
+  case CircuitRefusal::Generic:
+  case CircuitRefusal::Ok:
+    code = Err::RelayRefused;
+    break;
+  }
+  return Failure::Of(code, detail::AppendFrom("circuit-relay: refused", "relay",
+                                              relay_text.empty() ? std::string("circuit-relay bridge refused")
+                                                                 : relay_text));
+}
 
 struct CircuitClientCoordinator::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
@@ -159,19 +202,20 @@ struct CircuitClientCoordinator::Impl {
     for (const auto id : link_lost) {
       std::lock_guard lock(mu);
       if (auto* tunnel = Find(id); tunnel && tunnel->phase != CircuitTunnelPhase::Closing) {
-        TearDown(*tunnel, false, false, "circuit-relay peer link lost");
+        TearDown(*tunnel, false, false, Failure::Of(Err::Closed, "circuit-relay peer link lost"));
       }
     }
     for (const auto id : timed_out) {
       std::lock_guard lock(mu);
       if (auto* tunnel = Find(id)) {
         TearDown(*tunnel, false, false,
-                 tunnel->is_reserve ? "circuit-relay reserve timed out" : "circuit-relay bridge timed out");
+                 Failure::Of(Err::Timeout, tunnel->is_reserve ? "circuit-relay reserve timed out"
+                                                              : "circuit-relay bridge timed out"));
       }
     }
   }
 
-  void Finish(Tunnel& tunnel, Roe<CircuitTunnelBridgeResult> result) {
+  void Finish(Tunnel& tunnel, BridgeRoe result) {
     if (tunnel.finished) {
       return;
     }
@@ -210,7 +254,7 @@ struct CircuitClientCoordinator::Impl {
    * Requires `mu`. A finished (bridged) tunnel only leaves the table: its session belongs to the
    * consumer that adopted it (AmpCircuitHopRegistry). Otherwise close the near channel and report.
    */
-  void TearDown(Tunnel& tunnel, const bool suppress_notify, const bool local_cancel, const std::string& error) {
+  void TearDown(Tunnel& tunnel, const bool suppress_notify, const bool local_cancel, Failure failure) {
     NoteReserveReleased(tunnel);
     if (tunnel.finished) {
       tunnels.erase(tunnel.id.value);
@@ -221,8 +265,8 @@ struct CircuitClientCoordinator::Impl {
     if (tunnel.near_session) {
       CloseQuietSlot(tunnel.near_session, ResolveLink(tunnel.relay_peer_key));
     }
-    const bool aborted = (suppress_notify || local_cancel) && error.empty();
-    Finish(tunnel, Error(aborted ? "circuit-relay aborted" : error));
+    const bool aborted = (suppress_notify || local_cancel) && failure.message.empty();
+    Finish(tunnel, aborted ? Aborted() : std::move(failure));
     tunnels.erase(tunnel.id.value);
   }
 
@@ -230,7 +274,7 @@ struct CircuitClientCoordinator::Impl {
   bool HandleAck(Tunnel& tunnel, const std::vector<uint8_t>& frame) {
     auto root = common::TryParseObject(BodyToJson(frame));
     if (!root) {
-      TearDown(tunnel, false, false, "invalid circuit-relay ack");
+      TearDown(tunnel, false, false, Failure::Of(Err::BadReply, "invalid circuit-relay ack"));
       return false;
     }
     const bool ack_ok = root->getIf<bool>("ok").value_or(false);
@@ -239,12 +283,13 @@ struct CircuitClientCoordinator::Impl {
       return true;
     }
     if (decision == CircuitBridgeAckDecision::Fail) {
-      TearDown(tunnel, false, false, root->getString("error").value_or("circuit-relay bridge refused"));
+      const std::string text = root->getString("error").value_or("");
+      TearDown(tunnel, false, false,
+               FromRefusal(CircuitRefusalFromAck(root->getString("code").value_or(""), text), text));
       return false;
     }
     tunnel.resolved_multiaddr = root->getString("resolved_multiaddr").value_or("");
     CircuitTunnelBridgeResult ok;
-    ok.ok = true;
     ok.session = tunnel.near_session;
     if (tunnel.is_reserve) {
       tunnel.phase = CircuitTunnelPhase::Reserved;
@@ -277,7 +322,7 @@ struct CircuitClientCoordinator::Impl {
             return false;
           }
           if (!frame) {
-            TearDown(*tunnel, false, false, "circuit-relay bridge failed");
+            TearDown(*tunnel, false, false, Failure::Of(Err::Closed, "circuit-relay bridge failed"));
             return false;
           }
           if (tunnel->phase == CircuitTunnelPhase::WaitAck) {
@@ -300,7 +345,7 @@ struct CircuitClientCoordinator::Impl {
           if (tunnel->finished) {
             // Bridged (or a held reservation): nothing to report, but the record must go — the
             // close decision ignores finished tunnels, so each one stayed until Stop.
-            TearDown(*tunnel, /*suppress_notify=*/true, /*local_cancel=*/false, "");
+            TearDown(*tunnel, /*suppress_notify=*/true, /*local_cancel=*/false, Failure{});
             return;
           }
           const auto decision = DecideCircuitTunnelClose(CircuitTunnelCloseContext{
@@ -313,7 +358,7 @@ struct CircuitClientCoordinator::Impl {
             return;
           }
           TearDown(*tunnel, decision == CircuitTunnelCloseDecision::SuppressNotify, tunnel->local_cancel,
-                   "circuit-relay channel closed");
+                   tunnel->local_cancel ? Aborted() : Failure::Of(Err::Closed, "circuit-relay channel closed"));
         });
   }
 
@@ -359,11 +404,11 @@ struct CircuitClientCoordinator::Impl {
               return;
             }
             if (!channel) {
-              TearDown(*tunnel, false, false, channel.error().message);
+              TearDown(*tunnel, false, false, WrapLinkFailure(channel.error()));
               return;
             }
             if (!runtime->Links().FindLink(relay_key)) {
-              TearDown(*tunnel, false, false, "amp circuit-relay: channel open failed");
+              TearDown(*tunnel, false, false, Failure::Of(Err::ChannelFailed, "amp circuit-relay: channel open failed"));
               return;
             }
             channel_id = *channel;
@@ -378,7 +423,8 @@ struct CircuitClientCoordinator::Impl {
               }
               auto* link = open ? runtime->Links().FindLink(relay_key) : nullptr;
               if (!link || !link->Mux()) {
-                TearDown(*tunnel, false, false, "amp circuit-relay: channel open failed");
+                TearDown(*tunnel, false, false,
+                         Failure::Of(Err::ChannelFailed, "amp circuit-relay: channel open failed"));
                 return;
               }
               BindNear(*tunnel, *link, channel_id);
@@ -390,26 +436,27 @@ struct CircuitClientCoordinator::Impl {
             if (!near->EnqueueOutbound(JsonToBody(request_json))) {
               std::lock_guard lock(mu);
               if (auto* tunnel = Find(id)) {
-                TearDown(*tunnel, false, false, "failed to send circuit-relay bridge request");
+                TearDown(*tunnel, false, false,
+                         Failure::Of(Err::ChannelFailed, "failed to send circuit-relay bridge request"));
               }
             }
           });
         });
   }
 
-  /** Posts `on_finished(Error(why))` and returns true when a request cannot start. */
+  /** Posts `on_finished` its failure and returns true when a request cannot start. */
   bool RefuseStart(const std::string& relay_peer_key, BridgeFinished& on_finished) {
-    const char* why = nullptr;
+    std::optional<Failure> why;
     if (!started.load(std::memory_order_acquire)) {
-      why = "amp circuit-relay service not started";
+      why = Failure::Of(Err::NotStarted, "amp circuit-relay service not started");
     } else if (!runtime->Links().GetLinkSnapshot(relay_peer_key).has_endpoint) {
-      why = "relay peer endpoint not registered";
+      why = Failure::Of(Err::RelayNoEndpoint, "relay peer endpoint not registered");
     }
     if (!why) {
       return false;
     }
     if (on_finished) {
-      runtime->PostToIo([on_finished = std::move(on_finished), why]() mutable { on_finished(Error(why)); });
+      runtime->PostToIo([on_finished = std::move(on_finished), why = *why]() mutable { on_finished(why); });
     }
     return true;
   }
@@ -480,7 +527,7 @@ void CircuitClientCoordinator::AbortInflight() {
     for (const auto id : ids) {
       if (auto* tunnel = impl_->Find(CircuitTunnelId{id})) {
         tunnel->on_finished = nullptr;
-        impl_->TearDown(*tunnel, true, true, "circuit-relay aborted");
+        impl_->TearDown(*tunnel, true, true, Aborted());
       }
     }
   });
@@ -496,7 +543,7 @@ CircuitTunnelId CircuitClientCoordinator::StartBridge(const std::string& relay_p
       target_in.target_peer_id.empty()) {
     if (on_finished) {
       runtime_.PostToIo([on_finished = std::move(on_finished)]() mutable {
-        on_finished(Error("missing circuit bridge target"));
+        on_finished(Failure::Of(Err::BadRequest, "missing circuit bridge target"));
       });
     }
     return {};
@@ -537,7 +584,7 @@ void CircuitClientCoordinator::CancelTunnel(const CircuitTunnelId id) {
   impl_->PostIo([impl = impl_.get(), id] {
     std::lock_guard lock(impl->mu);
     if (auto* tunnel = impl->Find(id)) {
-      impl->TearDown(*tunnel, true, true, "circuit-relay aborted");
+      impl->TearDown(*tunnel, true, true, Aborted());
     }
   });
 }

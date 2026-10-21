@@ -196,7 +196,9 @@ TEST(AmpPunchCoordinatorTest, TargetDeclinesAnInitiatorOutsideItsAudience) {
   ASSERT_TRUE(f.AssocAAndBToIntroducer());
 
   auto declined = punch_a.TryColdPunch("introducer", harness.peer_id_b, {harness.ma_a}, 3000);
-  EXPECT_FALSE(declined && declined->ok) << "B answered a stranger's punch";
+  ASSERT_FALSE(declined) << "B answered a stranger's punch";
+  EXPECT_EQ(declined.error().GetCode(), AmpPunchCoordinator::Err::Declined)
+      << "the introducer passes B's decline on, by its code: " << declined.error().message;
   EXPECT_EQ(harness.mgr_a().CountConnectedLinksForPeerId(harness.peer_id_b), 0u);
 
   AddressDisclosurePolicy with_a = strangers_only;

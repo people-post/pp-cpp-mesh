@@ -5,8 +5,10 @@
 #include "mesh/l4/shared/L4ProtocolIds.h"
 #include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 
+#include "common/CodedFailure.h"
 #include "common/Error.h"
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
@@ -50,12 +52,11 @@ public:
   virtual bool IsConnectedRelayed(const std::string& peer_key) const {
     return IsConnected(peer_key) && !IsConnectedDirect(peer_key);
   }
-  /** Kick ADP dial/handshake; optional for fakes. */
-  virtual void EnsureAssociation(const std::string& peer_key,
-                                 std::function<void(Roe<void>)> on_done) {
+  /** Kick ADP dial/handshake (the link port's codes, as they are); optional for fakes. */
+  virtual void EnsureAssociation(const std::string& peer_key, IChatPeerLinks::LinkCb on_done) {
     (void)peer_key;
     if (on_done) {
-      on_done(Error("ensure association not available"));
+      on_done(IChatPeerLinks::Failure::Of(IChatPeerLinks::Err::Generic, "ensure association not available"));
     }
   }
   virtual std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const = 0;
@@ -72,15 +73,47 @@ public:
   }
 };
 
+/** Why reaching a peer or hop through relays failed (docs/ERRORS.md). */
+enum class CircuitReachErr : int32_t {
+  Ok = 0,
+  /** No circuit service (not started, shutting down). */
+  Unavailable,
+  /** No peer / hop given. */
+  BadRequest,
+  NoRelays,
+  /** AbortPending. */
+  Aborted,
+  /** The relays left could not be tried (no address, undialable, the target itself). */
+  RelayUnusable,
+  RelayUnreachable,
+  /** The relays refused (busy, scope). */
+  RelayRefused,
+  /** No relay had the target parked. */
+  TargetNotReserved,
+  TargetUnreachable,
+  /** The relays did not answer in time, or the reach ran out of time. */
+  Timeout,
+  /** A tunnel came up; the link through it did not. */
+  NestedFailed,
+  /** The steps finished without a link. */
+  NotConnected,
+  PunchFailed,
+  /** An upgrade with no circuit to upgrade. */
+  NoCircuit,
+  Generic,
+};
+using CircuitReachFailure = CodedFailure<CircuitReachErr>;
+using CircuitReachRoe = CodedRoe<void, CircuitReachErr>;
+using CircuitReachDone = std::function<void(CircuitReachRoe)>;
+
 /** L3: circuit bridge fallback when hop PeerId is not directly dialable. */
 class ICircuitHopReach {
 public:
   virtual ~ICircuitHopReach() = default;
   /** Reach a media_relay hop (topology / prefetch). */
-  virtual Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) = 0;
+  virtual CircuitReachRoe TryEnsureHopReachable(const std::string& hop_peer_id) = 0;
   /** Prefer over sync when MeshPump + PostToIo are available. */
-  virtual void TryEnsureHopReachableAsync(const std::string& hop_peer_id,
-                                          std::function<void(Roe<void>)> on_done) {
+  virtual void TryEnsureHopReachableAsync(const std::string& hop_peer_id, CircuitReachDone on_done) {
     if (on_done) {
       on_done(TryEnsureHopReachable(hop_peer_id));
     }
@@ -88,10 +121,9 @@ public:
   /** Reach a peer (realtime protocol) when not directly dialable: circuit, then punch.
    *  `allow_circuit`: when false, punch only and wait for the peer to connect (the awaiting side
    *  of a reach — the reaching side builds the circuit to our seed reservation). */
-  virtual Roe<void> TryEnsurePeerReachable(const std::string& peer_key) = 0;
-  virtual void TryEnsurePeerReachableAsync(const std::string& peer_key,
-                                                std::function<void(Roe<void>)> on_done,
-                                                bool allow_circuit = true) {
+  virtual CircuitReachRoe TryEnsurePeerReachable(const std::string& peer_key) = 0;
+  virtual void TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done,
+                                           bool allow_circuit = true) {
     (void)allow_circuit;
     if (on_done) {
       on_done(TryEnsurePeerReachable(peer_key));
@@ -101,7 +133,7 @@ public:
    * A relayed link to the peer even when a direct one is up (TX-only escalation, a call's relay
    * standby — k6): a circuit only, never a punch; OK once a relay carrier link is Connected.
    */
-  virtual void TryEnsureRelayedAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done,
+  virtual void TryEnsureRelayedAsync(const std::string& peer_key, CircuitReachDone on_done,
                                      CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None) {
     (void)standby_priority;
     TryEnsurePeerReachableAsync(peer_key, std::move(on_done), /*allow_circuit=*/true);
@@ -111,10 +143,10 @@ public:
    * direct link to the peer is Connected — the call then moves onto it (make-before-break,
    * call-path-resilience k3) and the relay stays its fallback. Never demotes the circuit itself.
    */
-  virtual void TryUpgradeToDirectAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done) {
+  virtual void TryUpgradeToDirectAsync(const std::string& peer_key, CircuitReachDone on_done) {
     (void)peer_key;
     if (on_done) {
-      on_done(Error("circuit upgrade not available"));
+      on_done(CircuitReachFailure::Of(CircuitReachErr::Unavailable, "circuit upgrade not available"));
     }
   }
   /** Abort in-flight EnsureViaCircuit / punch chains (ConnectFailed / Leave / teardown). */
@@ -223,25 +255,17 @@ public:
     return amp_links_->IsConnected(peer_key) && !amp_links_->GetLinkSnapshot(peer_key).carrier_backed;
   }
 
-  void EnsureAssociation(const std::string& peer_key,
-                         std::function<void(Roe<void>)> on_done) override {
+  void EnsureAssociation(const std::string& peer_key, IChatPeerLinks::LinkCb on_done) override {
     auto run = [this, peer_key, on_done = std::move(on_done)]() mutable {
       if (!amp_links_) {
         if (on_done) {
-          on_done(Error("dial registry not available"));
+          on_done(IChatPeerLinks::Failure::Of(IChatPeerLinks::Err::Generic, "dial registry not available"));
         }
         return;
       }
-      amp_links_->EnsureAssociation(peer_key, [on_done = std::move(on_done)](IChatPeerLinks::LinkRoe r) {
-        if (!on_done) {
-          return;
-        }
-        if (!r) {
-          on_done(Error(r.error().message));
-          return;
-        }
-        on_done({});
-      });
+      // An adapter: the link's codes, as they are.
+      amp_links_->EnsureAssociation(peer_key, on_done ? std::move(on_done)
+                                                      : IChatPeerLinks::LinkCb([](IChatPeerLinks::LinkRoe) {}));
     };
     PostAmpIo(std::move(run));
   }
@@ -306,32 +330,6 @@ private:
   IChatPeerLinks* amp_links_ = nullptr;
   AmpCircuitHopRegistry* amp_hops_ = nullptr;
   std::function<void(std::function<void()>)> post_io_;
-};
-
-/** Forwards to ConversationsHub / CallStack wiring. */
-class CircuitHopReachClient final : public ICircuitHopReach {
-public:
-  CircuitHopReachClient(std::function<Roe<void>(const std::string&)> try_media_hop_reach,
-                        std::function<Roe<void>(const std::string&)> try_peer_reach)
-      : try_media_hop_reach_(std::move(try_media_hop_reach)), try_peer_reach_(std::move(try_peer_reach)) {}
-
-  Roe<void> TryEnsureHopReachable(const std::string& hop_peer_id) override {
-    if (!try_media_hop_reach_) {
-      return Error("circuit reach not available");
-    }
-    return try_media_hop_reach_(hop_peer_id);
-  }
-
-  Roe<void> TryEnsurePeerReachable(const std::string& peer_key) override {
-    if (!try_peer_reach_) {
-      return Error("peer circuit reach not available");
-    }
-    return try_peer_reach_(peer_key);
-  }
-
-private:
-  std::function<Roe<void>(const std::string&)> try_media_hop_reach_;
-  std::function<Roe<void>(const std::string&)> try_peer_reach_;
 };
 
 } // namespace pp::mesh
