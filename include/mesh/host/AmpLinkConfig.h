@@ -16,7 +16,18 @@ namespace pp::mesh {
 inline constexpr std::chrono::milliseconds kProductHotKeepaliveInterval{10'000};
 inline constexpr std::chrono::milliseconds kProductWarmKeepaliveInterval{25'000};
 
+/**
+ * Link-table size by what the host is for. Amp's defaults (48 links, 16 handshakes pending) fit a
+ * device. A node that serves others — seeds, relays, DHT, directory — gets one link per client:
+ * with the device size a seed's table filled from a handful of devices and labs (dead links stay
+ * until their liveness window ends) and it refused everyone ("its link table is full"), so no
+ * phone could park on it and every answer waited out the seed park.
+ */
+enum class AmpLinkTable { Device, Server };
+inline constexpr size_t kServerMaxLinks = 2048;
+inline constexpr size_t kServerMaxPendingInbound = 128;
+
 /** PeerLinkConfig for the product mesh (MeshHost) — tests use the same config. */
-pp::amp::PeerLinkConfig MakeProductAmpLinkConfig();
+pp::amp::PeerLinkConfig MakeProductAmpLinkConfig(AmpLinkTable table = AmpLinkTable::Device);
 
 } // namespace pp::mesh
