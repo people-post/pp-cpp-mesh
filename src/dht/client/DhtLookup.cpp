@@ -47,7 +47,7 @@ void DhtLookup::AddLocked(DhtLookupCandidate candidate) {
 }
 
 bool DhtLookup::StopIssuingLocked() const {
-  return finished_ || best_self_ || best_other_ || asked_ >= limits_.max_asks ||
+  return finished_ || (limits_.stop_at_record && (best_self_ || best_other_)) || asked_ >= limits_.max_asks ||
          std::chrono::steady_clock::now() >= deadline_;
 }
 
@@ -83,6 +83,11 @@ void DhtLookup::Pump() {
       outcome.record = best_self_ ? best_self_ : best_other_;
       outcome.asked = asked_;
       outcome.answered = answered_;
+      for (const Entry& entry : shortlist_) {
+        if (entry.state == State::Answered && outcome.closest.size() < limits_.k) {
+          outcome.closest.push_back(entry.candidate.peer_key);
+        }
+      }
     }
   }
   if (finish) {

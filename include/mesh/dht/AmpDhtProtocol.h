@@ -43,8 +43,11 @@ public:
   void Stop();
   bool IsStarted() const { return client_.IsStarted(); }
 
-  /** Periodic: refresh self record + push to bootstrap peers. */
-  void Tick() { client_.PublishSelfIfDue(); }
+  /** Periodic, on the io lane: publish the self record when due, refresh stale buckets. */
+  void Tick() {
+    client_.PublishSelfIfDue();
+    client_.RefreshIfDue();
+  }
 
   void FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done) {
     client_.FindPeer(target_peer_id, std::move(on_done));

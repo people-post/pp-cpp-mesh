@@ -68,9 +68,11 @@ persisted in v1; rebuilt from the query peers at start).
 
 ### 4.3 Wire (contract changes)
 
-- `find_peer_result.closer_peers`: up to `k_closer` (proposal: 8) entries from the responder's
-  table closest to the target key, `{peer_id, multiaddr}` — filled now (always empty today). The
-  contract says "≤ α"; that is too few to converge, so it changes to `≤ k_closer`.
+- `find_peer_result.closer_peers`: up to `k_closer` = k = 20 entries from the responder's table
+  closest to the target key, `{peer_id, multiaddr}`, never the asker — filled now (always empty
+  before). The contract says "≤ α"; that is too few to converge, so it changes to `≤ k_closer`.
+  (8 was proposed first; the publish walk showed it too few: with 8, a walk meets only about the
+  8–10 closest, never all k it must store at.)
 - `find_peer_result` and `pong` say `participant: true|false` (does the responder take part).
   A peer is admitted from its answers only when it says so; one whose `store` is accepted is a
   participant by definition. A table entry's dial address comes from the peer's own signed
@@ -94,14 +96,19 @@ its query peers only and follows no hints (D2).
 
 ### 4.5 Publish
 
-Gate: reachability ≠ Blocked and at least one dialable ADP multiaddr (contract). Then: look up
-our own key, STORE our record at the (up to) k closest that answered, re-publish at `ttl / 2`
-and after a network change (new addresses). Not while backgrounded (Nodes are desktop today).
+Gate: reachability ≠ Blocked and at least one dialable ADP multiaddr (contract). MeshHost wires
+both live (`may_publish`, `current_listen_multiaddrs` — the advertised addresses minus those no
+peer can dial); they are looked at no more than once a second. Then: walk to our own key
+(`DhtLookup::Limits::WalkToClosest`: past any record, up to 3k asks), STORE our record at the (up
+to) k closest that answered — and at the query peers too, because a Client asks only those (D2).
+Re-publish at `ttl / 2`, and at once when the addresses change. Not while backgrounded (Nodes are
+desktop today).
 
 ### 4.6 Refresh
 
-A bucket not heard from for an hour gets one lookup of a random key in its range; at most a few
-refreshes an hour in total. No other background traffic.
+A bucket not heard from for an hour gets one walk toward one of its own contacts' PeerId (a key in
+its range, so no new wire op is needed — `find_peer` takes a PeerId); looked for every 10 min, at
+most 3 refreshes an hour in total. No other background traffic.
 
 ### 4.7 What the consumers see
 
@@ -130,10 +137,11 @@ hops reach media ranking as Public candidates.
 
 ## 7. Build order
 
-Status: steps 1–3 done — `DhtKey`, `DhtRoutingTable` (thread-safe, shared by server and client);
+Status: steps 1–4 done — `DhtKey`, `DhtRoutingTable` (thread-safe, shared by server and client);
 the server fills `closer_peers` (never the asker) and admits accepted `store` senders; the client
 admits participants that answer and pings a full bucket's oldest when it has been quiet 15 min;
-`FindPeer` is the iterative `DhtLookup` with the negative cache.
+`FindPeer` is the iterative `DhtLookup` with the negative cache; publishing walks to the k closest
+behind the gate and follows address changes; stale buckets are refreshed.
 
 1. Key256, XOR, buckets, admission / eviction / diversity — pure, unit-tested.
 2. `closer_peers` filled by the server from the table; the table fed by authenticated RPCs.

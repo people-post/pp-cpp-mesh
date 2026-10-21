@@ -77,6 +77,8 @@ public:
   std::vector<DhtContact> Closest(const DhtKey& target, size_t n, const std::string& exclude_peer_id = {}) const;
   /** The contact for `peer_id`, if it is one. */
   std::optional<DhtContact> Find(const std::string& peer_id) const;
+  /** The contacts in bucket `index` (0–255). */
+  std::vector<DhtContact> InBucket(int index) const;
   /** Buckets with contacts, none heard from since `older_than_ms` (refresh candidates). */
   std::vector<int> StaleBuckets(int64_t older_than_ms) const;
   size_t Size() const;

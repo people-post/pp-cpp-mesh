@@ -221,5 +221,46 @@ TEST(DhtLookupTest, AtMostAlphaInFlightAndASelfAnswerWins) {
   EXPECT_LE(max_inflight, DhtLookup::Limits{}.alpha);
 }
 
+// Publishing walks to the k closest even when someone already holds a record for the key.
+TEST(DhtLookupTest, AWalkGoesOnPastARecordAndNamesTheClosestThatAnswered) {
+  Network net(200, 61, 20);
+  const DhtLookup::Limits walk = DhtLookup::Limits::WalkToClosest();
+  const auto outcome = RunInline(net, FarSeeds(net), walk);
+  ASSERT_EQ(outcome.closest.size(), walk.k) << "asked " << outcome.asked << " answered " << outcome.answered;
+  std::vector<std::string> ids;
+  for (const auto& [id, node] : net.nodes) {
+    ids.push_back(id);
+  }
+  const DhtKey key = *DhtKeyOfPeerId(net.target);
+  std::sort(ids.begin(), ids.end(), [&](const std::string& a, const std::string& b) {
+    return DhtCloser(key, *DhtKeyOfPeerId(a), *DhtKeyOfPeerId(b));
+  });
+  ids.resize(walk.k);
+  EXPECT_EQ(outcome.closest, ids) << "exactly the network's k closest, closest first (asked " << outcome.asked << ")";
+  EXPECT_LE(outcome.asked, walk.max_asks);
+}
+
+TEST(DhtLookupTest, TheClosestListHasOnlyThoseThatAnswered) {
+  Network net(60, 11, 20);
+  const auto seeds = FarSeeds(net);
+  const std::string silent = seeds[1].peer_key;
+  std::optional<DhtLookup::Outcome> outcome;
+  DhtLookup::Limits limits;
+  limits.follow_hints = false;
+  DhtLookup::Run(
+      net.target, seeds, limits,
+      [&](const DhtLookupCandidate& c, DhtLookup::AnswerCb answer) {
+        if (c.peer_key == silent) {
+          answer(std::nullopt);
+        } else {
+          answer(DhtLookupAnswer{});
+        }
+      },
+      {}, [&](DhtLookup::Outcome o) { outcome = std::move(o); });
+  ASSERT_TRUE(outcome.has_value());
+  EXPECT_EQ(outcome->closest.size(), 2u);
+  EXPECT_EQ(std::count(outcome->closest.begin(), outcome->closest.end(), silent), 0);
+}
+
 } // namespace
 } // namespace pp::mesh

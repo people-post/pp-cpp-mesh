@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -44,8 +45,11 @@ struct DhtCloserPeer {
   std::string multiaddr;
 };
 
-/** How many `closer_peers` a responder offers (the contract's `k_closer`). */
-inline constexpr size_t kDhtCloserPeers = 8;
+/**
+ * How many `closer_peers` a responder offers (the contract's `k_closer`): k, as in Kademlia — a
+ * walk to the k closest (publishing) only meets them all if each answer can name that many.
+ */
+inline constexpr size_t kDhtCloserPeers = 20;
 
 struct DhtFindPeerResult {
   std::string peer_id;
@@ -65,6 +69,8 @@ struct DhtOpsStats {
   uint64_t inbound_rate_limited = 0;
   uint64_t store_rejected = 0;
   uint64_t find_peer_issued = 0;
+  uint64_t self_publishes = 0;
+  size_t last_publish_targets = 0;
   uint64_t soft_reputation_skips = 0;
   size_t soft_reputation_penalized_peers = 0;
 };
@@ -72,6 +78,10 @@ struct DhtOpsStats {
 struct AmpDhtProtocolConfig {
   std::string local_peer_id;
   std::vector<std::string> listen_multiaddrs;
+  /** Live addresses to publish (they follow network changes); unset: `listen_multiaddrs`. */
+  std::function<std::vector<std::string>()> current_listen_multiaddrs;
+  /** The publish gate's reachability half: false while reachability is Blocked. Unset: open. */
+  std::function<bool()> may_publish;
   std::vector<uint8_t> device_signing_secret;
   std::vector<uint8_t> device_signing_public;
   MeshDhtConfig tunables{};

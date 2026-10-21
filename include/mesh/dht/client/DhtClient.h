@@ -55,6 +55,8 @@ public:
 
   struct Stats {
     uint64_t find_peer_issued = 0;
+    uint64_t self_publishes = 0;
+    size_t last_publish_targets = 0;
     uint64_t soft_reputation_skips = 0;
     uint64_t soft_reputation_penalized_peers = 0;
   };
@@ -62,6 +64,12 @@ public:
   /** Map immediate link-manager failure → DHT Err (never inspect ADP/PeerLink codes). */
   static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child);
 
+  /** The publish gate and our addresses are looked at no more often than this (ticks are many). */
+  static constexpr int64_t kGateCheckMs = 1000;
+  /** How often stale buckets are looked for, a bucket's staleness, and the refresh budget (§ 4.6). */
+  static constexpr int kRefreshCheckSeconds = 600;
+  static constexpr int64_t kStaleBucketMs = 60 * 60 * 1000;
+  static constexpr int kMaxRefreshesPerHour = 3;
   /** A whole lookup stops asking after this long (the asks in flight still settle). */
   static constexpr int64_t kLookupBudgetMs = 8000;
   /** A lookup that someone answered and nobody had a record for is not repeated this soon. */
@@ -79,8 +87,14 @@ public:
   void Stop();
   bool IsStarted() const { return started_.load(std::memory_order_acquire); }
 
-  /** Participating: refresh the self record when due and push it to the query peers. */
+  /**
+   * Taking part: publish the self record when due (ttl / 2) or when our addresses changed, if the
+   * gate is open (a dialable ADP address, `may_publish`) — at the k closest to our key that answer
+   * a walk to it, and at the query peers (docs/DHT.md § 4.5).
+   */
   void PublishSelfIfDue();
+  /** Taking part: walk into buckets nobody was heard from for an hour, a few an hour (§ 4.6). */
+  void RefreshIfDue();
   void FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done);
   /** A DHT participant was heard from over an authenticated exchange: admit or refresh it. */
   void NoteHeard(const std::string& peer_id, const std::string& dial_addr);
@@ -88,6 +102,13 @@ public:
   Stats OutboundStats() const;
 
 private:
+  struct WalkOutcome : DhtLookup::Outcome {
+    /** The last ask's failure (meaningful when nobody answered). */
+    Failure last_failure = Failure::Of(Err::NotFound, "find_peer not found");
+  };
+  /** A `DhtLookup` toward `target_peer_id` from the query peers and the table (no cache, no cap). */
+  void Walk(const std::string& target_peer_id, DhtLookup::Limits limits, std::function<void(WalkOutcome)> done);
+  std::vector<std::string> PublishableAddrs() const;
   void Rpc(const std::string& peer_key, common::Object request, std::function<void(RpcRoe)> on_response);
   void NoteSoftReputationBad(const std::string& peer_key);
   bool SoftReputationAllows(const std::string& peer_key) const;
@@ -111,10 +132,18 @@ private:
   std::atomic<bool> started_{false};
   int64_t self_seq_ = 0;
   std::chrono::steady_clock::time_point next_self_publish_{};
+  std::chrono::steady_clock::time_point next_gate_check_{};
+  std::vector<std::string> published_addrs_;
+  std::atomic<bool> publishing_{false};
+  std::chrono::steady_clock::time_point next_refresh_check_{};
+  std::chrono::steady_clock::time_point refresh_window_end_{};
+  int refreshes_in_window_ = 0;
 
   mutable std::mutex stats_mutex_;
   uint64_t find_peer_issued_ = 0;
   uint64_t soft_reputation_skips_ = 0;
+  uint64_t self_publishes_ = 0;
+  size_t last_publish_targets_ = 0;
 
   mutable std::mutex reputation_mutex_;
   struct SoftRep {

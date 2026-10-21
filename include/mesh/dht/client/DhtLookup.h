@@ -35,10 +35,11 @@ struct DhtLookupAnswer {
 /**
  * One iterative Kademlia lookup (docs/DHT.md § 4.4): a shortlist ordered by XOR distance to the
  * target; `alpha` asks in flight to the closest not yet asked; `closer_peers` hints join the
- * shortlist (deduplicated, minus `skip`). It stops issuing once a valid record has arrived, the k
- * closest known have all answered or failed, `max_asks` were sent, or `budget` has passed — and
- * finishes when the asks in flight settle, with the best record (a self answer first, else the
- * highest seq).
+ * shortlist (deduplicated, minus `skip`). It stops issuing once a valid record has arrived (unless
+ * `stop_at_record` is off — a walk to the k closest, for publishing and refresh), the k closest
+ * known have all answered or failed, `max_asks` were sent, or `budget` has passed — and finishes
+ * when the asks in flight settle, with the best record (a self answer first, else the highest seq)
+ * and the k closest that answered.
  *
  * Transport-free: `ask` does the RPC and the checks. It may answer inline. Thread-safe.
  */
@@ -51,9 +52,21 @@ public:
     std::chrono::milliseconds budget{8000};
     /** Off: ask only the seeds (a Client never walks strangers — DHT.md D2). */
     bool follow_hints = true;
+    /** Off: a record does not end the walk (publishing, refresh). */
+    bool stop_at_record = true;
+
+    /** A walk to the k closest (publishing, refresh): it needs at least k asks, plus the way there. */
+    static Limits WalkToClosest() {
+      Limits limits;
+      limits.stop_at_record = false;
+      limits.max_asks = 3 * limits.k;
+      return limits;
+    }
   };
   struct Outcome {
     std::optional<PeerRoutingRecord> record;
+    /** Up to k peer_keys that answered, closest to the target first. */
+    std::vector<std::string> closest;
     size_t asked = 0;
     size_t answered = 0;
   };

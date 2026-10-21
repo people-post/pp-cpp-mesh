@@ -160,6 +160,14 @@ std::vector<DhtContact> DhtRoutingTable::Closest(const DhtKey& target, const siz
   return all;
 }
 
+std::vector<DhtContact> DhtRoutingTable::InBucket(const int index) const {
+  std::lock_guard lock(mutex_);
+  if (index < 0 || static_cast<size_t>(index) >= buckets_.size()) {
+    return {};
+  }
+  return buckets_[static_cast<size_t>(index)].contacts;
+}
+
 std::vector<int> DhtRoutingTable::StaleBuckets(const int64_t older_than_ms) const {
   std::lock_guard lock(mutex_);
   std::vector<int> stale;

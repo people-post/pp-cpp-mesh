@@ -45,6 +45,8 @@ DhtOpsStats AmpDhtProtocol::Stats() const {
   stats.store_rejected = inbound.store_rejected;
   const DhtClient::Stats outbound = client_.OutboundStats();
   stats.find_peer_issued = outbound.find_peer_issued;
+  stats.self_publishes = outbound.self_publishes;
+  stats.last_publish_targets = outbound.last_publish_targets;
   stats.soft_reputation_skips = outbound.soft_reputation_skips;
   stats.soft_reputation_penalized_peers = outbound.soft_reputation_penalized_peers;
   return stats;
@@ -62,6 +64,8 @@ std::string AmpDhtProtocol::FormatOpsStatusJson() const {
   object.set("inbound_rate_limited", static_cast<int64_t>(stats.inbound_rate_limited));
   object.set("store_rejected", static_cast<int64_t>(stats.store_rejected));
   object.set("find_peer_issued", static_cast<int64_t>(stats.find_peer_issued));
+  object.set("self_publishes", static_cast<int64_t>(stats.self_publishes));
+  object.set("last_publish_targets", static_cast<int64_t>(stats.last_publish_targets));
   object.set("soft_reputation_skips", static_cast<int64_t>(stats.soft_reputation_skips));
   object.set("soft_reputation_penalized_peers",
              static_cast<int64_t>(stats.soft_reputation_penalized_peers));
