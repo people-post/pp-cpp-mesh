@@ -106,7 +106,10 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   pp::amp::AmpStack::Config amp_cfg;
   amp_cfg.identity = std::move(identity);
   amp_cfg.local_peer_id = *peer_id;
-  amp_cfg.link_config = MakeProductAmpLinkConfig();
+  // A host others connect to (seed / relay / DHT / directory) needs a link per client.
+  const bool serves_others =
+      config.host_circuit_relay || config.host_media_relay || config.host_dht || config.host_directory;
+  amp_cfg.link_config = MakeProductAmpLinkConfig(serves_others ? AmpLinkTable::Server : AmpLinkTable::Device);
 
   auto stack = pp::amp::AmpStack::Create(std::move(io), amp_clock_, std::move(amp_cfg));
   if (!stack) {
