@@ -177,12 +177,14 @@ Rules built on it:
 - **No dedicated periodic check.** The directory refresh supplies the regular signal. One round
   runs after mesh start and after a network change **only if** no outcome is recent; none while
   the app is backgrounded (mobile).
-- **The park:** reserve on the selected set (every Connected relay, then the cold walk), and
-  settle once enough are Connected — the target, or every relay not held down (and dialable)
-  when there are fewer; ≥1 after a short grace or at the deadline, as before. When none is left
-  (every rendezvous candidate held down), the park answers **not parked at once** (calls stop
-  waiting for a seed that is known gone). A miss is redialed within the park only when it may
-  pass (the record does not hold the peer down, or it refused — up but busy).
+- **The park:** reserve on the selected set (every Connected relay, then the cold walk, seeds
+  first), and wait on **bootstrap seeds only**: settle once enough are Connected — the target, or
+  every seed not held down (and dialable) when there are fewer; ≥1 after a short grace or at the
+  deadline, as before. When every seed is held down, the park answers **not parked at once**.
+  A seed's miss is redialed within the park only when it may pass (the record does not hold it
+  down, or it refused — up but busy). Other rendezvous relays are never waited on or redialed: one
+  may be the very peer being reached (a contact that relays), and dialing it is the dual-NAT dial
+  the park exists to prevent (hard lab `B-HARD-CALL-NAT-COLD-DIRTY` caught a surface-wide park).
 - **Circuit dial:** the relays circuit reach may bridge through leave out those held down
   (unless Connected) — a StartBridge through one would only time out.
 - **PeerReach:** the park before a private dial uses the selection; with every rendezvous peer

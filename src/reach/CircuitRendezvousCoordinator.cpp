@@ -181,8 +181,8 @@ CircuitRendezvousCoordinator::ParkCount CircuitRendezvousCoordinator::CountParkO
     return count;
   }
   const int64_t now = PeerReachRecord::NowMs();
-  for (const MeshHopCandidate& hop : RendezvousCandidates()) {
-    const pp::amp::LinkSnapshotEx snap = chat->links.SnapshotByPeerId(hop.peer_id);
+  for (const std::string& seed : BootstrapSeedPeerIds()) {
+    const pp::amp::LinkSnapshotEx snap = chat->links.SnapshotByPeerId(seed);
     if (snap.base.phase == pp::amp::PeerLinkPhase::Connected) {
       if (snap.transport != pp::amp::TransportClass::Carrier) {
         ++count.usable;
@@ -193,11 +193,21 @@ CircuitRendezvousCoordinator::ParkCount CircuitRendezvousCoordinator::CountParkO
     if (snap.base.phase == pp::amp::PeerLinkPhase::Dialing || snap.base.phase == pp::amp::PeerLinkPhase::Handshaking) {
       ++count.dials_in_flight;
     }
-    if (chat->links.GetLinkSnapshot(hop.peer_id).has_endpoint && !ReachHeldDown(Facts(hop.peer_id), now)) {
+    if (chat->links.GetLinkSnapshot(seed).has_endpoint && !ReachHeldDown(Facts(seed), now)) {
       ++count.usable;
     }
   }
   return count;
+}
+
+std::vector<std::string> CircuitRendezvousCoordinator::BootstrapSeedPeerIds() const {
+  std::vector<std::string> out;
+  for (const auto& hop : deps_.bootstrap_seeds ? deps_.bootstrap_seeds() : std::vector<MeshHopCandidate>{}) {
+    if (!hop.peer_id.empty()) {
+      out.push_back(hop.peer_id);
+    }
+  }
+  return out;
 }
 
 void CircuitRendezvousCoordinator::WarmBootstrapSeedSessions() {
@@ -312,6 +322,11 @@ void CircuitRendezvousCoordinator::ReserveOnBootstrapSeedsOnIo() {
     view.push_back({hop.peer_id, chat->links.IsConnected(hop.peer_id) && !ReachableOnlyViaCarrier(chat->links, hop.peer_id),
                     Facts(hop.peer_id)});
   }
+  // Seeds first (stable): the park waits on them (H010), so the capped cold walk must reach them.
+  const std::vector<std::string> seeds = BootstrapSeedPeerIds();
+  std::stable_partition(view.begin(), view.end(), [&seeds](const ReachCandidate& c) {
+    return std::find(seeds.begin(), seeds.end(), c.peer_id) != seeds.end();
+  });
   auto park = std::make_shared<ColdPark>();
   park->must_dial = StickyRelay();
   const ReachSelection pick = SelectForRole(view, PeerReachRecord::NowMs(), kRendezvousLiveTarget,
@@ -382,8 +397,10 @@ std::vector<std::shared_ptr<CircuitRendezvousCoordinator::SeedPark>> CircuitRend
 }
 
 void CircuitRendezvousCoordinator::OnSeedDialMissed(IChatPeerLinks& links, const MeshHopCandidate& hop) {
-  const auto surface = RendezvousCandidates();
-  if (std::none_of(surface.begin(), surface.end(), [&](const MeshHopCandidate& h) { return h.peer_id == hop.peer_id; })) {
+  // Only seeds: a park waits on them. Any other relay (a contact — maybe the very peer being
+  // reached) is never redialed for a park.
+  const auto seeds = BootstrapSeedPeerIds();
+  if (std::find(seeds.begin(), seeds.end(), hop.peer_id) == seeds.end()) {
     return;
   }
   const std::vector<std::shared_ptr<SeedPark>> waiting = WaitingParks();
@@ -417,14 +434,14 @@ void CircuitRendezvousCoordinator::OnSeedDialMissed(IChatPeerLinks& links, const
     }));
     return;
   }
-  // A relay held down now may leave enough Connected; else answer now instead of at the deadline,
-  // unless another relay's dial (the cold walk's, or a redial for it) may still land.
+  // A seed held down now may leave enough Connected; else answer now instead of at the deadline,
+  // unless another seed's dial (the cold walk's, or a redial for it) may still land.
   const ParkCount count = CountParkOnIo();
   for (const auto& park : waiting) {
     CheckSeedPark(park, /*at_deadline=*/false);
     if (SeedParkCannotLand(count.connected > 0, count.dials_in_flight,
                            may_pass && ShouldRedialSeedForPark(left_ms(*park), park->redials))) {
-      log().warning << "bootstrap seed park failed early (no relay reachable after " << park->redials << " redials)";
+      log().warning << "bootstrap seed park failed early (no seed reachable after " << park->redials << " redials)";
       FinishSeedPark(park, false);
     }
   }
@@ -520,18 +537,16 @@ void CircuitRendezvousCoordinator::EnsureBootstrapSeedParkedAsync(std::function<
   park->lane = lane;
   park->on_done = std::move(on_done);
   park->deadline_at = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 12000);
-  std::unordered_set<std::string> relay_ids;
-  for (const MeshHopCandidate& hop : RendezvousCandidates()) {
-    relay_ids.insert(hop.peer_id);
-  }
-  if (relay_ids.empty()) {
-    log().warning << "bootstrap seed park timeout (no rendezvous relays)";
+  const auto ids = BootstrapSeedPeerIds();
+  if (ids.empty()) {
+    log().warning << "bootstrap seed park timeout (no seed PeerIds)";
     FinishSeedPark(park, false);
     return;
   }
+  const std::unordered_set<std::string> seed_ids(ids.begin(), ids.end());
   park->listener_id = park->links->AddPeerConnectedListener(
-      deferred_.Bind([this, park, relay_ids](const std::string& peer_id) {
-        if (relay_ids.count(peer_id) > 0) {
+      deferred_.Bind([this, park, seed_ids](const std::string& peer_id) {
+        if (seed_ids.count(peer_id) > 0) {
           PostIoOrRun(deferred_.Bind([this, park]() { CheckSeedPark(park, /*at_deadline=*/false); }));
         }
       }));
@@ -540,7 +555,7 @@ void CircuitRendezvousCoordinator::EnsureBootstrapSeedParkedAsync(std::function<
     std::erase_if(parks_, [](const std::weak_ptr<SeedPark>& weak) { return weak.expired(); });
     parks_.push_back(park);
   }
-  // The first check, on the lane after the reserve posted above: settles at once when enough relays
+  // The first check, on the lane after the reserve posted above: settles at once when enough seeds
   // are Connected already, or when the record holds every one down.
   PostIoOrRun(deferred_.Bind([this, park]() { CheckSeedPark(park, /*at_deadline=*/false); }));
   // The deadline always answers: on the lane while the mesh runs; Invalidate (mesh stop) abandons
@@ -570,7 +585,7 @@ void CircuitRendezvousCoordinator::CheckSeedPark(const std::shared_ptr<SeedPark>
   }
   const ParkCount count = CountParkOnIo();
   if (count.usable == 0) {
-    log().warning << "bootstrap seed park failed at once (no rendezvous relay usable: held down or no endpoint)";
+    log().warning << "bootstrap seed park failed at once (no seed usable: held down or no endpoint)";
     FinishSeedPark(park, false);
     return;
   }

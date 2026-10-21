@@ -35,9 +35,9 @@ struct CircuitRendezvousDeps {
  *   a seed park (H010), and re-park when a surface peer reconnects after a path change (B27).
  *
  * Both sides choose from the reach record (docs/PEER_REACH.md § 5): a relay it holds down is not
- * dialed, the cold walk stops at kRendezvousLiveTarget live relays and spends at most
- * kReachMaxColdDialsPerRound dials, and a park waits for that many — answering at once when every
- * relay is held down.
+ * dialed, the cold walk (seeds first) stops at kRendezvousLiveTarget live relays and spends at most
+ * kReachMaxColdDialsPerRound dials, and a park waits for that many seeds — answering at once when
+ * every seed is held down.
  *
  * Threading: entry points on any thread; association / reserve work, park checks and their timers
  * (Amp's clock) run on the mesh's io lane; callbacks capturing `this` are dropped after
@@ -63,9 +63,10 @@ public:
   /** StartReserve a specific R1 (chosen / announced by the peer); no-op when empty. */
   void PreferLateReserve(const std::string& relay_peer_id);
   /**
-   * Reserve, then on_done(true) once enough rendezvous relays are Connected (the target, or every
-   * one not held down when fewer), false at timeout or at once when the record holds every one down
-   * (H010).
+   * Reserve, then on_done(true) once enough bootstrap seeds are Connected (the target, or every one
+   * not held down when fewer), false at timeout or at once when the record holds every one down
+   * (H010). Only seeds count and only seeds are redialed — another rendezvous relay may be the very
+   * peer being reached, which a park must never dial.
    */
   void EnsureBootstrapSeedParkedAsync(std::function<void(bool parked)> on_done, int timeout_ms = 12000);
 
@@ -85,7 +86,8 @@ private:
   PeerReachFacts Facts(const std::string& peer_id) const;
   /** The relay this node parks on first: the chosen / announced R1, else circuit reach's last good one. */
   std::string StickyRelay() const;
-  /** Rendezvous relays Connected (carrier-only ones never count) and not held down, on the io lane. */
+  std::vector<std::string> BootstrapSeedPeerIds() const;
+  /** Bootstrap seeds Connected (carrier-only ones never count) and not held down, on the io lane. */
   struct ParkCount {
     size_t usable = 0;
     size_t connected = 0;
