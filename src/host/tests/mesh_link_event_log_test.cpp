@@ -21,6 +21,27 @@ TEST(MeshLinkEventLogTest, FormatsDroppedWithReasonAndAge) {
             "reason=carrier-closed was_connected=1");
 }
 
+TEST(MeshLinkEventLogTest, FormatsKeepaliveCadenceAndDialFailures) {
+  pp::amp::LinkEvent dead;
+  dead.kind = pp::amp::LinkEvent::Kind::Dropped;
+  dead.dial_key = "QmSeed";
+  dead.peer_id = "QmSeed";
+  dead.reason = pp::amp::LinkDropReason::ConnectionDead;
+  dead.was_connected = true;
+  dead.keepalive_interval_ms = 10000;
+  EXPECT_EQ(pp::mesh::FormatLinkEventForLog(dead),
+            "link dropped key=QmSeed peer=QmSeed path=direct dir=in id=0.0 reason=connection-dead was_connected=1 "
+            "keepalive_ms=10000");
+
+  pp::amp::LinkEvent failed;
+  failed.kind = pp::amp::LinkEvent::Kind::DialFailed;
+  failed.dial_key = "QmSeed";
+  failed.outbound = true;
+  failed.reason = pp::amp::LinkDropReason::HandshakeTimeout;
+  EXPECT_EQ(pp::mesh::FormatLinkEventForLog(failed),
+            "link dial-failed key=QmSeed peer=- path=direct dir=out id=0.0 reason=handshake-timeout");
+}
+
 TEST(MeshLinkEventLogTest, FormatsPathChangeEndpoints) {
   pp::amp::LinkEvent event;
   event.kind = pp::amp::LinkEvent::Kind::PathChanged;

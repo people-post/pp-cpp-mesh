@@ -1,6 +1,6 @@
 # Peer reach: what we know about reaching peers, and choosing seeds
 
-Status: **design, for review** (2026-10-21). Nothing here is implemented yet except where noted.
+Status: design agreed 2026-10-21; build order § 7 — steps 1–2 implemented (local branches).
 
 A mesh node reaches other peers for many jobs — a call's peer, a media hop, a rendezvous relay, a
 punch introducer, a directory provider, a DHT peer. Today each job builds its own candidate list,
@@ -141,7 +141,12 @@ says little about the network now).
 
 ### 4.2 What feeds it
 
-Every outcome the mesh already sees, at no extra traffic:
+Implemented: Amp's link events, subscribed by `MeshConnectivity::Wire` (one listener per Amp
+stack) — `Connected` (Live, with its path), `DialFailed` (a dial that missed every dial-book
+candidate; pp-cpp-amp adds it for this) and a connected link's `Dropped` that means the peer is
+gone: `ConnectionDead` on a link with a keepalive cadence (pp-cpp-amp adds `keepalive_interval_ms`;
+a cold link timing out is idle, not dead) or `TransportFailed` (no route). Every outcome below
+reaches it through those events — no extra traffic:
 
 - dial outcomes (`EnsureAssociation`), circuit and punch results, reserve answers;
 - link events from Amp: Connected, evicted (`ConnectionDead` = keepalive lost, OS unreachable);
@@ -192,6 +197,9 @@ Rules built on it:
   peers beyond the seeds; until then it is a second directory and must not hold up calls.
 
 ## 7. Build order
+
+Status: 1 and 2 done (pp-cpp-amp `feat/dial-failed-event`, pp-cpp-mesh
+`fix/seed-park-settles-on-connect`, local).
 
 Each step ships on its own (unit tests + the pp-browser labs):
 

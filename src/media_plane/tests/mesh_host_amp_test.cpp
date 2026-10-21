@@ -13,6 +13,7 @@
 #include "mesh/l4/circuit/serve/CircuitRelayServer.h"
 #include "mesh/host/LocalNetworkChange.h"
 #include "mesh/connectivity/MeshConnectivity.h"
+#include "mesh/reach/PeerReachRecord.h"
 #include "mesh/host/MeshHost.h"
 #include "common/metrics/MetricsRegistry.h"
 #include "mesh/media_plane/MeshMediaRelay.h"
@@ -183,13 +184,15 @@ struct SilentPeerFixture {
   MetricsRegistry metrics;  // this host's own: only its link shows
   MeshHost host{MeshExecutors{}, metrics};  // manual drive: L4 work inline
   std::vector<pp::amp::LinkEvent> events;
+  /** Runs once the host has its Amp stack, before the link to B comes up. */
+  std::function<void()> after_attach;
+  std::string peer_b;
 
   void SetUp() {
     const auto addr_a = pp::adp::IpEndpoint::V4(10, 0, 1, 1, 1000);
     const auto addr_b = pp::adp::IpEndpoint::V4(10, 0, 1, 2, 2000);
     io_b = std::make_shared<pp::adp::LossyDatagramIo>(std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr_b));
     std::string peer_a;
-    std::string peer_b;
     auto stack_a = MakeTestAmpStack(clock, std::make_shared<pp::adp::MemoryDatagramIo>(hub, addr_a), &peer_a);
     stack_b = MakeTestAmpStack(clock, io_b, &peer_b);
     ASSERT_TRUE(stack_a && stack_b);
@@ -199,6 +202,9 @@ struct SilentPeerFixture {
     auto ma_b = pp::amp::FormatAdpMultiaddr(addr_b, peer_b);
     ASSERT_TRUE(ma_a && ma_b);
     ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack_a), *ma_a)));
+    if (after_attach) {
+      after_attach();
+    }
     auto& links = host.Amp()->Links();
     links.AddLinkEventListener([this](const pp::amp::LinkEvent& event) { events.push_back(event); });
     ASSERT_TRUE(static_cast<bool>(links.RegisterEndpoint("b", *ma_b)));
@@ -254,6 +260,45 @@ TEST(MeshHostAmpTest, NetworkChangeEvictsADeadLinkFast) {
                        .Read();
   EXPECT_GT(rtt.count, 0u);
   EXPECT_GT(f.host.Amp()->Runtime().GetEndpoint().Stats().tx_datagrams, 0u);
+  f.host.Stop();
+}
+
+// docs/PEER_REACH.md § 4: the connectivity's record follows the peer — Live when the link comes up,
+// Down (keepalive lost) when a kept-alive link goes silent, Unknown again on another network.
+TEST(MeshHostAmpTest, TheReachRecordFollowsAPeerUpAndGone) {
+  ASSERT_GE(sodium_init(), 0);
+  SilentPeerFixture f;
+  MeshConnectivity connectivity;
+  f.after_attach = [&]() {
+    MeshConnectivityDeps deps;
+    deps.mesh = [&f]() { return &f.host; };
+    connectivity.SetDeps(std::move(deps));
+    connectivity.Wire();
+  };
+  f.SetUp();
+  if (::testing::Test::HasFatalFailure()) {
+    return;
+  }
+  f.Run(5, 10);  // link events are posted
+  const PeerReachRecord& record = connectivity.ReachRecord();
+  EXPECT_EQ(record.Facts(f.peer_b, connectivity.NetworkGeneration()).state, PeerReachState::Live);
+  EXPECT_EQ(record.Facts(f.peer_b, connectivity.NetworkGeneration()).last_ok_path, PeerLinkKind::Direct);
+
+  // B went silent in SetUp: the hot link's liveness window runs out.
+  for (int i = 0; i < 1200 && !f.Dropped(pp::amp::LinkDropReason::ConnectionDead); ++i) {
+    f.Run(1, 100);
+  }
+  ASSERT_TRUE(f.Dropped(pp::amp::LinkDropReason::ConnectionDead));
+  f.Run(5, 10);
+  const PeerReachFacts gone = record.Facts(f.peer_b, connectivity.NetworkGeneration());
+  EXPECT_EQ(gone.state, PeerReachState::Down);
+  EXPECT_EQ(gone.last_failure, PeerReachFailure::KeepaliveLost);
+  EXPECT_FALSE(record.MayDial(f.peer_b, PeerReachRecord::NowMs(), connectivity.NetworkGeneration()));
+
+  f.host.OnLocalNetworkChanged(LocalNetworkChange{true, true, true});
+  EXPECT_EQ(record.Facts(f.peer_b, connectivity.NetworkGeneration()).state, PeerReachState::Unknown)
+      << "judged on the old network";
+  connectivity.Clear();
   f.host.Stop();
 }
 

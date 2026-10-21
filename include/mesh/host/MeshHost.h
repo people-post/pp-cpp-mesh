@@ -114,6 +114,8 @@ public:
    * Low-level Amp access — mesh tests and AttachAmpStack only.
    * Feature code must use ChatDeps() / CircuitDeps() instead.
    */
+  /** Bumped by every local network change: facts gathered before it describe another network. */
+  uint64_t NetworkChangeGeneration() const { return network_change_gen_.load(std::memory_order_acquire); }
   pp::amp::AmpStack* Amp();
   const pp::amp::AmpStack* Amp() const;
   const std::string& AmpListenMultiaddr() const { return amp_listen_multiaddr_; }

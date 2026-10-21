@@ -23,6 +23,11 @@ std::string PeerIdFromListenMultiaddr(const std::string& ma) {
   return peer_id;
 }
 
+logging::Logger& PeerReachLog() {
+  static logging::Logger logger = logging::getLogger("PeerReach");
+  return logger;
+}
+
 /** The mesh's own addrs (advertised, punch candidates) change without notice: re-read. */
 constexpr std::chrono::milliseconds kLocalViewRefresh{5000};
 
@@ -138,7 +143,35 @@ void MeshConnectivity::Wire() {
     ArmLocalViewRefresh();
     WireDialRegistry(m, io);
     WireCircuitHopReach(m, io);
+    WireReachRecord(m);
     rendezvous_.InstallReparkListener();
+  });
+}
+
+uint64_t MeshConnectivity::NetworkGeneration() const {
+  MeshHost* m = mesh();
+  return m ? m->NetworkChangeGeneration() : 0;
+}
+
+void MeshConnectivity::WireReachRecord(MeshHost* m) {
+  pp::amp::AmpStack* amp = m ? m->Amp() : nullptr;
+  if (!amp || reach_record_amp_ == amp) {
+    return;
+  }
+  reach_record_amp_ = amp;
+  // The listener dies with this Amp stack; it holds the record (not this) and the host, which owns
+  // the stack. Link events arrive on the io lane.
+  (void)amp->Runtime().AddLinkEventListener([record = reach_record_, m](const pp::amp::LinkEvent& event) {
+    const std::string peer = !event.peer_id.empty() ? event.peer_id : event.dial_key;
+    const uint64_t gen = m->NetworkChangeGeneration();
+    const PeerReachState before = record->Facts(peer, gen).state;
+    record->OnLinkEvent(event, PeerReachRecord::NowMs(), gen);
+    const PeerReachFacts after = record->Facts(peer, gen);
+    if (after.state != before && (after.state == PeerReachState::Down || before == PeerReachState::Down)) {
+      PeerReachLog().info << "peer " << peer << " " << PeerReachStateName(before) << "->"
+                                 << PeerReachStateName(after.state) << " failure="
+                                 << PeerReachFailureName(after.last_failure);
+    }
   });
 }
 

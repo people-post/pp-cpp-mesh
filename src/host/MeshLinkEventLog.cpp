@@ -43,6 +43,11 @@ void CountLinkEvent(MetricsRegistry& r, const pp::amp::LinkEvent& event) {
   case pp::amp::LinkEvent::Kind::PathChanged:
     r.Counter("pp_link_path_changes_total", "Amp link remote endpoint migrations.").Inc();
     break;
+  case pp::amp::LinkEvent::Kind::DialFailed:
+    r.Counter("pp_link_dial_failures_total", "Amp dials that missed every candidate, by reason.",
+              {{"reason", pp::amp::LinkDropReasonName(event.reason)}})
+        .Inc();
+    break;
   }
 }
 
@@ -84,6 +89,11 @@ std::string FormatLinkEventForLog(const pp::amp::LinkEvent& event) {
     if (event.last_rx_age_ms >= 0) {
       out << " last_rx_age_ms=" << event.last_rx_age_ms;
     }
+    if (event.keepalive_interval_ms > 0) {
+      out << " keepalive_ms=" << event.keepalive_interval_ms;  // 0: a cold link — its silence meant idle
+    }
+  } else if (event.kind == pp::amp::LinkEvent::Kind::DialFailed) {
+    out << " reason=" << pp::amp::LinkDropReasonName(event.reason);
   }
   return out.str();
 }
@@ -91,7 +101,9 @@ std::string FormatLinkEventForLog(const pp::amp::LinkEvent& event) {
 void InstallMeshLinkEventLog(pp::amp::MeshRuntime& runtime) {
   (void)runtime.AddLinkEventListener([](const pp::amp::LinkEvent& event) {
     const std::string line = FormatLinkEventForLog(event);
-    if (event.kind != pp::amp::LinkEvent::Kind::Dropped) {
+    if (event.kind == pp::amp::LinkEvent::Kind::DialFailed) {
+      MeshLinkLog().warning << line;
+    } else if (event.kind != pp::amp::LinkEvent::Kind::Dropped) {
       MeshLinkLog().info << line;
     } else if (event.was_connected) {
       MeshLinkLog().warning << line;

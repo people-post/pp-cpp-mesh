@@ -4,6 +4,7 @@
 #include "common/Module.h"
 #include "mesh/types/MeshHopTypes.h"
 #include "mesh/host/MeshHost.h"
+#include "mesh/reach/PeerReachRecord.h"
 #include "mesh/reach/CircuitRendezvousCoordinator.h"
 #include "mesh/reach/MeshReachPorts.h"
 #include "mesh/reach/PunchIntroducerWalk.h"
@@ -173,6 +174,13 @@ public:
   void TryEnsurePeerReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done);
   /** Rendezvous relays: dial surface for reach, parking so this node is reachable (stable object). */
   CircuitRendezvousCoordinator& Rendezvous() { return rendezvous_; }
+  /**
+   * What the mesh has seen of reaching each peer (docs/PEER_REACH.md § 4), fed by the wired Amp
+   * stack's link events. Stable object; readable from any thread.
+   */
+  const PeerReachRecord& ReachRecord() const { return *reach_record_; }
+  /** The record as of the mesh's current network (a Down mark from before a network change reads Unknown). */
+  uint64_t NetworkGeneration() const;
 
 private:
   MeshHost* mesh() const { return deps_.mesh ? deps_.mesh() : nullptr; }
@@ -190,6 +198,8 @@ private:
   void PublishListenBook();
   void WireDialRegistry(MeshHost* m, const MeshIoContext& io);
   void WireCircuitHopReach(MeshHost* m, const MeshIoContext& io);
+  /** Feed the record from `m`'s Amp link events (once per Amp stack). */
+  void WireReachRecord(MeshHost* m);
 
   MeshConnectivityDeps deps_;
   std::function<void(const std::string&)> on_relay_chosen_;
@@ -214,6 +224,9 @@ private:
   std::shared_ptr<pp::SerialExecutor> test_lane_;
   IDialRegistry* test_dial_ = nullptr;
   ICircuitHopReach* test_circuit_reach_ = nullptr;
+  /** Shared with the link listener, which lives as long as the Amp stack it was added to. */
+  std::shared_ptr<PeerReachRecord> reach_record_ = std::make_shared<PeerReachRecord>();
+  const void* reach_record_amp_ = nullptr;  // the Amp stack already feeding it (edges only)
   PunchIntroducerWalk punch_;
   CircuitRendezvousCoordinator rendezvous_;
   pp::Lifetime deferred_;
