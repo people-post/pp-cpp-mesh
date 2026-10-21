@@ -80,6 +80,9 @@ private:
   std::vector<MeshHopCandidate> OrderedParkSurface(IChatPeerLinks& links);
   void StartReserveOnRelay(const std::string& relay, const char* label);
   void ReserveColdSurface(const std::shared_ptr<ColdPark>& park, size_t index, size_t cold_started);
+  /** A dial to `hop` missed: when it is a seed a park waits on, dial it again (or fail the park). */
+  void OnSeedDialMissed(IChatPeerLinks& links, const MeshHopCandidate& hop);
+  std::vector<std::shared_ptr<SeedPark>> WaitingParks();
   void PreferLateReserveOnIo(const std::string& relay_peer_id);
   void CheckSeedPark(const std::shared_ptr<SeedPark>& park, bool at_deadline);
   static void FinishSeedPark(const std::shared_ptr<SeedPark>& park, bool parked);

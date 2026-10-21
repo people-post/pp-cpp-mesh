@@ -52,6 +52,28 @@ inline SeedParkStep DecideSeedParkStep(const bool all_connected, const bool any_
   return SeedParkStep::Wait;
 }
 
+/**
+ * A seed dial missed while a park waits (its first handshake lost, a seed busy for a moment): dial
+ * that seed again rather than sit out the rest of the deadline — while enough of it is left for a
+ * handshake, and a bounded number of times per park. Before, one lost dial cost the whole 12 s
+ * (the answerer's call_accept waits for the park).
+ */
+inline constexpr int64_t kSeedParkRedialMinLeftMs = 3000;
+inline constexpr int kSeedParkMaxRedials = 2;
+
+inline bool ShouldRedialSeedForPark(const int64_t park_left_ms, const int redials_done) {
+  return park_left_ms >= kSeedParkRedialMinLeftMs && redials_done < kSeedParkMaxRedials;
+}
+
+/**
+ * After a seed dial missed: the park is answered `false` now when nothing can still land it — no
+ * seed Connected, no dial of ours in flight, and no redial left to try. Seeds that fail fast
+ * (refused, unreachable) then no longer hold an answer for the whole deadline.
+ */
+inline bool SeedParkCannotLand(const bool any_seed_connected, const int seed_dials_in_flight, const bool redial_left) {
+  return !any_seed_connected && seed_dials_in_flight == 0 && !redial_left;
+}
+
 /** Overload without sticky (Connected-first only). */
 inline std::vector<std::string> OrderRendezvousParkAttempts(
     std::vector<std::string> surface,
