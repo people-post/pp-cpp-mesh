@@ -1,7 +1,7 @@
 # Completing the DHT
 
 Status: design agreed 2026-10-21 (decisions D1–D5 as recommended below). Step 6 of
-docs/PEER_REACH.md § 7. Nothing here is built yet; the build order is § 7.
+docs/PEER_REACH.md § 7. Progress: § 7 (build order).
 Wire and record format: pp-browser `docs/contracts/MESH_DHT.md` (the contract); this document
 says how to make the mesh do what it describes, what changes in it, and what to decide first.
 
@@ -40,7 +40,7 @@ people search (the directory's job), third-party record storage.
 | D1 | Complete it now, or after the open reach / error-code items? | After. It is a project of its own (§ 7, ~6 steps + a lab); nothing in calls or chat waits on it — the directory and seeds carry discovery today. |
 | D2 | Who looks up? | Nodes with `capabilities.dht` (as now). Clients do **not** walk the DHT: an iterative lookup tells strangers whom you are looking for (your contacts). A Client keeps asking its own seeds / directory. Revisit only with a privacy design (e.g. lookups through a trusted Node). |
 | D3 | What does a node store? | Keep the contract's rule: a node STOREs only **its own** record, now at the k nodes **closest to its key** (found by a lookup), not at its query peers. Third-party storage stays out. |
-| D4 | How hard against Sybil / eclipse? | Records are signed, so a hostile node cannot forge one — it can only withhold or misroute. v1 mitigations: node IDs derived from PeerIds; a routing-table entry only after an authenticated exchange; ≤ 2 entries per /24 per bucket; keep long-lived entries over newcomers; ask α in parallel and accept the best valid record. Disjoint-path lookups (S/Kademlia) are later, if the labs show eclipse is cheap. |
+| D4 | How hard against Sybil / eclipse? | Records are signed and carry the signer's public key (`public_key_b64`; the key derives the PeerId), so any node checks a record on its own and a hostile node cannot forge one — it can only withhold or misroute. A record that does not check is dropped, whoever serves it. v1 mitigations: node IDs derived from PeerIds; a routing-table entry only after an authenticated exchange; ≤ 2 entries per /24 per bucket; keep long-lived entries over newcomers; ask α in parallel and accept the best valid record. Disjoint-path lookups (S/Kademlia) are later, if the labs show eclipse is cheap. |
 | D5 | Where does liveness come from? | The reach record (PEER_REACH.md § 4): DHT RPCs are dials, so their outcomes land there already. The table evicts entries the record holds down; `ping` only when a full bucket's oldest entry has not been heard from for a while. The soft reputation stays for *misbehaviour* (malformed, expired, wrong records) — reachability is the record's. |
 
 ## 4. Design
@@ -128,4 +128,5 @@ Status: step 1 done (`DhtKey`, `DhtRoutingTable`, unit tests).
 3. Iterative lookup in `DhtClient::FindPeer` (replaces the one-round fan-out); negative cache.
 4. Publish to the k closest; the publish gate; refresh.
 5. Soft reputation narrowed to misbehaviour; liveness from the reach record.
-6. The lab; contract update (MESH_DHT.md: `closer_peers ≤ k_closer`, admission, publish target).
+6. The lab; contract update (MESH_DHT.md: `closer_peers ≤ k_closer`, admission, publish target,
+   `public_key_b64` in the record).

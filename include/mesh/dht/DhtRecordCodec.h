@@ -22,6 +22,12 @@ Roe<PeerRoutingRecord> SignPeerRoutingRecord(PeerRoutingRecord record,
 Roe<bool> VerifyPeerRoutingRecord(const PeerRoutingRecord& record,
                                   std::span<const uint8_t> signing_public_key);
 
+/**
+ * A record checked on its own: it carries a public key, that key derives its PeerId, and its
+ * signature holds. How a record answered by another node is accepted.
+ */
+Roe<void> VerifyPeerRoutingRecordStandalone(const PeerRoutingRecord& record);
+
 bool PeerRoutingRecordExpired(const PeerRoutingRecord& record, int64_t now_seconds,
                               int64_t grace_seconds = 60);
 

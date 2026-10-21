@@ -1,4 +1,5 @@
 #include "mesh/dht/AmpDhtProtocol.h"
+#include "mesh/dht/DhtRecordCodec.h"
 
 #include "common/SettledWait.h"
 #include "mesh/testing/mesh_test_harness.h"
@@ -54,6 +55,7 @@ TEST(AmpDhtProtocolTest, FindPeerReturnsBootstrapRecord) {
   ASSERT_TRUE(found->record.capabilities.has_value());
   EXPECT_TRUE(found->record.capabilities->media_relay);
   EXPECT_TRUE(found->record.capabilities->circuit_relay);
+  EXPECT_TRUE(VerifyPeerRoutingRecordStandalone(found->record)) << "carries its key: checkable by anyone";
 
   client.Stop();
   seed.Stop();

@@ -71,6 +71,9 @@ common::Object PeerRoutingRecordToObject(const PeerRoutingRecord& record) {
   }
   object.set("signature_b64", record.signature_b64);
   object.set("signature_alg", record.signature_alg);
+  if (!record.public_key_b64.empty()) {
+    object.set("public_key_b64", record.public_key_b64);
+  }
   return object;
 }
 
@@ -88,6 +91,7 @@ Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const common::Object& object)
   record.issued_at = object.getIf<int64_t>("issued_at").value_or(0);
   record.signature_b64 = object.getString("signature_b64").value_or("");
   record.signature_alg = object.getString("signature_alg").value_or("ml-dsa-65");
+  record.public_key_b64 = object.getString("public_key_b64").value_or("");
   if (const common::Array* mas = object.getArray("multiaddrs")) {
     for (const common::Value& item : mas->elements) {
       if (auto ma = common::asString(item)) {
@@ -143,6 +147,27 @@ Roe<bool> VerifyPeerRoutingRecord(const PeerRoutingRecord& record,
   const auto sign_bytes = BuildPeerRoutingSignBytes(record);
   pp::ByteVector public_key(signing_public_key.begin(), signing_public_key.end());
   return pp::MlDsa::Verify(public_key, sign_bytes, *signature);
+}
+
+Roe<void> VerifyPeerRoutingRecordStandalone(const PeerRoutingRecord& record) {
+  if (record.public_key_b64.empty()) {
+    return Error("record carries no public key");
+  }
+  auto public_key = pp::Base64Decode(record.public_key_b64);
+  if (!public_key) {
+    return public_key.error();
+  }
+  if (pp::amp::PeerIdFromIdentityKey(*public_key) != record.peer_id) {
+    return Error("public key does not derive the record's peer_id");
+  }
+  auto verified = VerifyPeerRoutingRecord(record, *public_key);
+  if (!verified) {
+    return verified.error();
+  }
+  if (!*verified) {
+    return Error("bad signature");
+  }
+  return {};
 }
 
 bool PeerRoutingRecordExpired(const PeerRoutingRecord& record, const int64_t now_seconds,

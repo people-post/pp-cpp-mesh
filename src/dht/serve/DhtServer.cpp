@@ -6,6 +6,7 @@
 #include "amp/L3/ChannelSession.h"
 #include "mesh/dht/DhtRecordCodec.h"
 #include "common/ValueJson.h"
+#include "crypto/SodiumUtil.h"
 #include "common/Lifetime.h"
 
 #include <atomic>
@@ -157,10 +158,14 @@ struct DhtServer::Impl {
                                   reject_code = "bad_signature";
                                 } else if (!*verified) {
                                   reject_code = "bad_signature";
+                                } else if (!parsed->public_key_b64.empty() &&
+                                           parsed->public_key_b64 != pp::Base64Encode(remote_pk)) {
+                                  reject_code = "bad_key";
                                 } else if (auto existing = store->Get(parsed->peer_id);
                                            existing && existing->seq > parsed->seq) {
                                   reject_code = "seq_regression";
-                                } else if (!store->Put(*parsed)) {
+                                } else if (parsed->public_key_b64 = pp::Base64Encode(remote_pk);
+                                           !store->Put(*parsed)) {  // served checkable to anyone
                                   reject_code = "store_failed";
                                 } else {
                                   ok = true;

@@ -5,6 +5,7 @@
 #include "amp/link/PeerLink.h"
 #include "mesh/dht/DhtRecordCodec.h"
 #include "common/Utilities.h"
+#include "crypto/SodiumUtil.h"
 #include "mesh/shared/AmpChannelOpen.h"
 
 #include <algorithm>
@@ -15,13 +16,6 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-// find_peer results carry a *third-party* record (the target's, not the responder's): we only
-// know the responder's key, not the target's, so the signature cannot be verified here. Such a
-// record is never persisted to the shared store (so it is never re-served/forwarded to other
-// queriers) and its ttl_seconds is capped short. Note this only bounds the DHT store's own
-// re-serve/cache window: the caller (ConversationsHub::ApplyDhtFindPeerResult) still registers
-// the record's multiaddrs as dial endpoints regardless of ttl_seconds.
-constexpr int64_t kUnverifiedFindPeerRecordTtlCapSeconds = 300;
 
 std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
   return std::vector<uint8_t>(json_utf8.begin(), json_utf8.end());
@@ -241,6 +235,9 @@ void DhtClient::PublishSelfIfDue() {
   if (!signed_record) {
     return;
   }
+  if (!config_.device_signing_public.empty()) {
+    signed_record->public_key_b64 = pp::Base64Encode(config_.device_signing_public);  // checkable by anyone
+  }
   store_.Put(*signed_record);
 
   if (config_.query_peer_keys.empty()) {
@@ -319,7 +316,8 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
      * best_third_party so a third party can't suppress a legitimate self-answer by racing it
      * with a higher (forged) seq. */
     std::optional<PeerRoutingRecord> best_self;
-    /** Highest-seq record from anyone else about target_peer_id — never verifiable here. */
+    /** Highest-seq record from anyone else about target_peer_id that checks on its own (it carries
+     * its public key, which derives the PeerId, and the signature holds). Others are dropped. */
     std::optional<PeerRoutingRecord> best_third_party;
     Failure last_failure = Failure::Of(Err::NotFound, "find_peer not found");
     DhtClient* self = nullptr;
@@ -369,14 +367,25 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
                            const bool is_self_answer =
                                answering_link != nullptr && answering_link->RemotePeerId() == target_peer_id;
                            if (is_self_answer) {
+                             // Its subject answered: the session proved the key; the signature must hold.
+                             const pp::amp::ByteVector& key = answering_link->RemoteIdentityPublicKey();
+                             auto verified = VerifyPeerRoutingRecord(*parsed, key);
+                             if (!verified || !*verified) {
+                               saw_bad = true;
+                               continue;
+                             }
+                             parsed->public_key_b64 = pp::Base64Encode(key);
                              if (!state->best_self || parsed->seq > state->best_self->seq) {
                                state->best_self = std::move(*parsed);
                              }
-                           } else {
+                           } else if (!parsed->public_key_b64.empty() &&
+                                      !VerifyPeerRoutingRecordStandalone(*parsed)) {
+                             saw_bad = true;  // carries a key, and does not check out
+                           } else if (!parsed->public_key_b64.empty()) {
                              if (!state->best_third_party || parsed->seq > state->best_third_party->seq) {
                                state->best_third_party = std::move(*parsed);
                              }
-                           }
+                           }  // no key (an older publisher): not checkable from here — dropped
                          } else {
                            saw_bad = true;
                          }
@@ -405,8 +414,7 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
                    return;
                  }
                  if (state->best_third_party) {
-                   state->best_third_party->ttl_seconds =
-                       std::min(state->best_third_party->ttl_seconds, kUnverifiedFindPeerRecordTtlCapSeconds);
+                   store_.Put(*state->best_third_party);
                    DhtFindPeerResult result;
                    result.peer_id = target_peer_id;
                    result.record = *state->best_third_party;

@@ -26,6 +26,11 @@ struct PeerRoutingRecord {
   std::optional<PeerRoutingCapabilities> capabilities;
   std::string signature_b64;
   std::string signature_alg = "ml-dsa-65";
+  /**
+   * The signer's ML-DSA-65 public key (base64): with it any node can check the record — the key
+   * derives `peer_id`, and the signature holds. Not part of the signed bytes (the PeerId binds it).
+   */
+  std::string public_key_b64;
 };
 
 struct DhtFindPeerResult {
