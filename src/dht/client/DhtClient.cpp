@@ -147,6 +147,10 @@ void DhtClient::NoteAnswered(const std::string& peer_key, const common::Object& 
 }
 
 void DhtClient::PingContact(const DhtContact& contact) {
+  if (HeldDown(contact.peer_id)) {
+    table_.Remove(contact.peer_id);  // the record already knows: no ping needed
+    return;
+  }
   {
     std::lock_guard lock(ping_mutex_);
     if (!pinging_.insert(contact.peer_id).second) {
@@ -343,7 +347,7 @@ void DhtClient::PublishSelfIfDue() {
       }
     }
     for (const std::string& peer_key : targets) {
-      if (peer_key != config_.local_peer_id) {
+      if (peer_key != config_.local_peer_id && !HeldDown(peer_key)) {
         Rpc(peer_key, store_req, [](RpcRoe) {});
       }
     }
@@ -365,6 +369,31 @@ void DhtClient::PublishSelfIfDue() {
       continue;
     }
     FindPeer(peer_key, [](FindPeerRoe) {});
+  }
+}
+
+bool DhtClient::HeldDown(const std::string& peer_id) const {
+  return config_.reach_held_down && config_.reach_held_down(peer_id) && !runtime_.Links().IsConnected(peer_id);
+}
+
+void DhtClient::SweepIfDue() {
+  const auto now = Clock::now();
+  if (!IsStarted() || !config_.reach_held_down || now < next_sweep_) {
+    return;
+  }
+  next_sweep_ = now + std::chrono::seconds(kSweepSeconds);
+  SweepHeldDown();
+}
+
+void DhtClient::SweepHeldDown() {
+  if (!config_.reach_held_down) {
+    return;
+  }
+  // Entries the reach record holds down leave the table (a replacement moves in) — D5.
+  for (const DhtContact& contact : table_.Closest(table_.SelfKey(), table_.Size())) {
+    if (HeldDown(contact.peer_id)) {
+      table_.Remove(contact.peer_id);
+    }
   }
 }
 
@@ -473,12 +502,14 @@ void DhtClient::Walk(const std::string& target_peer_id, DhtLookup::Limits limits
   // Seeds: the query peers, and (taking part) the routing table's closest to the target.
   std::vector<DhtLookupCandidate> seeds;
   for (const std::string& peer_key : FilteredQueryPeerKeys()) {
-    seeds.push_back({peer_key, std::nullopt, {}});
+    if (!HeldDown(peer_key)) {
+      seeds.push_back({peer_key, std::nullopt, {}});
+    }
   }
   if (config_.participate) {
     if (const auto target_key = DhtKeyOfPeerId(target_peer_id)) {
       for (DhtContact& contact : table_.Closest(*target_key, DhtRoutingTable::kDefaultK)) {
-        if (SoftReputationAllows(contact.peer_id)) {
+        if (SoftReputationAllows(contact.peer_id) && !HeldDown(contact.peer_id)) {
           seeds.push_back({std::move(contact.peer_id), contact.key, std::move(contact.multiaddr)});
         }
       }
@@ -503,7 +534,9 @@ void DhtClient::Walk(const std::string& target_peer_id, DhtLookup::Limits limits
           answer(std::nullopt);
         });
       },
-      [this](const std::string& peer_id) { return peer_id == config_.local_peer_id || !SoftReputationAllows(peer_id); },
+      [this](const std::string& peer_id) {
+        return peer_id == config_.local_peer_id || !SoftReputationAllows(peer_id) || HeldDown(peer_id);
+      },
       [last_failure, done = std::move(done)](DhtLookup::Outcome outcome) {
         WalkOutcome out;
         static_cast<DhtLookup::Outcome&>(out) = std::move(outcome);
@@ -547,9 +580,12 @@ void DhtClient::AskForPeer(const DhtLookupCandidate& candidate, const std::strin
       for (const common::Value& item : records->elements) {
         const common::Object* obj = common::asObject(item);
         auto parsed = obj ? PeerRoutingRecordFromObject(*obj) : Roe<PeerRoutingRecord>(Error("not an object"));
-        if (!parsed || parsed->peer_id != target_peer_id || PeerRoutingRecordExpired(*parsed, now_sec)) {
+        if (!parsed || parsed->peer_id != target_peer_id) {
           saw_bad = true;
           continue;
+        }
+        if (PeerRoutingRecordExpired(*parsed, now_sec)) {
+          continue;  // stale, or our clocks differ — not misbehaviour
         }
         bool from_subject = false;
         if (!responder.empty() && responder == target_peer_id) {

@@ -137,11 +137,14 @@ hops reach media ranking as Public candidates.
 
 ## 7. Build order
 
-Status: steps 1–4 done — `DhtKey`, `DhtRoutingTable` (thread-safe, shared by server and client);
+Status: steps 1–5 done — `DhtKey`, `DhtRoutingTable` (thread-safe, shared by server and client);
 the server fills `closer_peers` (never the asker) and admits accepted `store` senders; the client
 admits participants that answer and pings a full bucket's oldest when it has been quiet 15 min;
 `FindPeer` is the iterative `DhtLookup` with the negative cache; publishing walks to the k closest
-behind the gate and follows address changes; stale buckets are refreshed.
+behind the gate and follows address changes; stale buckets are refreshed; `reach_held_down`
+(the reach record, wired by pp-browser) keeps held-down peers out of walks, stores and the table
+(swept every 30 s); the soft reputation counts only malformed or wrongly signed answers (an
+expired record is skipped, not held against its server).
 
 1. Key256, XOR, buckets, admission / eviction / diversity — pure, unit-tested.
 2. `closer_peers` filled by the server from the table; the table fed by authenticated RPCs.

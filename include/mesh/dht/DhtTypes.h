@@ -82,6 +82,11 @@ struct AmpDhtProtocolConfig {
   std::function<std::vector<std::string>()> current_listen_multiaddrs;
   /** The publish gate's reachability half: false while reachability is Blocked. Unset: open. */
   std::function<bool()> may_publish;
+  /**
+   * Liveness (docs/DHT.md D5): the reach record holds this peer down — not dialled for a lookup,
+   * and out of the routing table. A peer whose link is up counts as alive whatever it says.
+   */
+  std::function<bool(const std::string& peer_id)> reach_held_down;
   std::vector<uint8_t> device_signing_secret;
   std::vector<uint8_t> device_signing_public;
   MeshDhtConfig tunables{};

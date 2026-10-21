@@ -24,7 +24,8 @@ namespace pp::mesh {
  * Client side of the Amp mesh DHT (`/pp-mesh/dht/1.0.0`): FIND_PEER as an iterative lookup
  * (`DhtLookup`, docs/DHT.md § 4.4) from the query peers and — taking part — the routing table's
  * closest, following `closer_peers` hints; a Client asks its query peers only (D2). Soft
- * reputation, a concurrency cap and a 60 s negative cache bound it. Taking part, it also pushes the
+ * reputation (misbehaviour only: malformed or wrongly signed answers), the reach record
+ * (`reach_held_down` — liveness), a concurrency cap and a 60 s negative cache bound it. Taking part, it also pushes the
  * periodic signed self record. Found records land in the shared record store.
  *
  * It keeps the routing table: a peer that answers as a participant, or whose `store` the server
@@ -70,6 +71,7 @@ public:
   static constexpr int kRefreshCheckSeconds = 600;
   static constexpr int64_t kStaleBucketMs = 60 * 60 * 1000;
   static constexpr int kMaxRefreshesPerHour = 3;
+  static constexpr int kSweepSeconds = 30;
   /** A whole lookup stops asking after this long (the asks in flight still settle). */
   static constexpr int64_t kLookupBudgetMs = 8000;
   /** A lookup that someone answered and nobody had a record for is not repeated this soon. */
@@ -95,6 +97,10 @@ public:
   void PublishSelfIfDue();
   /** Taking part: walk into buckets nobody was heard from for an hour, a few an hour (§ 4.6). */
   void RefreshIfDue();
+  /** `SweepHeldDown` every kSweepSeconds. */
+  void SweepIfDue();
+  /** Contacts the reach record holds down (and not linked) leave the routing table (D5). */
+  void SweepHeldDown();
   void FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done);
   /** A DHT participant was heard from over an authenticated exchange: admit or refresh it. */
   void NoteHeard(const std::string& peer_id, const std::string& dial_addr);
@@ -109,6 +115,8 @@ private:
   /** A `DhtLookup` toward `target_peer_id` from the query peers and the table (no cache, no cap). */
   void Walk(const std::string& target_peer_id, DhtLookup::Limits limits, std::function<void(WalkOutcome)> done);
   std::vector<std::string> PublishableAddrs() const;
+  /** `reach_held_down` says so and no link is up: not dialled, not kept. */
+  bool HeldDown(const std::string& peer_id) const;
   void Rpc(const std::string& peer_key, common::Object request, std::function<void(RpcRoe)> on_response);
   void NoteSoftReputationBad(const std::string& peer_key);
   bool SoftReputationAllows(const std::string& peer_key) const;
@@ -138,6 +146,7 @@ private:
   std::chrono::steady_clock::time_point next_refresh_check_{};
   std::chrono::steady_clock::time_point refresh_window_end_{};
   int refreshes_in_window_ = 0;
+  std::chrono::steady_clock::time_point next_sweep_{};
 
   mutable std::mutex stats_mutex_;
   uint64_t find_peer_issued_ = 0;

@@ -43,15 +43,20 @@ public:
   void Stop();
   bool IsStarted() const { return client_.IsStarted(); }
 
-  /** Periodic, on the io lane: publish the self record when due, refresh stale buckets. */
+  /** Periodic, on the io lane: publish the self record when due, refresh stale buckets, and drop
+   * contacts the reach record holds down. */
   void Tick() {
     client_.PublishSelfIfDue();
     client_.RefreshIfDue();
+    client_.SweepIfDue();
   }
 
   void FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done) {
     client_.FindPeer(target_peer_id, std::move(on_done));
   }
+
+  /** Drop routing contacts the reach record holds down now (Tick does it every 30 s). */
+  void SweepHeldDown() { client_.SweepHeldDown(); }
 
   std::optional<PeerRoutingRecord> LocalRecord(const std::string& peer_id) const { return store_.Get(peer_id); }
   const DhtRoutingTable& RoutingTable() const { return table_; }
