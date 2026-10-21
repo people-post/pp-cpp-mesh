@@ -1,7 +1,7 @@
 # Peer reach: what we know about reaching peers, and choosing seeds
 
 Status: design agreed 2026-10-21; build order § 7 — steps 1–4 implemented in pp-cpp-mesh (local
-branches; amp v2.25.0 and common v1.2.1 released); step 5 (pp-browser) and 6 open.
+branches; amp v2.25.0 and common v1.2.1 released); step 5 partly (pp-browser, local); 6 open.
 
 A mesh node reaches other peers for many jobs — a call's peer, a media hop, a rendezvous relay, a
 punch introducer, a directory provider, a DHT peer. Today each job builds its own candidate list,
@@ -221,8 +221,10 @@ Rules built on it:
 ## 7. Build order
 
 Status: 1–4 done in pp-cpp-mesh (`fix/seed-park-settles-on-connect`, then `feat/reach-roles`,
-local); pp-cpp-amp v2.25.0 released. pp-browser fills `PeerReachPorts::local_listen_addrs`
-(`fix/seed-reach-selection`, local). Open: step 5 (the app side), step 6.
+local); pp-cpp-amp v2.25.0 released. pp-browser (`fix/seed-reach-selection`, local) fills
+`PeerReachPorts::local_listen_addrs` and has step 5's first part: the directory refresh asks two
+providers via `ChoosePeers`, media ranking drops hops held down, DHT hops are Public. Open: the
+one candidate list with roles (the rest of step 5), DHT query peers and step 6.
 
 Each step ships on its own (unit tests + the pp-browser labs):
 
