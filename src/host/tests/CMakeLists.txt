@@ -1,0 +1,1 @@
+pp_mesh_add_tests(pp_mesh_host LINK_LIBS pp_mesh_testing)

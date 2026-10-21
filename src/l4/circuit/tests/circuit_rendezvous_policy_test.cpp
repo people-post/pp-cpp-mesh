@@ -102,3 +102,25 @@ TEST(SeedParkStepTest, AllConnectedSettlesAndNoneWaitsUntilTheDeadline) {
   EXPECT_EQ(DecideSeedParkStep(false, false, false, false), SeedParkStep::Wait);
   EXPECT_EQ(DecideSeedParkStep(false, false, true, false), SeedParkStep::SettleFail);
 }
+
+// A seed dial lost while a park waits is dialed again — while enough of the deadline is left for a
+// handshake, at most kSeedParkMaxRedials times (one lost dial used to cost the whole 12 s).
+TEST(CircuitRendezvousPolicy, SeedParkRedialsWhileTimeIsLeft) {
+  using pp::mesh::kSeedParkMaxRedials;
+  using pp::mesh::kSeedParkRedialMinLeftMs;
+  using pp::mesh::ShouldRedialSeedForPark;
+  EXPECT_TRUE(ShouldRedialSeedForPark(8000, 0));
+  EXPECT_TRUE(ShouldRedialSeedForPark(kSeedParkRedialMinLeftMs, kSeedParkMaxRedials - 1));
+  EXPECT_FALSE(ShouldRedialSeedForPark(kSeedParkRedialMinLeftMs - 1, 0)) << "too little left for a handshake";
+  EXPECT_FALSE(ShouldRedialSeedForPark(8000, kSeedParkMaxRedials)) << "redials used up";
+}
+
+// With no seed Connected, none still dialing and no redial left, the park fails now: seeds that
+// refuse or are unreachable no longer hold the answer for the whole deadline.
+TEST(CircuitRendezvousPolicy, SeedParkFailsEarlyOnlyWhenNothingCanLand) {
+  using pp::mesh::SeedParkCannotLand;
+  EXPECT_TRUE(SeedParkCannotLand(/*any_seed_connected=*/false, /*seed_dials_in_flight=*/0, /*redial_left=*/false));
+  EXPECT_FALSE(SeedParkCannotLand(true, 0, false)) << "a Connected seed parks it";
+  EXPECT_FALSE(SeedParkCannotLand(false, 1, false)) << "another seed's dial may still land";
+  EXPECT_FALSE(SeedParkCannotLand(false, 0, true)) << "a redial is still worth trying";
+}

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(pp-cpp-mesh VERSION 1.0.0 LANGUAGES C CXX)
+project(pp-cpp-mesh VERSION 1.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,10 +32,6 @@ if(PP_MESH_BUILD_TESTS)
 endif()
 
 add_subdirectory(src)
-
-if(PP_MESH_BUILD_TESTS)
-  add_subdirectory(tests)
-endif()
 
 include(GNUInstallDirs)
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
