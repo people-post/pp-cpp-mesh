@@ -152,7 +152,9 @@ expired record is skipped, not held against its server).
 4. Publish to the k closest; the publish gate; refresh.
 5. Soft reputation narrowed to misbehaviour; liveness from the reach record.
 6. The lab; contract update (MESH_DHT.md: `closer_peers ≤ k_closer`, admission, publish target,
-   `public_key_b64` in the record, `participant` in answers). Before it: pp-browser
-   `scripts/test/pp_node_dht_smoke.sh` fails today, and did before this work — its nodes start
-   with the platform defaults (so they also dial the public seeds), and the B → A link is dropped
-   about 5 s after the reachability probe takes it over, so neither DHT exchange completes.
+   `public_key_b64` in the record, `participant` in answers) — contract done. pp-browser
+   `scripts/test/pp_node_dht_smoke.sh` passes again: it failed (before this work too) because the
+   first exchanges died with a link the reachability probe replaced (PEER_REACH.md § 8) and
+   nothing retried for ttl / 2; a publish nobody answered now retries in 10 s, and missing query
+   peer records are looked up every 15 s. Its first node still starts with the platform default
+   seeds (it has no bootstrap of its own). The lab suite is next.

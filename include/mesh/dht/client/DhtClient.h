@@ -67,6 +67,10 @@ public:
 
   /** The publish gate and our addresses are looked at no more often than this (ticks are many). */
   static constexpr int64_t kGateCheckMs = 1000;
+  /** A publish nobody answered is tried again this soon (not at ttl / 2). */
+  static constexpr int kPublishRetrySeconds = 10;
+  /** Query peers whose record we lack are looked up again this often. */
+  static constexpr int kWarmSeconds = 15;
   /** How often stale buckets are looked for, a bucket's staleness, and the refresh budget (§ 4.6). */
   static constexpr int kRefreshCheckSeconds = 600;
   static constexpr int64_t kStaleBucketMs = 60 * 60 * 1000;
@@ -115,6 +119,7 @@ private:
   /** A `DhtLookup` toward `target_peer_id` from the query peers and the table (no cache, no cap). */
   void Walk(const std::string& target_peer_id, DhtLookup::Limits limits, std::function<void(WalkOutcome)> done);
   std::vector<std::string> PublishableAddrs() const;
+  void WarmQueryPeersIfDue(std::chrono::steady_clock::time_point now);
   /** `reach_held_down` says so and no link is up: not dialled, not kept. */
   bool HeldDown(const std::string& peer_id) const;
   void Rpc(const std::string& peer_key, common::Object request, std::function<void(RpcRoe)> on_response);
@@ -143,6 +148,8 @@ private:
   std::chrono::steady_clock::time_point next_gate_check_{};
   std::vector<std::string> published_addrs_;
   std::atomic<bool> publishing_{false};
+  std::atomic<bool> retry_publish_{false};
+  std::chrono::steady_clock::time_point next_warm_{};
   std::chrono::steady_clock::time_point next_refresh_check_{};
   std::chrono::steady_clock::time_point refresh_window_end_{};
   int refreshes_in_window_ = 0;

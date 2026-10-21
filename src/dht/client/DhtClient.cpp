@@ -293,6 +293,10 @@ void DhtClient::PublishSelfIfDue() {
     return;
   }
   next_gate_check_ = now + std::chrono::milliseconds(kGateCheckMs);
+  WarmQueryPeersIfDue(now);
+  if (retry_publish_.exchange(false, std::memory_order_acq_rel)) {
+    next_self_publish_ = std::min(next_self_publish_, now + std::chrono::seconds(kPublishRetrySeconds));
+  }
   std::vector<std::string> addrs = PublishableAddrs();
   const bool moved = !published_addrs_.empty() && addrs != published_addrs_;  // a network change
   if (now < next_self_publish_ && !moved) {
@@ -340,6 +344,9 @@ void DhtClient::PublishSelfIfDue() {
   // At the k closest to our key that answered a walk to it, and at the query peers (where a
   // Client, which does not walk, asks).
   Walk(config_.local_peer_id, DhtLookup::Limits::WalkToClosest(), [this, store_req](DhtLookup::Outcome outcome) {
+    if (outcome.answered == 0) {
+      retry_publish_.store(true, std::memory_order_release);  // nobody heard us: soon, not at ttl / 2
+    }
     std::vector<std::string> targets = std::move(outcome.closest);
     for (const std::string& peer_key : config_.query_peer_keys) {
       if (std::find(targets.begin(), targets.end(), peer_key) == targets.end()) {
@@ -359,10 +366,18 @@ void DhtClient::PublishSelfIfDue() {
     publishing_.store(false, std::memory_order_release);
   });
 
-  // Warm bootstrap/query peers into the local store (lab mutual discovery + dial warm-up).
+}
+
+void DhtClient::WarmQueryPeersIfDue(const std::chrono::steady_clock::time_point now) {
+  if (now < next_warm_) {
+    return;
+  }
+  next_warm_ = now + std::chrono::seconds(kWarmSeconds);
+  // The query peers' own records in the local store: their addresses for the table, dial
+  // warm-up. Looked for again until found — a startup miss must not wait for the next publish.
   const int64_t now_sec = static_cast<int64_t>(std::time(nullptr));
   for (const std::string& peer_key : FilteredQueryPeerKeys()) {
-    if (peer_key.empty() || peer_key == config_.local_peer_id) {
+    if (peer_key.empty() || peer_key == config_.local_peer_id || HeldDown(peer_key)) {
       continue;
     }
     if (auto hit = store_.Get(peer_key); hit && !PeerRoutingRecordExpired(*hit, now_sec)) {
