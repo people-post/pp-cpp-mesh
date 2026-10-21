@@ -8,6 +8,7 @@ pp_mesh_add_folder_library(dht
     AmpDhtProtocol.cpp
     serve/DhtServer.cpp
     client/DhtClient.cpp
+    client/DhtLookup.cpp
   DEPS shared)
 
 if(PP_MESH_BUILD_TESTS)

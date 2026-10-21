@@ -73,19 +73,24 @@ persisted in v1; rebuilt from the query peers at start).
   contract says "≤ α"; that is too few to converge, so it changes to `≤ k_closer`.
 - `find_peer_result` and `pong` say `participant: true|false` (does the responder take part).
   A peer is admitted from its answers only when it says so; one whose `store` is accepted is a
-  participant by definition. A table entry's dial address always comes from the peer's own
-  signed record (never from someone else's hint).
+  participant by definition. A table entry's dial address comes from the peer's own signed
+  record, or is the address we just reached it at — a hint becomes an address only once an
+  authenticated dial to it (the multiaddr ends in `/p2p/<PeerId>`) has been answered.
 - No new ops: `find_peer` doubles as FIND_NODE (the asker uses `closer_peers` whether or not a
   record came back); `ping` as is; `store` as is (self record only).
 - `version` stays 1: a v1 node sends empty `closer_peers`, which a new node treats as "no hints".
 
 ### 4.4 Lookup
 
-Iterative, α = 3 in flight: keep a shortlist ordered by distance to the key; query the closest
-not yet asked; add `closer_peers` hints (deduplicated, not held down); stop when a valid record
-arrives (verified: signature, PeerId binding, TTL, seq) or when the k closest seen have all been
-asked. Per-RPC timeout as today; the whole lookup bounded (proposal: 8 s, 30 RPCs). A failed
-lookup is cached per PeerId for 60 s (negative cache). Concurrency cap as today.
+Iterative, α = 3 in flight (`DhtLookup`): keep a shortlist ordered by distance to the key; query
+the closest not yet asked; add `closer_peers` hints (deduplicated, not held down); stop asking when
+a valid record arrives (verified: signature, PeerId binding, TTL, seq) or when the k closest seen
+have all answered or failed, and finish once the asks in flight settle — a self answer first, else
+the highest seq. Per-RPC timeout as today; the whole lookup bounded (8 s of asking, 30 RPCs). A
+lookup that someone answered and nobody had a record for is cached per PeerId for 60 s (negative
+cache); one where nobody answered is not (that is our link, not the network). Concurrency cap as
+today. Seeds: the query peers, plus — taking part — the routing table's k closest. A Client asks
+its query peers only and follows no hints (D2).
 
 ### 4.5 Publish
 
@@ -125,9 +130,10 @@ hops reach media ranking as Public candidates.
 
 ## 7. Build order
 
-Status: steps 1–2 done — `DhtKey`, `DhtRoutingTable` (thread-safe, shared by server and client);
+Status: steps 1–3 done — `DhtKey`, `DhtRoutingTable` (thread-safe, shared by server and client);
 the server fills `closer_peers` (never the asker) and admits accepted `store` senders; the client
-admits participants that answer and pings a full bucket's oldest when it has been quiet 15 min.
+admits participants that answer and pings a full bucket's oldest when it has been quiet 15 min;
+`FindPeer` is the iterative `DhtLookup` with the negative cache.
 
 1. Key256, XOR, buckets, admission / eviction / diversity — pure, unit-tested.
 2. `closer_peers` filled by the server from the table; the table fed by authenticated RPCs.

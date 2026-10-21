@@ -2,7 +2,9 @@
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
+#include "amp/link/PeerId.h"
 #include "amp/link/PeerLink.h"
+#include "mesh/dht/DhtKey.h"
 #include "mesh/dht/DhtRecordCodec.h"
 #include "common/Utilities.h"
 #include "crypto/SodiumUtil.h"
@@ -126,7 +128,7 @@ void DhtClient::NoteHeard(const std::string& peer_id, const std::string& dial_ad
 }
 
 void DhtClient::NoteAnswered(const std::string& peer_key, const common::Object& response,
-                             const std::optional<PeerRoutingRecord>& its_record) {
+                             const std::optional<PeerRoutingRecord>& its_record, const std::string& reached_at) {
   if (!response.getIf<bool>("participant").value_or(false)) {
     return;
   }
@@ -139,7 +141,9 @@ void DhtClient::NoteAnswered(const std::string& peer_key, const common::Object& 
     NoteHeard(peer_id, PeerRoutingRecordDialAddr(*its_record));
   } else if (auto stored = store_.Get(peer_id)) {
     NoteHeard(peer_id, PeerRoutingRecordDialAddr(*stored));
-  }  // no record of it yet: admitted once one is cached (the publish tick warms the query peers')
+  } else if (!reached_at.empty() && pp::amp::PeerIdFromMultiaddr(reached_at) == peer_id) {
+    NoteHeard(peer_id, reached_at);
+  }  // else admitted once its record is cached (the publish tick warms the query peers')
 }
 
 void DhtClient::PingContact(const DhtContact& contact) {
@@ -358,8 +362,32 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
     }
   }
 
-  const std::vector<std::string> query_keys = FilteredQueryPeerKeys();
-  if (query_keys.empty()) {
+  const int64_t now_ms = NowMs();
+  {
+    std::lock_guard lock(not_found_mutex_);
+    std::erase_if(not_found_until_ms_, [&](const auto& entry) { return entry.second <= now_ms; });
+    if (not_found_until_ms_.contains(target_peer_id)) {
+      inflight_lookups_.fetch_sub(1, std::memory_order_acq_rel);
+      on_done(FindPeerRoe::error(Failure::Of(Err::NotFound, "find_peer: not found lately")));
+      return;
+    }
+  }
+
+  // Seeds: the query peers, and (taking part) the routing table's closest to the target.
+  std::vector<DhtLookupCandidate> seeds;
+  for (const std::string& peer_key : FilteredQueryPeerKeys()) {
+    seeds.push_back({peer_key, std::nullopt, {}});
+  }
+  if (config_.participate) {
+    if (const auto target_key = DhtKeyOfPeerId(target_peer_id)) {
+      for (DhtContact& contact : table_.Closest(*target_key, DhtRoutingTable::kDefaultK)) {
+        if (SoftReputationAllows(contact.peer_id)) {
+          seeds.push_back({std::move(contact.peer_id), contact.key, std::move(contact.multiaddr)});
+        }
+      }
+    }
+  }
+  if (seeds.empty()) {
     inflight_lookups_.fetch_sub(1, std::memory_order_acq_rel);
     on_done(FindPeerRoe::error(Failure::Of(Err::InvalidRequest, "no dht query peers configured")));
     return;
@@ -370,126 +398,122 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
     ++find_peer_issued_;
   }
 
-  struct State {
-    std::mutex mutex;
-    std::shared_ptr<std::atomic<size_t>> pending;
-    /** Highest-seq record where the answering peer's authenticated link identity is the
-     * record's own peer_id (self-answer, verifiable trust). Tracked separately from
-     * best_third_party so a third party can't suppress a legitimate self-answer by racing it
-     * with a higher (forged) seq. */
-    std::optional<PeerRoutingRecord> best_self;
-    /** Highest-seq record from anyone else about target_peer_id that checks on its own (it carries
-     * its public key, which derives the PeerId, and the signature holds). Others are dropped. */
-    std::optional<PeerRoutingRecord> best_third_party;
-    Failure last_failure = Failure::Of(Err::NotFound, "find_peer not found");
-    DhtClient* self = nullptr;
-  };
-  auto state = std::make_shared<State>();
-  state->self = this;
-  state->pending = std::make_shared<std::atomic<size_t>>(query_keys.size());
+  auto last_failure = std::make_shared<std::pair<std::mutex, Failure>>();
+  last_failure->second = Failure::Of(Err::NotFound, "find_peer not found");
 
+  DhtLookup::Limits limits;
+  limits.follow_hints = config_.participate;
+  limits.budget = std::chrono::milliseconds(kLookupBudgetMs);
+  DhtLookup::Run(
+      target_peer_id, std::move(seeds), limits,
+      [this, target_peer_id, last_failure](const DhtLookupCandidate& candidate, DhtLookup::AnswerCb answer) {
+        AskForPeer(candidate, target_peer_id, [last_failure, answer](CodedRoe<DhtLookupAnswer, Err> asked) {
+          if (asked) {
+            answer(std::move(*asked));
+            return;
+          }
+          {
+            std::lock_guard lock(last_failure->first);
+            last_failure->second = asked.error();
+          }
+          answer(std::nullopt);
+        });
+      },
+      [this](const std::string& peer_id) { return peer_id == config_.local_peer_id || !SoftReputationAllows(peer_id); },
+      [this, target_peer_id, last_failure, on_done](DhtLookup::Outcome outcome) {
+        inflight_lookups_.fetch_sub(1, std::memory_order_acq_rel);
+        if (outcome.record) {
+          store_.Put(*outcome.record);
+          DhtFindPeerResult result;
+          result.peer_id = target_peer_id;
+          result.record = std::move(*outcome.record);
+          on_done(std::move(result));
+          return;
+        }
+        if (outcome.answered > 0) {  // someone answered and nobody had it — not just our link down
+          {
+            std::lock_guard lock(not_found_mutex_);
+            not_found_until_ms_[target_peer_id] = NowMs() + kNotFoundCacheMs;
+          }
+          on_done(FindPeerRoe::error(Failure::Of(Err::NotFound, "find_peer not found")));
+          return;
+        }
+        std::lock_guard lock(last_failure->first);
+        on_done(FindPeerRoe::error(last_failure->second));
+      });
+}
+
+void DhtClient::AskForPeer(const DhtLookupCandidate& candidate, const std::string& target_peer_id,
+                           std::function<void(CodedRoe<DhtLookupAnswer, Err>)> done) {
+  const std::string& peer_key = candidate.peer_key;
+  if (!candidate.hint_addr.empty() && !runtime_.Links().GetLinkSnapshot(peer_key).has_endpoint) {
+    (void)runtime_.Links().RegisterEndpoint(peer_key, candidate.hint_addr);  // dialling it proves the PeerId
+  }
   common::Object request;
   request.set("op", "find_peer");
   request.set("req_id", util::GenerateUuid());
   request.set("version", int64_t{kDhtWireVersion});
   request.set("peer_id", target_peer_id);
-
-  auto finish_lookup = [state, on_done](FindPeerRoe value) {
-    if (state->self) {
-      state->self->inflight_lookups_.fetch_sub(1, std::memory_order_acq_rel);
+  Rpc(peer_key, request, [this, peer_key, target_peer_id, reached_at = candidate.hint_addr,
+                           done = std::move(done)](RpcRoe resp) {
+    if (!resp) {
+      done(CodedRoe<DhtLookupAnswer, Err>::error(resp.error()));
+      return;
     }
-    on_done(std::move(value));
-  };
-
-  for (const std::string& peer_key : query_keys) {
-    Rpc(peer_key, request,
-               [this, state, target_peer_id, peer_key, finish_lookup](RpcRoe resp) mutable {
-                 bool saw_bad = false;
-                 std::optional<PeerRoutingRecord> self_answer;  // the responder's own, verified
-                 {
-                   std::lock_guard lock(state->mutex);
-                   if (resp) {
-                     if (const common::Array* records = resp->getArray("records")) {
-                       for (const common::Value& item : records->elements) {
-                         const common::Object* obj = common::asObject(item);
-                         if (!obj) {
-                           saw_bad = true;
-                           continue;
-                         }
-                         if (auto parsed = PeerRoutingRecordFromObject(*obj)) {
-                           if (parsed->peer_id != target_peer_id) {
-                             saw_bad = true;
-                             continue;
-                           }
-                           if (PeerRoutingRecordExpired(*parsed,
-                                                       static_cast<int64_t>(std::time(nullptr)))) {
-                             saw_bad = true;
-                             continue;
-                           }
-                           const pp::amp::PeerLink* answering_link = runtime_.Links().FindLink(peer_key);
-                           const bool is_self_answer =
-                               answering_link != nullptr && answering_link->RemotePeerId() == target_peer_id;
-                           if (is_self_answer) {
-                             // Its subject answered: the session proved the key; the signature must hold.
-                             const pp::amp::ByteVector& key = answering_link->RemoteIdentityPublicKey();
-                             auto verified = VerifyPeerRoutingRecord(*parsed, key);
-                             if (!verified || !*verified) {
-                               saw_bad = true;
-                               continue;
-                             }
-                             parsed->public_key_b64 = pp::Base64Encode(key);
-                             self_answer = *parsed;
-                             if (!state->best_self || parsed->seq > state->best_self->seq) {
-                               state->best_self = std::move(*parsed);
-                             }
-                           } else if (!parsed->public_key_b64.empty() &&
-                                      !VerifyPeerRoutingRecordStandalone(*parsed)) {
-                             saw_bad = true;  // carries a key, and does not check out
-                           } else if (!parsed->public_key_b64.empty()) {
-                             if (!state->best_third_party || parsed->seq > state->best_third_party->seq) {
-                               state->best_third_party = std::move(*parsed);
-                             }
-                           }  // no key (an older publisher): not checkable from here — dropped
-                         } else {
-                           saw_bad = true;
-                         }
-                       }
-                     }
-                   } else {
-                     state->last_failure = resp.error();
-                   }
-                 }
-                 if (saw_bad) {
-                   NoteSoftReputationBad(peer_key);
-                 } else if (resp && resp->getString("op").value_or("") == "find_peer_result") {
-                   NoteAnswered(peer_key, *resp, self_answer);
-                 }
-                 if (state->pending->fetch_sub(1, std::memory_order_acq_rel) != 1) {
-                   return;
-                 }
-                 std::lock_guard lock(state->mutex);
-                 // A verified self-answer always wins, regardless of any third-party seq: a
-                 // single malicious query peer could otherwise suppress a legitimate self-answer
-                 // by racing it with a higher forged seq for the same target.
-                 if (state->best_self) {
-                   store_.Put(*state->best_self);
-                   DhtFindPeerResult result;
-                   result.peer_id = target_peer_id;
-                   result.record = *state->best_self;
-                   finish_lookup(std::move(result));
-                   return;
-                 }
-                 if (state->best_third_party) {
-                   store_.Put(*state->best_third_party);
-                   DhtFindPeerResult result;
-                   result.peer_id = target_peer_id;
-                   result.record = *state->best_third_party;
-                   finish_lookup(std::move(result));
-                   return;
-                 }
-                 finish_lookup(FindPeerRoe::error(state->last_failure));
-               });
-  }
+    if (resp->getString("op").value_or("") != "find_peer_result") {
+      done(CodedRoe<DhtLookupAnswer, Err>::error(Failure::Of(
+          Err::ProtocolError, "find_peer: " + resp->getString("code").value_or("unexpected answer"))));
+      return;
+    }
+    bool saw_bad = false;
+    DhtLookupAnswer answer;
+    std::optional<PeerRoutingRecord> self_answer;  // the responder's own, verified
+    const pp::amp::PeerLink* answering_link = runtime_.Links().FindLink(peer_key);
+    const std::string responder = answering_link ? answering_link->RemotePeerId() : std::string();
+    const int64_t now_sec = static_cast<int64_t>(std::time(nullptr));
+    if (const common::Array* records = resp->getArray("records")) {
+      for (const common::Value& item : records->elements) {
+        const common::Object* obj = common::asObject(item);
+        auto parsed = obj ? PeerRoutingRecordFromObject(*obj) : Roe<PeerRoutingRecord>(Error("not an object"));
+        if (!parsed || parsed->peer_id != target_peer_id || PeerRoutingRecordExpired(*parsed, now_sec)) {
+          saw_bad = true;
+          continue;
+        }
+        bool from_subject = false;
+        if (!responder.empty() && responder == target_peer_id) {
+          // Its subject answered: the session proved the key; the signature must hold.
+          const pp::amp::ByteVector& key = answering_link->RemoteIdentityPublicKey();
+          auto verified = VerifyPeerRoutingRecord(*parsed, key);
+          if (!verified || !*verified) {
+            saw_bad = true;
+            continue;
+          }
+          parsed->public_key_b64 = pp::Base64Encode(key);
+          from_subject = true;
+          self_answer = *parsed;
+        } else if (parsed->public_key_b64.empty()) {
+          continue;  // an older publisher's record: not checkable from here — dropped
+        } else if (!VerifyPeerRoutingRecordStandalone(*parsed)) {
+          saw_bad = true;  // carries a key, and does not check out
+          continue;
+        }
+        // A self answer always wins over another's, whatever the seq: a third party cannot
+        // suppress a legitimate self answer by racing it with a higher seq.
+        if (!answer.record || (from_subject && !answer.self_answer) ||
+            (from_subject == answer.self_answer && parsed->seq > answer.record->seq)) {
+          answer.record = std::move(*parsed);
+          answer.self_answer = from_subject;
+        }
+      }
+    }
+    answer.closer = DhtCloserPeersFromResponse(*resp);
+    if (saw_bad) {
+      NoteSoftReputationBad(peer_key);
+    } else {
+      NoteAnswered(peer_key, *resp, self_answer, reached_at);
+    }
+    done(std::move(answer));
+  });
 }
 
 DhtClient::Stats DhtClient::OutboundStats() const {

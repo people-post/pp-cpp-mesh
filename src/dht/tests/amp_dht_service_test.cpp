@@ -149,6 +149,65 @@ TEST(AmpDhtProtocolTest, ParticipantsEnterTheRoutingTable) {
   node_r.Stop();
 }
 
+// A lookup follows closer_peers over the wire: R does not have the target but knows B, so A asks B
+// too (dialling it at the hinted address) — and then has B in its own table. A miss is not
+// repeated within the negative-cache window.
+TEST(AmpDhtProtocolTest, ALookupFollowsCloserPeersAndCachesTheMiss) {
+  auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto h = std::move(*created);
+  ASSERT_TRUE(static_cast<bool>(h->mgr_a().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(h->mgr_b().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+
+  AmpDhtProtocol node_a(*h->runtime_a);
+  AmpDhtProtocol node_r(*h->runtime_r);
+  AmpDhtProtocol node_b(*h->runtime_b);
+  const auto configure = [](AmpDhtProtocol& node, const std::string& peer_id, const std::string& ma,
+                            const pp::amp::MshIdentity& id, std::vector<std::string> query_peers) {
+    AmpDhtProtocolConfig cfg;
+    cfg.local_peer_id = peer_id;
+    cfg.listen_multiaddrs = {ma};
+    cfg.device_signing_secret = id.ml_dsa_secret_key;
+    cfg.device_signing_public = id.ml_dsa_public_key;
+    cfg.query_peer_keys = std::move(query_peers);
+    cfg.participate = true;
+    node.Configure(cfg);
+    node.Start();
+  };
+  configure(node_r, h->peer_id_r, h->ma_r, h->relay, {});
+  configure(node_a, h->peer_id_a, h->ma_a, h->alice, {h->peer_id_r});
+  configure(node_b, h->peer_id_b, h->ma_b, h->bob, {h->peer_id_r});
+  h->PumpUntil([&]() {
+    return node_r.RoutingTable().Contains(h->peer_id_a) && node_r.RoutingTable().Contains(h->peer_id_b) &&
+           node_a.RoutingTable().Contains(h->peer_id_r);
+  }, 4000);
+  ASSERT_TRUE(node_r.RoutingTable().Contains(h->peer_id_b));
+  ASSERT_FALSE(node_a.RoutingTable().Contains(h->peer_id_b));
+
+  const std::string nobody = "QmTWkSQAcGsETogTFKrPJ3GzdHG3vP9UwXVyp2HeK9YBvP";
+  const auto find = [&](const std::string& target) {
+    SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait;
+    node_a.FindPeer(target, [&wait](AmpDhtProtocol::FindPeerRoe result) { wait.Finish(std::move(result)); });
+    h->PumpUntil([&]() { return wait.IsSettled(); }, 4000);
+    return wait.Wait(std::chrono::seconds(5),
+                     AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "find_peer timed out"));
+  };
+  auto missed = find(nobody);
+  ASSERT_FALSE(static_cast<bool>(missed));
+  EXPECT_EQ(missed.error().GetCode(), AmpDhtProtocol::Err::NotFound) << missed.error().message;
+  EXPECT_TRUE(node_a.RoutingTable().Contains(h->peer_id_b)) << "asked B from R's hint, and B answered";
+
+  const uint64_t issued = node_a.Stats().find_peer_issued;
+  auto again = find(nobody);
+  ASSERT_FALSE(static_cast<bool>(again));
+  EXPECT_EQ(again.error().GetCode(), AmpDhtProtocol::Err::NotFound);
+  EXPECT_EQ(node_a.Stats().find_peer_issued, issued) << "the miss is cached: nothing asked";
+
+  node_a.Stop();
+  node_b.Stop();
+  node_r.Stop();
+}
+
 /** Lab acceptance: two participating Nodes discover each other's ADP addrs (no Brief HTTP). */
 TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
   auto created = pp::mesh::test::AmpMeshHarness::Create();
