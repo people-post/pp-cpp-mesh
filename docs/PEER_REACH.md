@@ -209,14 +209,13 @@ Rules built on it:
 
 ## 6. Where the DHT fits
 
-- **Now:** the DHT's query peers come from `SelectForRole(Dht)`; its outcomes feed the record like
-  any dial. Its records stay a candidate **source** (§3.2) — signed self-records of reachable
-  nodes — and the media ranking gap (DHT hops have no scope) is fixed by giving them the
-  directory's scope. Its soft reputation is replaced by the record.
-- **Later (a project of its own):** the Kademlia the contract describes — a routing table, XOR
-  metric, `closer_peers`, iterative lookup, the publish gate, the negative cache — and whether
-  Clients take part (read-only lookups). With a routing table the DHT becomes a real source of
-  peers beyond the seeds; until then it is a second directory and must not hold up calls.
+- **Now:** DHT RPCs are dials, so their outcomes feed the record. Its records stay a candidate
+  **source** (§3.2) — signed self-records of reachable nodes. DHT hops are scoped **Public**
+  (strangers): media ranking offers them only to consumers that take Public hops.
+- **Later:** completing it — keys and XOR distance, a routing table, `closer_peers`, iterative
+  lookup, publishing at the closest nodes, the publish gate, the negative cache — is a design of
+  its own: docs/DHT.md (proposal, decisions D1–D5 first). Until then it is a second directory and
+  must not hold up calls.
 
 ## 7. Build order
 
