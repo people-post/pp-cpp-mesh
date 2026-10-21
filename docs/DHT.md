@@ -1,6 +1,7 @@
-# Completing the DHT (design for review)
+# Completing the DHT
 
-Status: proposal, 2026-10-21. Step 6 of docs/PEER_REACH.md § 7. Nothing here is built yet.
+Status: design agreed 2026-10-21 (decisions D1–D5 as recommended below). Step 6 of
+docs/PEER_REACH.md § 7. Nothing here is built yet; the build order is § 7.
 Wire and record format: pp-browser `docs/contracts/MESH_DHT.md` (the contract); this document
 says how to make the mesh do what it describes, what changes in it, and what to decide first.
 
@@ -32,9 +33,9 @@ consumers that take Public hops (pp-browser now scopes DHT hops Public).
 Not for (unchanged from the contract): content or blob routing, pubsub, a relay market, names /
 people search (the directory's job), third-party record storage.
 
-## 3. Decisions to make first
+## 3. Decisions (agreed)
 
-| # | Question | Recommendation |
+| # | Question | Decision |
 |---|----------|----------------|
 | D1 | Complete it now, or after the open reach / error-code items? | After. It is a project of its own (§ 7, ~6 steps + a lab); nothing in calls or chat waits on it — the directory and seeds carry discovery today. |
 | D2 | Who looks up? | Nodes with `capabilities.dht` (as now). Clients do **not** walk the DHT: an iterative lookup tells strangers whom you are looking for (your contacts). A Client keeps asking its own seeds / directory. Revisit only with a privacy design (e.g. lookups through a trusted Node). |

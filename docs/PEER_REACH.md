@@ -214,8 +214,8 @@ Rules built on it:
   (strangers): media ranking offers them only to consumers that take Public hops.
 - **Later:** completing it — keys and XOR distance, a routing table, `closer_peers`, iterative
   lookup, publishing at the closest nodes, the publish gate, the negative cache — is a design of
-  its own: docs/DHT.md (proposal, decisions D1–D5 first). Until then it is a second directory and
-  must not hold up calls.
+  its own: docs/DHT.md (agreed). Until it is built the DHT is a second directory and must not
+  hold up calls.
 
 ## 7. Build order
 
