@@ -1,0 +1,225 @@
+# Peer reach: what we know about reaching peers, and choosing seeds
+
+Status: **design, for review** (2026-10-21). Nothing here is implemented yet except where noted.
+
+A mesh node reaches other peers for many jobs — a call's peer, a media hop, a rendezvous relay, a
+punch introducer, a directory provider, a DHT peer. Today each job builds its own candidate list,
+and none of them remembers whether a peer answered. This document defines one per-peer reach record
+the mesh keeps, the roles a peer can play, how the jobs that need "a few live seeds" choose them,
+and where the DHT fits. Sections 1–2 describe today; 3–6 the design; 7 the order to build it.
+
+Terms: **seed** = any peer used for a supporting role (relay, introducer, directory, DHT), whether
+configured, an org node or a friend's node listed by the directory ("volunteer"). **Peer** = any
+mesh PeerId.
+
+## 1. Today
+
+### 1.1 Peer lists
+
+Each list is built separately, with its own sources, order and (no) cap. File references: **M** =
+this repo, **B** = pp-browser `src/`.
+
+| List | Built at | Sources, order | Cap / cadence | Used by |
+|------|----------|----------------|---------------|---------|
+| Effective bootstrap peers | B `foundation/data/MeshRole.cpp:42-88` | directory nodes, then config `bootstrap_peers` (else 2 built-in seeds) | none; per call | DHT endpoints, rendezvous, `bootstrap_seeds` |
+| `MeshHopPolicy::bootstrap_seeds` | B `feature/conversations/MeshConnectivityWiring.cpp:68-75` | effective list, or config only (`trusted_relays_only`); org seeds dropped when the probe failed | pushed every 5 s and on directory update | seed warm / park (M `src/reach/CircuitRendezvousCoordinator.cpp`) |
+| `MeshHopPolicy::rendezvous_candidates` | B `domain/people/MeshHopPolicy.cpp:169-209` | contacts ∪ directory ∪ DHT ∪ seeds | none | reserve, park, `DialableRelayIds` |
+| Park surface | M `CircuitRendezvousCoordinator.cpp:248-280` | sticky R1, then Connected, then the rest | park cold-dials **all** remaining, serially | PeerReach park gate, Accept |
+| `MeshHopPolicy::punch_introducers` | B `MeshConnectivityWiring.cpp:76-82` | contacts (Connected first), then config seeds | walk with a tried set | cold punch (M `src/reach/PunchIntroducerWalk.cpp`) |
+| Directory query peers | B `feature/conversations/ConversationsHub.cpp:916-941` | Amp directory providers, then seeds | none; every 300 s | directory refresh |
+| DHT query peers | B `feature/node/NodeMeshServices.cpp:50-68` | directory nodes, then seeds | none | DHT store / find_peer |
+| Reachability probe seed | M `src/reachability/ReachabilityEngine.cpp:48-55` | first ADP addr of config `bootstrap_peers` | Node at start; any role on network change | sets `seed_dial_ok` |
+| Media hops | B `feature/calls/CallHopRanking.cpp:34-71` | the same merge, ranked by capacity × affinity, filtered by media_relay ads | per call | calls, SoftMigrate |
+
+### 1.2 What is remembered
+
+- Amp's per-peer dial backoff (1 s → 30 s); the seed park clears it before redialing.
+- `seed_dial_ok` from the reachability probe — a Client never probes, so it always reads "ok".
+- The sticky last-good relay (M `src/reach/AmpCircuitHopReach.cpp:487,532`).
+- DHT soft reputation (M `src/dht/client/DhtClient.cpp:72-101`), in memory, DHT only.
+- The directory cache's refresh backoff; a call's UI-only "seed unreachable" flag.
+- `MeshHopCandidate::recently_failed` and `residual_capacity` exist (M
+  `include/mesh/types/MeshHopTypes.h:31-34`) but nothing in production sets them.
+
+A reach result (direct / punched / relayed, or the error) is used once and dropped.
+
+### 1.3 Seed contact over a session
+
+- **All roles:** the directory refresh dials every directory provider and seed every 300 s
+  (60 s after a failure) — the only regular seed contact. Its outcomes are not kept per peer.
+- **Node role:** the reachability probe at start; the DHT publishes to its query peers every
+  max(30 s, ttl/2).
+- **During a call:** reserve on every Connected surface peer, renewed every 10 s (a 15 s lease),
+  which keeps those links Hot (10 s keepalive, ~25 s liveness window).
+- **Between calls:** nothing keeps seed links up; they fall back to the 5 s liveness window and
+  are evicted when idle.
+
+### 1.4 What this costs
+
+- A silent dead seed costs **every** call ~10–12 s: the park dials it (8 s Amp dial timeout),
+  redials once, then gives up — and the caller's private dial waits behind that park. Seen as the
+  pp-browser app lab's `seed_down` flake (5 of 12 runs over 8 s). "Fail early" (b3d10fe) only
+  covers seeds that refuse.
+- A seed that dies **during** use still looks Connected until its liveness window ends: the park
+  answers "parked" at once and the call goes for a circuit through it, losing the circuit budget
+  (~16 s).
+- The surface is unbounded and the park cold-dials all of it serially; the park's "all Connected"
+  rule counts every volunteer.
+- The same "is this peer up" question is answered (or not) separately by each list.
+
+## 2. DHT today
+
+- One record type, `PeerRoutingRecord` (signed self-record: multiaddrs, optional caps), keyed by
+  raw PeerId; `store` accepts only the sender's own record.
+- `find_peer` answers from the local store only; `closer_peers` is always empty
+  (M `src/dht/serve/DhtServer.cpp:139`). Lookup is one round to every query peer, no iterative
+  walk; `k_bucket_size` is never read. There is **no routing table**: the DHT never learns peers
+  beyond its query set (directory nodes + seeds).
+- Participation (publish, find_peer from the product) is Node role with `capabilities.dht`
+  (default off). Clients only read their (empty) store.
+- Consumers: hop lists (`DhtDiscovered` affinity), peer prefetch for chat / calls. Media ranking
+  drops DHT hops (`CandidateRelayScopes` returns no scope for them, B
+  `domain/people/MeshHopPolicy.cpp:57-63`).
+- Not implemented from the contract (B `docs/contracts/MESH_DHT.md`): XOR metric / record keys,
+  α/k lookup, `closer_peers`, the publish gate (reachability ≠ Blocked), the negative cache.
+
+In effect the DHT today is "ask the directory nodes and seeds whether they hold a peer's signed
+self-record" — a second directory, Node-only.
+
+## 3. Roles, sources and the split
+
+### 3.1 Roles
+
+A peer can be used for any of:
+
+| Role | Needed for | How many live are enough |
+|------|------------|--------------------------|
+| **Rendezvous** | park / reserve, circuit R1, ServeDial | 2 |
+| **Introducer** | coordinated punch | 2 |
+| **Directory** | `list_mesh_nodes` | 1 (all providers are asked today) |
+| **DHT** | store / find_peer | the DHT's own k (§6) |
+| **Media hop** | a group call's media_relay | ranked per call; not a seed job |
+| **Probe** | the reachability dial-back | 1 |
+
+A seed usually holds several roles; a contact may be a rendezvous or introducer.
+
+### 3.2 Sources and trust (the app's)
+
+Candidates come from configured seeds, org seeds, friends' nodes listed by the directory
+(volunteers — they **count**, as configured seeds do), DHT records and contacts. Which sources are
+allowed (`trusted_relays_only`, prefer contacts), how they are ordered and which roles each source
+may play is **candidate policy: the app's** (THREADING.md rule 1). The app pushes it.
+
+### 3.3 The split
+
+- **App — candidate policy:** one candidate list with each peer's sources and allowed roles,
+  pushed as today (`SetHopPolicy`).
+- **Mesh — the reach record (§4):** facts the mesh observes on its I/O lane about each peer.
+- **Mesh — role selection (§5):** picks, for a job, up to N candidates from the policy using the
+  record. Bounded, deterministic, no app call.
+- **Mesh → app — a published record view:** the record as a snapshot (like `MeshLocalView`), so
+  app-side ranking (media hops: `recently_failed`) reads the same facts.
+
+## 4. The peer reach record
+
+One record per PeerId, owned by `MeshConnectivity`, living on the mesh I/O lane, in `src/reach/`
+(next to `PeerReachCoordinator`). `src/reachability/` stays "is **this** node reachable".
+
+### 4.1 What it holds
+
+| Field | Meaning |
+|-------|---------|
+| `state` | **Unknown** (no outcome yet), **Live**, **Down** |
+| `last_ok_at`, `last_ok_path` | when it was last Connected, and how (direct / punched / relayed) |
+| `last_fail_at`, `last_fail_kind` | dial timeout, refused / link table full, keepalive lost, OS unreachable |
+| `down_since`, `retry_at` | when it went Down and when it may be tried again |
+| `fails_in_row` | for the retry backoff |
+
+Facts only: no addresses (the dial book has them), nothing a peer reports about itself or others.
+Bounded (LRU, ~512 peers); in memory — a restart starts Unknown (a Down mark from a previous run
+says little about the network now).
+
+### 4.2 What feeds it
+
+Every outcome the mesh already sees, at no extra traffic:
+
+- dial outcomes (`EnsureAssociation`), circuit and punch results, reserve answers;
+- link events from Amp: Connected, evicted (`ConnectionDead` = keepalive lost, OS unreachable);
+- the directory refresh's RPC outcomes (every 300 s) — the regular seed signal;
+- the reachability probe.
+
+Transitions: any Connected → **Live**. A failure → **Down** only when it says the peer cannot be
+reached now (dial timeout, OS unreachable, keepalive lost on a link we used); "refused / table
+full" → Down with a short retry (the peer is up but busy). A network change marks every Down peer
+**Unknown** (the old verdict was about the old network).
+
+### 4.3 Retry
+
+A Down peer is not dialed for a job before `retry_at`: 5 min, doubling to 30 min. Outcomes that
+arrive anyway (the directory refresh dials it, the peer dials us) update it at once.
+
+## 5. Choosing seeds for a job
+
+`SelectForRole(role, n)` over the pushed candidates allowed that role:
+
+1. **Live** first (most recent `last_ok_at` first, keeping the policy's order among equals),
+   then **Unknown** (policy order); **Down** before `retry_at` never.
+2. Stop at the role's target (§3.1).
+
+Rules built on it:
+
+- **At most 3 cold dials per round** for a role, stopping once **2 are live**.
+- **No dedicated periodic check.** The directory refresh supplies the regular signal. One round
+  runs after mesh start and after a network change **only if** no outcome is recent; none while
+  the app is backgrounded (mobile).
+- **The park:** reserve / wait on the selected set, not the whole surface; "all Connected" means
+  "all selected". When every rendezvous candidate is Down, the park answers **not parked at once**
+  (calls stop waiting for a seed that is known gone).
+- **PeerReach:** the park before a private dial uses the selection; with every rendezvous peer
+  Down it is skipped (nothing to protect). A same-LAN private Preferred (one of our /24s) is
+  dialed without the park — the dual-NAT case the park guards (fd4e3de) cannot arise there.
+- **Introducers / directory / DHT query peers / probe:** the same selection with their role.
+
+## 6. Where the DHT fits
+
+- **Now:** the DHT's query peers come from `SelectForRole(Dht)`; its outcomes feed the record like
+  any dial. Its records stay a candidate **source** (§3.2) — signed self-records of reachable
+  nodes — and the media ranking gap (DHT hops have no scope) is fixed by giving them the
+  directory's scope. Its soft reputation is replaced by the record.
+- **Later (a project of its own):** the Kademlia the contract describes — a routing table, XOR
+  metric, `closer_peers`, iterative lookup, the publish gate, the negative cache — and whether
+  Clients take part (read-only lookups). With a routing table the DHT becomes a real source of
+  peers beyond the seeds; until then it is a second directory and must not hold up calls.
+
+## 7. Build order
+
+Each step ships on its own (unit tests + the pp-browser labs):
+
+1. **Settle on connect during a park** — done on branch `fix/seed-park-settles-on-connect`.
+2. **The record** (§4), fed by dial / link / circuit / punch / directory outcomes; published view.
+3. **Seed selection for rendezvous** (§5): bounded park and reserve, "all Down → answer now",
+   the same-LAN private dial. Fixes `seed_down`; add a lab `seed_dies_in_use` (seeds used, then
+   stopped; call inside and after the liveness window).
+4. **Introducers, directory and DHT query peers, the probe** move to `SelectForRole`.
+5. **The app's lists**: one candidate list with roles in `MeshHopPolicy`; `bootstrap_seeds` /
+   `punch_introducers` / effective-bootstrap merging go; media ranking reads `recently_failed`
+   from the view; DHT hops get a scope.
+6. **DHT completion** — separate design (§6).
+
+## 8. Open
+
+- **A seed that dies while its link still looks Connected** (§1.4): the park trusts a stale link.
+  Options: treat a refused circuit on a just-used seed as Down and fall back to the private dial;
+  or shorten the liveness window for seed links during a park. Needs its own look before step 3
+  lands.
+- **Persisting Down marks** across restarts: not now (§4.1); revisit if cold starts stay slow.
+- **Targets per role** (§3.1) are first guesses; the labs will tell.
+
+## Related
+
+- THREADING.md (here) — lanes, and rule 1 (candidate policy is the app's).
+- pp-browser `docs/contracts/MESH_DHT.md`, `docs/contracts/MESH_DIRECTORY_AMP.md`,
+  `docs/ops/CONFIGURATION.md` (Mesh DHT, Trusted relays only), `docs/architecture/MESH.md`.
+- pp-browser `projects/media-hop-reachability/DECISIONS.md` H010 (seed park gate), H011 (R1
+  rendezvous); `projects/p2p-mesh/DECISIONS.md` N015, N028; `projects/p2p-mesh/DESIGN.md`
+  (bootstrap seed, DHT, relay selection).
