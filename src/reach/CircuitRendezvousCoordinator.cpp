@@ -50,6 +50,9 @@ struct CircuitRendezvousCoordinator::SeedPark {
   /** Armed when the first seed connects: the rest get a short grace, not the whole deadline. */
   std::atomic<uint64_t> grace_timer{0};
   std::function<void(bool)> on_done;
+  /** When the deadline answers; redials (io lane only) are weighed against what is left of it. */
+  std::chrono::steady_clock::time_point deadline_at{};
+  int redials = 0;
 };
 
 /** Serial cold dial + reserve over the rest of the rendezvous surface (bounded by cold_limit). */
@@ -323,6 +326,7 @@ void CircuitRendezvousCoordinator::ReserveColdSurface(const std::shared_ptr<Cold
         deferred_.Bind([this, park, links, hop, next = index + 1, next_cold = cold_started + 1](IChatPeerLinks::LinkRoe assoc) {
           if (!assoc) {
             log().warning << "circuit reserve assoc miss peer=" << hop.peer_id << " err=" << assoc.error().message;
+            OnSeedDialMissed(*links, hop);
           } else {
             RegisterDialableEndpoint(*links, hop);
             StartReserveOnRelay(hop.peer_id, "circuit reserve");
@@ -330,6 +334,69 @@ void CircuitRendezvousCoordinator::ReserveColdSurface(const std::shared_ptr<Cold
           ReserveColdSurface(park, next, next_cold);
         }));
     return;
+  }
+}
+
+std::vector<std::shared_ptr<CircuitRendezvousCoordinator::SeedPark>> CircuitRendezvousCoordinator::WaitingParks() {
+  std::vector<std::shared_ptr<SeedPark>> waiting;
+  std::lock_guard lock(parks_mu_);
+  for (const auto& weak : parks_) {
+    if (auto park = weak.lock(); park && !park->settled.load(std::memory_order_acquire)) {
+      waiting.push_back(std::move(park));
+    }
+  }
+  return waiting;
+}
+
+void CircuitRendezvousCoordinator::OnSeedDialMissed(IChatPeerLinks& links, const MeshHopCandidate& hop) {
+  const auto seeds = BootstrapSeedPeerIds();
+  if (std::find(seeds.begin(), seeds.end(), hop.peer_id) == seeds.end()) {
+    return;
+  }
+  const std::vector<std::shared_ptr<SeedPark>> waiting = WaitingParks();
+  if (waiting.empty()) {
+    return;
+  }
+  const auto now = std::chrono::steady_clock::now();
+  const auto left_ms = [&now](const SeedPark& park) {
+    return static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(park.deadline_at - now).count());
+  };
+  bool redial = false;
+  for (const auto& park : waiting) {
+    if (ShouldRedialSeedForPark(left_ms(*park), park->redials)) {
+      ++park->redials;
+      redial = true;
+    }
+  }
+  if (redial) {
+    log().info << "bootstrap seed park redial peer=" << hop.peer_id;
+    links.ClearDialBackoff(hop.peer_id);  // the miss armed a backoff that would refuse the redial
+    links.EnsureAssociation(hop.peer_id, deferred_.Bind([this, links = &links, hop](IChatPeerLinks::LinkRoe assoc) {
+      if (!assoc) {
+        log().warning << "bootstrap seed park redial miss peer=" << hop.peer_id << " err=" << assoc.error().message;
+        OnSeedDialMissed(*links, hop);
+        return;
+      }
+      RegisterDialableEndpoint(*links, hop);
+      StartReserveOnRelay(hop.peer_id, "circuit reserve");  // the park's Connected listener settles it
+    }));
+    return;
+  }
+  // Nothing left to try: answer now instead of at the deadline, unless another seed's dial (the
+  // cold walk's, or a redial for it) may still land.
+  int dials_in_flight = 0;
+  for (const std::string& seed : seeds) {
+    const MeshPeerLinkPhase phase = links.GetLinkSnapshot(seed).phase;
+    if (phase == MeshPeerLinkPhase::Dialing || phase == MeshPeerLinkPhase::Handshaking) {
+      ++dials_in_flight;
+    }
+  }
+  const bool any_connected = AnyBootstrapSeedConnectedOnIo();
+  for (const auto& park : waiting) {
+    if (SeedParkCannotLand(any_connected, dials_in_flight, ShouldRedialSeedForPark(left_ms(*park), park->redials))) {
+      log().warning << "bootstrap seed park failed early (no seed reachable after " << park->redials << " redials)";
+      FinishSeedPark(park, false);
+    }
   }
 }
 
@@ -423,6 +490,7 @@ void CircuitRendezvousCoordinator::EnsureBootstrapSeedParkedAsync(std::function<
   park->links = &m->Amp()->Runtime().Links();
   park->lane = lane;
   park->on_done = std::move(on_done);
+  park->deadline_at = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 12000);
   // Prefer Connected on *all* seeds — the dialer's StartBridge may pick hop2 while we only parked
   // hop1 (dogfood ae4900eb / 39412f). The deadline still accepts ≥1.
   if (AllBootstrapSeedsConnectedOnIo()) {
