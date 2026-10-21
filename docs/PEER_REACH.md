@@ -197,9 +197,12 @@ Rules built on it:
   keeps its seed link untouched.
 - **Introducers:** the punch walk skips an introducer the record holds down (unless its link is
   up) and dials at most kReachMaxColdDialsPerRound introducers that are not connected, per walk.
-- **Directory / DHT query peers:** the app drives these jobs, so the mesh offers the selection:
+- **Directory / DHT query peers:** the app lists them, so the mesh offers the selection:
   `MeshConnectivity::ChoosePeers(candidates, max)` — up peers first, then the record's latest
-  successes, then the rest in the app's order, none held down. `ReachFacts(peer_id)` is the
+  successes, then the rest in the app's order, none held down. The directory client takes it as
+  `AmpDirectoryProtocolConfig::choose_query_peers` (a list asks only the chosen peers; none
+  worth asking answers at once, and the app falls back to HTTP). DHT query peers wait for the
+  DHT design (§ 6) — the DHT client keeps its own reputation today. `ReachFacts(peer_id)` is the
   published view (media ranking's `recently_failed`).
 - **Probe:** left as it is. It runs at mesh start (the record is empty) and right after a network
   change (every Down mark reads Unknown then) — the record has nothing to say at either moment.
@@ -230,8 +233,8 @@ Each step ships on its own (unit tests + the pp-browser labs):
    stopped; call inside and after the liveness window).
 4. **Introducers** use the record; **directory and DHT query peers** get `ChoosePeers` for the app
    to call; the probe stays (§ 5).
-5. **The app's lists** (pp-browser): directory refresh (`ConversationsHub`) and DHT query peers
-   (`NodeMeshServices`) call `ChoosePeers`; media ranking (`CallHopRanking`) reads
+5. **The app's lists** (pp-browser): the directory config sets `choose_query_peers` to
+   `ChoosePeers` (`ConversationsHub::ConfigureAmpDirectoryProtocol`, `NodeMeshServices`); media ranking (`CallHopRanking`) reads
    `recently_failed` from `ReachFacts`; DHT hops get a relay scope; then one candidate list with
    roles in `MeshHopPolicy` — `bootstrap_seeds` / `punch_introducers` / effective-bootstrap
    merging go.

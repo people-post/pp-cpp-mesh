@@ -171,6 +171,12 @@ void DirectoryClient::ListMeshNodesAsync(std::function<void(ListRoe)> on_done) {
     on_done(ListRoe::error(Failure::Of(Err::InvalidRequest, "no directory query peers configured")));
     return;
   }
+  const std::vector<std::string> ask =
+      config_.choose_query_peers ? config_.choose_query_peers(config_.query_peer_keys) : config_.query_peer_keys;
+  if (ask.empty()) {
+    on_done(ListRoe::error(Failure::Of(Err::NotFound, "no directory query peer worth asking now")));
+    return;
+  }
 
   struct State {
     std::mutex mutex;
@@ -180,7 +186,7 @@ void DirectoryClient::ListMeshNodesAsync(std::function<void(ListRoe)> on_done) {
     Failure last_failure = Failure::Of(Err::NotFound, "directory list_mesh_nodes failed");
   };
   auto state = std::make_shared<State>();
-  state->pending = std::make_shared<std::atomic<size_t>>(config_.query_peer_keys.size());
+  state->pending = std::make_shared<std::atomic<size_t>>(ask.size());
   state->finished = std::make_shared<std::atomic<bool>>(false);
 
   common::Object request;
@@ -188,7 +194,7 @@ void DirectoryClient::ListMeshNodesAsync(std::function<void(ListRoe)> on_done) {
   request.set("req_id", util::GenerateUuid());
   request.set("version", int64_t{kDirectoryWireVersion});
 
-  for (const std::string& peer_key : config_.query_peer_keys) {
+  for (const std::string& peer_key : ask) {
     Rpc(peer_key, request, [state, on_done](RpcRoe resp) mutable {
       std::optional<ListRoe> outcome;
       {
