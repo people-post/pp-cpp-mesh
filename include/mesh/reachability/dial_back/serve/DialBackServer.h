@@ -7,7 +7,7 @@
 namespace pp::mesh {
 
 /**
- * Serving side of Amp dial-back (`/pp-browser/reach/1.0.0`, D8): a seed answers `op=probe` by
+ * Serving side of Amp dial-back (`/pp-mesh/reach/1.0.0`, D8): a seed answers `op=probe` by
  * dialing the asker's advertised ADP multiaddrs in order and replying ok / dialed / error, plus
  * the asker's reflexive address as this seed sees it (B26). Registered whenever Amp is up.
  */

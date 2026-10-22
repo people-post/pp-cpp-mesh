@@ -11,7 +11,7 @@
 namespace pp::mesh {
 
 /**
- * Client side of Amp dial-back (`/pp-browser/reach/1.0.0`, D8): ask a seed to dial our advertised
+ * Client side of Amp dial-back (`/pp-mesh/reach/1.0.0`, D8): ask a seed to dial our advertised
  * ADP listen multiaddrs, for reachability chrome.
  *
  * Prefer ProbeAsync (A022-style). Sync Probe parks until done; with MeshPump running leave IoPump

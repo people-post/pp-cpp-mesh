@@ -13,7 +13,7 @@
 namespace pp::mesh {
 
 /**
- * Amp Coordinated Punch L4 (`/pp-browser/reach/1.0.0` family, `kAmpPunchProtocolId`) — H009 /
+ * Amp Coordinated Punch L4 (`/pp-mesh/reach/1.0.0` family, `kAmpPunchProtocolId`) — H009 /
  * L3.25a–d. A node plays every role: `serve/PunchServer` is the introducer and the target,
  * `client/PunchClientCoordinator` the initiator; this owner shares the local candidate addresses
  * (offered as a target, read by the media plane). Dual-dial election is PeerLinkManager A026;

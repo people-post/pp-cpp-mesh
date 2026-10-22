@@ -8,7 +8,7 @@
 #include <string>
 namespace pp::mesh {
 
-inline constexpr const char* kReachProtocolId = "/pp-browser/reach/1.0.0";
+inline constexpr const char* kReachProtocolId = "/pp-mesh/reach/1.0.0";
 inline constexpr const char* kDialBackProtocolId = kReachProtocolId;
 
 struct DialBackProbeResult {

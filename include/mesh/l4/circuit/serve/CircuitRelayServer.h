@@ -10,7 +10,7 @@
 namespace pp::mesh {
 
 /**
- * Serving side of `/pp-browser/circuit/1.0.0` on MeshRuntime ([A022]): a relay that answers
+ * Serving side of `/pp-mesh/circuit/1.0.0` on MeshRuntime ([A022]): a relay that answers
  * `op=bridge` (dial the target, then splice the two legs) and `op=reserve` (park an answerer's
  * channel so a later bridge to its PeerId needs no dial into its NAT). Admission (scope, contacts,
  * K003 standby limits) is decided here. MeshHost owns one when Amp is up; the protocol handler is

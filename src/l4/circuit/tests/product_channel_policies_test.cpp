@@ -30,7 +30,7 @@ TEST(ProductChannelPoliciesTest, MediaRelayLegsNeverIdleReset) {
 TEST(ProductChannelPoliciesTest, CircuitLegsNeverIdleReset) {
   EXPECT_EQ(pp::amp::CircuitTunnelChannelPolicy().read_timeout, kNever);
   EXPECT_EQ(pp::mesh::CircuitTargetChannelPolicy(pp::amp::kAmpCircuitCarrierProtocolId).read_timeout, kNever);
-  EXPECT_EQ(pp::mesh::CircuitTargetChannelPolicy("/pp-browser/media-relay/1.0.0").read_timeout, kNever);
+  EXPECT_EQ(pp::mesh::CircuitTargetChannelPolicy("/test/media-relay/1.0.0").read_timeout, kNever);
 }
 
 } // namespace

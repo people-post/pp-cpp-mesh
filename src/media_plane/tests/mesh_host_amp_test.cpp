@@ -427,7 +427,7 @@ TEST(MeshHostAmpTest, Ch0CapabilityAdvertisesTheAppsProtocolsBesideTheMeshs) {
   };
   EXPECT_TRUE(has(app_protocol)) << "the app's protocol";
   EXPECT_TRUE(has(kDialBackProtocolId)) << "and the mesh's own";
-  EXPECT_FALSE(has("/pp-browser/realtime/1.0.0")) << "the mesh names none of the app's protocols itself";
+  EXPECT_FALSE(has("/pp/realtime/1.0.0")) << "the mesh names none of the app's protocols itself";
   host.Stop();
 }
 

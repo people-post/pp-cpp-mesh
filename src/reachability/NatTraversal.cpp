@@ -65,7 +65,7 @@ UpnpMappingResult TryUpnpPortMapping(int internal_port, int external_port, const
   snprintf(ext_port_str, sizeof(ext_port_str), "%d", external_port);
 
   const int map_rc = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, ext_port_str, int_port_str,
-                                         lanaddr, "pp-browser", protocol, nullptr, "86400");
+                                         lanaddr, "pp-mesh", protocol, nullptr, "86400");
   FreeUPNPUrls(&urls);
   freeUPNPDevlist(devlist);
 
