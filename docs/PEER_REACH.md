@@ -250,13 +250,13 @@ Each step ships on its own (unit tests + the pp-browser labs):
   instead of a circuit through it. Same-LAN pairs dial before the park anyway (§ 5).
 - **Persisting Down marks** across restarts: not now (§4.1); revisit if cold starts stay slow.
 - **Targets per role** (§3.1) are first guesses; the labs will tell.
-- **One peer, two dial keys:** the reachability probe dials a seed as `reachability:seed` while
-  the DHT / directory dial it by PeerId; each new link to the peer drops the other
-  (`connection-closed`), so the first exchanges on the other key fail. Seen in pp-browser's
-  `pp_node_dht_smoke.sh` (two Nodes, one bootstrapping to the other). The DHT now retries a
-  publish nobody answered in 10 s and looks query peers up again every 15 s, so it recovers;
-  the key fight itself is not fixed — the probe should use the peer's link (or its PeerId key)
-  rather than a second one.
+- **One peer, two dial keys** (addressed): the reachability probe dialled a seed as
+  `reachability:seed` while the DHT / directory dial it by PeerId; dialled at once, the two links
+  dropped each other (`connection-closed`) and the first exchanges on the other key failed (seen
+  in pp-browser's `pp_node_dht_smoke.sh`). The probe now dials the seed under its PeerId (and
+  keeps an endpoint already registered for it). The DHT also retries a publish nobody answered in
+  10 s and looks query peers up again every 15 s. The seed's dial-back keeps its own key on
+  purpose: it must prove a fresh inbound dial.
 
 ## Related
 

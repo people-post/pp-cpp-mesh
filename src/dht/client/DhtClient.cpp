@@ -343,7 +343,7 @@ void DhtClient::PublishSelfIfDue() {
 
   // At the k closest to our key that answered a walk to it, and at the query peers (where a
   // Client, which does not walk, asks).
-  Walk(config_.local_peer_id, DhtLookup::Limits::WalkToClosest(), [this, store_req](DhtLookup::Outcome outcome) {
+  Walk(config_.local_peer_id, DhtLookup::Limits::WalkToClosest(table_.K()), [this, store_req](DhtLookup::Outcome outcome) {
     if (outcome.answered == 0) {
       retry_publish_.store(true, std::memory_order_release);  // nobody heard us: soon, not at ttl / 2
     }
@@ -437,7 +437,7 @@ void DhtClient::RefreshIfDue() {
       continue;
     }
     ++refreshes_in_window_;
-    Walk(in_bucket[static_cast<size_t>(now_ms) % in_bucket.size()].peer_id, DhtLookup::Limits::WalkToClosest(),
+    Walk(in_bucket[static_cast<size_t>(now_ms) % in_bucket.size()].peer_id, DhtLookup::Limits::WalkToClosest(table_.K()),
          [](DhtLookup::Outcome) {});
   }
 }
@@ -488,7 +488,7 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
     std::lock_guard lock(stats_mutex_);
     ++find_peer_issued_;
   }
-  Walk(target_peer_id, DhtLookup::Limits{}, [this, target_peer_id, on_done](WalkOutcome outcome) {
+  Walk(target_peer_id, DhtLookup::Limits::ForK(table_.K()), [this, target_peer_id, on_done](WalkOutcome outcome) {
     inflight_lookups_.fetch_sub(1, std::memory_order_acq_rel);
     if (outcome.record) {
       store_.Put(*outcome.record);
@@ -523,7 +523,7 @@ void DhtClient::Walk(const std::string& target_peer_id, DhtLookup::Limits limits
   }
   if (config_.participate) {
     if (const auto target_key = DhtKeyOfPeerId(target_peer_id)) {
-      for (DhtContact& contact : table_.Closest(*target_key, DhtRoutingTable::kDefaultK)) {
+      for (DhtContact& contact : table_.Closest(*target_key, table_.K())) {
         if (SoftReputationAllows(contact.peer_id) && !HeldDown(contact.peer_id)) {
           seeds.push_back({std::move(contact.peer_id), contact.key, std::move(contact.multiaddr)});
         }

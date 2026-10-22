@@ -152,8 +152,16 @@ TEST(DhtRoutingTableTest, ClosestLeavesOutTheAskerAndResetStartsOver) {
 
   table.Reset("QmSeAfNode");
   EXPECT_EQ(table.Size(), 5u) << "the same self: kept";
-  table.Reset("QmOtherSeAf");
+  table.Reset("QmAnotherSeAf");
+  EXPECT_TRUE(table.Valid());
   EXPECT_EQ(table.Size(), 0u) << "another self: start over";
+  table.Reset("QmAnotherSeAf", 4);
+  EXPECT_EQ(table.K(), 4u);
+  const auto peers = InTopBucket(table, 6);
+  for (size_t i = 0; i < peers.size(); ++i) {
+    (void)table.NoteHeard(peers[i], Ma(10, 1, static_cast<int>(i), 1), 0);
+  }
+  EXPECT_EQ(table.InBucket(255).size(), 4u) << "buckets of k = 4";
 }
 
 } // namespace

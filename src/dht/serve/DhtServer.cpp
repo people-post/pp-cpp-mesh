@@ -10,6 +10,7 @@
 #include "crypto/SodiumUtil.h"
 #include "common/Lifetime.h"
 
+#include <algorithm>
 #include <atomic>
 #include <ctime>
 #include <mutex>
@@ -145,7 +146,8 @@ struct DhtServer::Impl {
                           response.set("records", RecordsToJsonArray(records));
                           std::vector<DhtCloserPeer> closer;
                           if (const auto target_key = DhtKeyOfPeerId(peer_id)) {
-                            for (DhtContact& contact : table->Closest(*target_key, kDhtCloserPeers, remote_peer)) {
+                            const size_t n = std::min(table->K(), kDhtCloserPeers);  // k_closer = k
+                            for (DhtContact& contact : table->Closest(*target_key, n, remote_peer)) {
                               closer.push_back({std::move(contact.peer_id), std::move(contact.multiaddr)});
                             }
                           }

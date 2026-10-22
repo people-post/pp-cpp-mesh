@@ -36,7 +36,10 @@ struct MeshDhtConfig {
   int find_peer_timeout_ms = 5000;
   /** Max in-flight FIND_PEER lookups per process. */
   int max_concurrent_lookups = 4;
-  /** Kademlia k (bucket size target). Wire default 20 — override for lab only. */
+  /**
+   * Kademlia k: bucket size, the closest a lookup gathers and a record is stored at, and
+   * `closer_peers` per answer (at most 20 on the wire). Default 20 — smaller for labs only.
+   */
   int k_bucket_size = 20;
   /** Inbound FIND_PEER/STORE grants per remote peer per window (n2-hard). */
   int inbound_ops_per_peer_per_window = 60;

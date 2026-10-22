@@ -240,6 +240,21 @@ TEST(DhtLookupTest, AWalkGoesOnPastARecordAndNamesTheClosestThatAnswered) {
   EXPECT_LE(outcome.asked, walk.max_asks);
 }
 
+TEST(DhtLookupTest, ASmallerKWalksToFewer) {
+  Network net(200, 61, 4);
+  const DhtLookup::Limits walk = DhtLookup::Limits::WalkToClosest(4);
+  EXPECT_EQ(walk.max_asks, DhtLookup::Limits{}.max_asks) << "never fewer asks than a lookup";
+  const auto outcome = RunInline(net, FarSeeds(net), walk);
+  ASSERT_EQ(outcome.closest.size(), 4u);
+  const DhtKey key = *DhtKeyOfPeerId(net.target);
+  for (const auto& [id, node] : net.nodes) {
+    if (std::find(outcome.closest.begin(), outcome.closest.end(), id) == outcome.closest.end()) {
+      EXPECT_FALSE(DhtCloser(key, *DhtKeyOfPeerId(id), *DhtKeyOfPeerId(outcome.closest.back())))
+          << id << " is closer than the 4th found";
+    }
+  }
+}
+
 TEST(DhtLookupTest, TheClosestListHasOnlyThoseThatAnswered) {
   Network net(60, 11, 20);
   const auto seeds = FarSeeds(net);

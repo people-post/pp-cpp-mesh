@@ -62,8 +62,12 @@ public:
   DhtRoutingTable(const DhtRoutingTable&) = delete;
   DhtRoutingTable& operator=(const DhtRoutingTable&) = delete;
 
-  /** Start over around `self_peer_id` (empty: no self); a no-op when it is already ours. */
-  void Reset(const std::string& self_peer_id);
+  /**
+   * Start over around `self_peer_id` (empty: no self) with buckets of `k` (0: keep the current);
+   * a no-op when both are already ours.
+   */
+  void Reset(const std::string& self_peer_id, size_t k = 0);
+  size_t K() const;
   bool Valid() const;
   /** Our own key (all zero before `Reset`). */
   DhtKey SelfKey() const;

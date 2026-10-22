@@ -3,6 +3,7 @@
 #include "mesh/dht/DhtKey.h"
 #include "mesh/dht/DhtTypes.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <functional>
@@ -55,11 +56,17 @@ public:
     /** Off: a record does not end the walk (publishing, refresh). */
     bool stop_at_record = true;
 
-    /** A walk to the k closest (publishing, refresh): it needs at least k asks, plus the way there. */
-    static Limits WalkToClosest() {
+    /** A lookup with k closest (`mesh.dht.k_bucket_size`). */
+    static Limits ForK(const size_t k) {
       Limits limits;
+      limits.k = k > 0 ? k : limits.k;
+      return limits;
+    }
+    /** A walk to the k closest (publishing, refresh): it needs at least k asks, plus the way there. */
+    static Limits WalkToClosest(const size_t k = 20) {
+      Limits limits = ForK(k);
       limits.stop_at_record = false;
-      limits.max_asks = 3 * limits.k;
+      limits.max_asks = std::max<size_t>(3 * limits.k, limits.max_asks);
       return limits;
     }
   };

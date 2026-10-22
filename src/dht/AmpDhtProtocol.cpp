@@ -11,7 +11,8 @@ AmpDhtProtocol::AmpDhtProtocol(pp::amp::MeshRuntime& runtime, WorkerPost post_wo
 
 void AmpDhtProtocol::Configure(AmpDhtProtocolConfig config) {
   config_ = std::move(config);
-  table_.Reset(config_.local_peer_id);
+  table_.Reset(config_.local_peer_id,
+               config_.tunables.k_bucket_size > 0 ? static_cast<size_t>(config_.tunables.k_bucket_size) : 0);
   server_.Configure(config_);
   client_.Configure(config_);
 }

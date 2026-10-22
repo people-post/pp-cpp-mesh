@@ -137,7 +137,7 @@ hops reach media ranking as Public candidates.
 
 ## 7. Build order
 
-Status: steps 1–5 done — `DhtKey`, `DhtRoutingTable` (thread-safe, shared by server and client);
+Status: steps 1–6 done — `DhtKey`, `DhtRoutingTable` (thread-safe, shared by server and client);
 the server fills `closer_peers` (never the asker) and admits accepted `store` senders; the client
 admits participants that answer and pings a full bucket's oldest when it has been quiet 15 min;
 `FindPeer` is the iterative `DhtLookup` with the negative cache; publishing walks to the k closest
@@ -152,9 +152,10 @@ expired record is skipped, not held against its server).
 4. Publish to the k closest; the publish gate; refresh.
 5. Soft reputation narrowed to misbehaviour; liveness from the reach record.
 6. The lab; contract update (MESH_DHT.md: `closer_peers ≤ k_closer`, admission, publish target,
-   `public_key_b64` in the record, `participant` in answers) — contract done. pp-browser
-   `scripts/test/pp_node_dht_smoke.sh` passes again: it failed (before this work too) because the
-   first exchanges died with a link the reachability probe replaced (PEER_REACH.md § 8) and
-   nothing retried for ttl / 2; a publish nobody answered now retries in 10 s, and missing query
-   peer records are looked up every 15 s. Its first node still starts with the platform default
-   seeds (it has no bootstrap of its own). The lab suite is next.
+   `public_key_b64` in the record, `participant` in answers) — done. pp-browser
+   `pp_local_test.sh --suite dht` (N-DHT): a seed and 12 Nodes on an internal network, each in its
+   own /24, k = 3 (`PP_NODE_DHT_K`); once the tables fill the seed stops, and every Node finds
+   every other Node's record (about 110 of 132 by lookup). `pp_node_dht_smoke.sh` passes again
+   (a publish nobody answered retries in 10 s; missing query-peer records are looked up every
+   15 s; the reachability probe no longer opens a second link to its seed). Still to add to the
+   lab: a call between two Nodes through a DHT-found address.
