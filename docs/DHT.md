@@ -155,7 +155,8 @@ expired record is skipped, not held against its server).
    `public_key_b64` in the record, `participant` in answers) — done. pp-browser
    `pp_local_test.sh --suite dht` (N-DHT): a seed and 12 Nodes on an internal network, each in its
    own /24, k = 3 (`PP_NODE_DHT_K`); once the tables fill the seed stops, and every Node finds
-   every other Node's record (about 110 of 132 by lookup). `pp_node_dht_smoke.sh` passes again
+   every other Node's record (about 110 of 132 by lookup); then N-DHT-CALL: a product-stack caller,
+   bootstrapped from a Node and handed a dead address for the callee, finds the callee's record
+   and the call connects at that address. `pp_node_dht_smoke.sh` passes again
    (a publish nobody answered retries in 10 s; missing query-peer records are looked up every
-   15 s; the reachability probe no longer opens a second link to its seed). Still to add to the
-   lab: a call between two Nodes through a DHT-found address.
+   15 s; the reachability probe no longer opens a second link to its seed).
