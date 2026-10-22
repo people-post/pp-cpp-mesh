@@ -45,7 +45,7 @@ struct MediaRelayAttachRequest {
 };
 
 struct MediaRelayAttachHooks {
-  /** Gate a quote before accepting it (e.g. pricing). Empty = accept any ok quote. */
+  /** Gate a quote before accepting it (e.g. pricing). Empty = accept any ok quote; a refusal is `QuoteDeclined`. */
   std::function<Roe<void>(const MediaRelayQuote& quote)> accept_quote;
   /** Checked after the quote, before AcceptAndAttach; false aborts ("attach aborted"). */
   std::function<bool()> still_wanted;
@@ -73,7 +73,7 @@ struct MediaRelayAttached {
  */
 void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRequest request,
                              MediaRelayAttachHooks hooks,
-                             std::function<void(Roe<MediaRelayAttached>)> on_done);
+                             std::function<void(MediaRelayRoe<MediaRelayAttached>)> on_done);
 
 /**
  * Quote only — the same reach steps as `AttachToMediaRelayAsync` (register the hint, service reach
@@ -81,6 +81,6 @@ void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttac
  * invitee checks the planned hop while ringing). Completes on whatever thread the relay client does.
  */
 void QuoteMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRequest request,
-                          std::function<void(Roe<MediaRelayQuote>)> on_done);
+                          std::function<void(MediaRelayRoe<MediaRelayQuote>)> on_done);
 
 } // namespace pp::mesh

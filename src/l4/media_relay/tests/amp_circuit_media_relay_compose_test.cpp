@@ -67,13 +67,20 @@ protected:
     harness_.reset();
   }
 
-  template <typename Result>
+  template <typename Result, typename E = Error>
   struct Wait {
+    using RoeT = pp::ResultOrError<Result, E>;
     std::atomic<bool> done{false};
-    Roe<Result> result = Error("pending");
+    RoeT result = Pending();
 
-    std::function<void(Roe<Result>)> Fn() {
-      return [this](Roe<Result> r) {
+    static E Pending() {
+      E pending;
+      pending.message = "pending";
+      return pending;
+    }
+
+    std::function<void(RoeT)> Fn() {
+      return [this](RoeT r) {
         result = std::move(r);
         done.store(true, std::memory_order_release);
       };
@@ -101,12 +108,11 @@ TEST_F(AmpCircuitMediaRelayComposeTest, CircuitBackedQuoteAndAttach) {
   target.target_multiaddr = harness_->ma_b;
   target.target_protocol = kMediaRelayProtocolId;
 
-  Wait<CircuitTunnelBridgeResult> bridge_wait;
+  Wait<CircuitTunnelBridgeResult, CircuitClientCoordinator::Failure> bridge_wait;
   auto tunnel_id = circuit_a_->StartBridge("relay", target, {}, {}, bridge_wait.Fn(), 8000);
   ASSERT_TRUE(tunnel_id);
   bridge_wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(bridge_wait.result) << bridge_wait.result.error().message;
-  ASSERT_TRUE(bridge_wait.result->ok) << bridge_wait.result->error;
   ASSERT_TRUE(bridge_wait.result->session);
   ASSERT_TRUE(static_cast<bool>(
       hops_->Install(harness_->peer_id_b, "relay", kMediaRelayProtocolId, bridge_wait.result->session,
@@ -116,13 +122,13 @@ TEST_F(AmpCircuitMediaRelayComposeTest, CircuitBackedQuoteAndAttach) {
   req.session_id = "call-amp-circuit-sfu";
   req.participants = 2;
 
-  Wait<MediaRelayQuote> quote_wait;
+  Wait<MediaRelayQuote, MediaRelayFailure> quote_wait;
   ASSERT_TRUE(client_->StartQuote(harness_->peer_id_b, req, quote_wait.Fn(), 8000));
   quote_wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(quote_wait.result) << quote_wait.result.error().message;
   ASSERT_TRUE(quote_wait.result->ok);
 
-  Wait<MediaRelayAttachResult> attach_wait;
+  Wait<MediaRelayAttachResult, MediaRelayFailure> attach_wait;
   ASSERT_TRUE(client_->StartAttach(harness_->peer_id_b, quote_wait.result->quote_id, req.session_id,
                                    req.session_id, {}, attach_wait.Fn(), 8000));
   attach_wait.PumpUntilDone(*harness_);

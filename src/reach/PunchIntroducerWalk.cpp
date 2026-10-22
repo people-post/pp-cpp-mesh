@@ -1,5 +1,6 @@
 #include "mesh/reach/PunchIntroducerWalk.h"
 
+#include "mesh/reach/PeerReachSelect.h"
 #include "mesh/reachability/punch/AmpPunchCoordinator.h"
 #include "mesh/reachability/punch/PunchLogic.h"
 
@@ -8,18 +9,44 @@
 namespace pp::mesh {
 namespace {
 
-void CompletePunch(const std::function<void(Roe<void>)>& on_done, AmpPunchCoordinator::PunchRoe punched,
-                   const char* fail_fallback) {
+using Err = PunchIntroducerWalk::Err;
+using Failure = PunchIntroducerWalk::Failure;
+
+void CompletePunch(const PunchIntroducerWalk::Done& on_done, AmpPunchCoordinator::PunchRoe punched) {
   if (!punched) {
-    on_done(Error(punched.error().message));
+    on_done(PunchIntroducerWalk::WrapPunchFailure(punched.error()));
   } else if (!punched->ok) {
-    on_done(Error(punched->error.empty() ? fail_fallback : punched->error));
+    on_done(Failure::Of(Err::NoPath, punched->error.empty() ? "punch failed" : punched->error));
   } else {
-    on_done(Roe<void>());
+    on_done(PunchIntroducerWalk::WalkRoe());
   }
 }
 
 } // namespace
+
+PunchIntroducerWalk::Failure PunchIntroducerWalk::WrapPunchFailure(const PunchFailure& punch) {
+  Err code = Err::Failed;
+  switch (punch.GetCode()) {
+  case PunchErr::NotStarted:
+    code = Err::Unavailable;
+    break;
+  case PunchErr::Declined:
+    code = Err::Declined;
+    break;
+  case PunchErr::PunchFailed:
+    code = Err::NoPath;
+    break;
+  default:
+    code = Err::Failed;
+    break;
+  }
+  return Failure::Of(code, detail::AppendFrom("punch walk: punch failed", "punch", punch.message));
+}
+
+bool PunchIntroducerWalk::AnotherIntroducerMayHelp(const PunchErr code) {
+  return code == PunchErr::TargetUnknown || code == PunchErr::EndpointNotRegistered || code == PunchErr::LinkFailed ||
+         code == PunchErr::ChannelFailed;
+}
 
 PunchIntroducerWalk::PunchIntroducerWalk() {
   redirectLogger("PunchIntroducerWalk");
@@ -33,23 +60,31 @@ void PunchIntroducerWalk::SetSignalingPunch(SignalingPunchFn punch) {
   signaling_punch_ = std::move(punch);
 }
 
-void PunchIntroducerWalk::TryColdPunchAsync(const std::string& target_peer_id, std::function<void(Roe<void>)> on_done) {
+void PunchIntroducerWalk::TryColdPunchAsync(const std::string& target_peer_id, Done on_done) {
   MeshHost* m = mesh();
   auto circuit = m ? m->CircuitDeps() : std::nullopt;
   auto* punch = m ? m->AmpPunch() : nullptr;
   if (!circuit || !punch || !punch->IsStarted()) {
-    on_done(Error("amp punch unavailable"));
+    on_done(Failure::Of(Err::Unavailable, "amp punch unavailable"));
     return;
   }
   IChatPeerLinks* links = &circuit->links;
   MeshPunchIntroducers introducers = deps_.introducers ? deps_.introducers() : MeshPunchIntroducers{};
-  auto has_ep = [links](const std::string& id) { return links->GetLinkSnapshot(id).has_endpoint; };
   auto is_conn = [links](const std::string& id) { return links->IsConnected(id); };
+  // Dialable now: an address, and not held down by the record (a link that is up counts whatever it says).
+  auto has_ep = [links, facts = deps_.reach_facts, now = PeerReachRecord::NowMs()](const std::string& id) {
+    if (!links->GetLinkSnapshot(id).has_endpoint) {
+      return false;
+    }
+    return links->IsConnected(id) || !facts || !ReachHeldDown(facts(id), now);
+  };
 
   // B29: if the first introducer misses (target unknown / channel fail), try the next. The attempt
   // holds its own retry function; the chain ends when it settles (no self-owning cycle past that).
   struct IntroAttempt {
     std::unordered_set<std::string> tried;
+    /** Introducers dialed cold (not connected when picked). */
+    size_t cold = 0;
     std::function<void()> try_next;
   };
   auto attempt = std::make_shared<IntroAttempt>();
@@ -62,32 +97,35 @@ void PunchIntroducerWalk::TryColdPunchAsync(const std::string& target_peer_id, s
     }
     auto intro = PickPunchIntroducer(introducers.contact_peer_ids, introducers.seed_peer_ids, target_peer_id, has_ep,
                                      is_conn, self->tried);
+    if (intro && !is_conn(*intro) && self->cold >= kReachMaxColdDialsPerRound) {
+      intro.reset();  // enough cold dials for one walk
+    }
     if (!intro) {
       if (signaling_punch_) {
         log().info << "punch introducers exhausted — H012 signaling fallback target=" << target_peer_id;
-        signaling_punch_(target_peer_id, punch->LocalCandidateAddrs(), on_done);
+        signaling_punch_(target_peer_id, punch->LocalCandidateAddrs(), [on_done](Roe<void> signaled) {
+          on_done(signaled ? WalkRoe()
+                           : WalkRoe(Failure::Of(Err::Failed, detail::AppendFrom("punch walk: signaling punch failed",
+                                                                                  "signaling", signaled.error().message))));
+        });
         return;
       }
-      on_done(Error(self->tried.empty() ? "no punch introducer" : "punch introducers exhausted"));
+      on_done(self->tried.empty() ? Failure::Of(Err::NoIntroducer, "no punch introducer")
+                                  : Failure::Of(Err::IntroducersExhausted, "punch introducers exhausted"));
       return;
     }
     self->tried.insert(*intro);
+    if (!is_conn(*intro)) {
+      ++self->cold;
+    }
     punch->TryColdPunchAsync(
         *intro, target_peer_id, punch->LocalCandidateAddrs(),
         [self, on_done](AmpPunchCoordinator::PunchRoe punched) {
-          if (punched && punched->ok) {
-            CompletePunch(on_done, std::move(punched), "punch failed");
-            return;
-          }
-          const std::string err =
-              !punched ? punched.error().message : (punched->error.empty() ? std::string("punch failed") : punched->error);
-          const bool try_another = err.find("introducer") != std::string::npos ||
-                                   err.find("not registered") != std::string::npos;
-          if (try_another) {
+          if (!punched && AnotherIntroducerMayHelp(punched.error().GetCode())) {
             self->try_next();
             return;
           }
-          on_done(Error(err));
+          CompletePunch(on_done, std::move(punched));
         },
         2000);
   };
@@ -95,18 +133,16 @@ void PunchIntroducerWalk::TryColdPunchAsync(const std::string& target_peer_id, s
 }
 
 void PunchIntroducerWalk::TryUpgradePunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id,
-                                          std::function<void(Roe<void>)> on_done) {
+                                               Done on_done) {
   MeshHost* m = mesh();
   auto* punch = m ? m->AmpPunch() : nullptr;
   if (!punch || !punch->IsStarted()) {
-    on_done(Error("amp punch unavailable"));
+    on_done(Failure::Of(Err::Unavailable, "amp punch unavailable"));
     return;
   }
   punch->TryUpgradePunchAsync(
       introducer_peer_key, target_peer_id, punch->LocalCandidateAddrs(),
-      [on_done = std::move(on_done)](AmpPunchCoordinator::PunchRoe punched) {
-        CompletePunch(on_done, std::move(punched), "upgrade punch failed");
-      },
+      [on_done = std::move(on_done)](AmpPunchCoordinator::PunchRoe punched) { CompletePunch(on_done, std::move(punched)); },
       2000);
 }
 

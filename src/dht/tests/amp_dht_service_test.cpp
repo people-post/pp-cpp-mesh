@@ -1,9 +1,15 @@
 #include "mesh/dht/AmpDhtProtocol.h"
+#include "mesh/dht/DhtRecordCodec.h"
 
 #include "common/SettledWait.h"
 #include "mesh/testing/mesh_test_harness.h"
+#include "mesh/testing/mesh_triple_harness.h"
 
 #include <gtest/gtest.h>
+
+#include <atomic>
+#include <mutex>
+#include <thread>
 namespace pp::mesh {
 namespace {
 
@@ -54,6 +60,7 @@ TEST(AmpDhtProtocolTest, FindPeerReturnsBootstrapRecord) {
   ASSERT_TRUE(found->record.capabilities.has_value());
   EXPECT_TRUE(found->record.capabilities->media_relay);
   EXPECT_TRUE(found->record.capabilities->circuit_relay);
+  EXPECT_TRUE(VerifyPeerRoutingRecordStandalone(found->record)) << "carries its key: checkable by anyone";
 
   client.Stop();
   seed.Stop();
@@ -99,6 +106,249 @@ TEST(AmpDhtProtocolTest, LookupToASilentPeerSettlesAndFreesItsSlot) {
   }
   client.Stop();
   harness->runtime_b->SetProtocolHandler(kDhtProtocolId, {});
+}
+
+// The routing table admits participants: a node whose store was accepted, and a node that
+// answered as a participant (with the dial address from its own record). docs/DHT.md § 4.2.
+TEST(AmpDhtProtocolTest, ParticipantsEnterTheRoutingTable) {
+  auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto h = std::move(*created);
+  ASSERT_TRUE(static_cast<bool>(h->mgr_a().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(h->mgr_b().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+
+  AmpDhtProtocol node_a(*h->runtime_a);
+  AmpDhtProtocol node_r(*h->runtime_r);
+  AmpDhtProtocol node_b(*h->runtime_b);
+  const auto configure = [](AmpDhtProtocol& node, const std::string& peer_id, const std::string& ma,
+                            const pp::amp::MshIdentity& id, std::vector<std::string> query_peers) {
+    AmpDhtProtocolConfig cfg;
+    cfg.local_peer_id = peer_id;
+    cfg.listen_multiaddrs = {ma};
+    cfg.device_signing_secret = id.ml_dsa_secret_key;
+    cfg.device_signing_public = id.ml_dsa_public_key;
+    cfg.query_peer_keys = std::move(query_peers);
+    cfg.participate = true;
+    node.Configure(cfg);
+    node.Start();
+  };
+  configure(node_r, h->peer_id_r, h->ma_r, h->relay, {});
+  configure(node_a, h->peer_id_a, h->ma_a, h->alice, {h->peer_id_r});
+  configure(node_b, h->peer_id_b, h->ma_b, h->bob, {h->peer_id_r});
+
+  // Each publishes to R (a store) and looks R up (R answers with its own record).
+  h->PumpUntil([&]() {
+    return node_r.RoutingTable().Contains(h->peer_id_a) && node_r.RoutingTable().Contains(h->peer_id_b) &&
+           node_a.RoutingTable().Contains(h->peer_id_r) && node_b.RoutingTable().Contains(h->peer_id_r);
+  }, 4000);
+  EXPECT_TRUE(node_r.RoutingTable().Contains(h->peer_id_a));
+  EXPECT_TRUE(node_r.RoutingTable().Contains(h->peer_id_b));
+  ASSERT_TRUE(node_a.RoutingTable().Contains(h->peer_id_r));
+  EXPECT_EQ(node_a.RoutingTable().Find(h->peer_id_r)->multiaddr, h->ma_r) << "from R's own record";
+  EXPECT_FALSE(node_a.RoutingTable().Contains(h->peer_id_b)) << "never heard from B";
+  EXPECT_EQ(node_r.Stats().routing_contacts, 2u);
+
+  node_a.Stop();
+  node_b.Stop();
+  node_r.Stop();
+}
+
+// A lookup follows closer_peers over the wire: R does not have the target but knows B, so A asks B
+// too (dialling it at the hinted address) — and then has B in its own table. A miss is not
+// repeated within the negative-cache window.
+TEST(AmpDhtProtocolTest, ALookupFollowsCloserPeersAndCachesTheMiss) {
+  auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto h = std::move(*created);
+  ASSERT_TRUE(static_cast<bool>(h->mgr_a().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(h->mgr_b().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+
+  AmpDhtProtocol node_a(*h->runtime_a);
+  AmpDhtProtocol node_r(*h->runtime_r);
+  AmpDhtProtocol node_b(*h->runtime_b);
+  const auto configure = [](AmpDhtProtocol& node, const std::string& peer_id, const std::string& ma,
+                            const pp::amp::MshIdentity& id, std::vector<std::string> query_peers) {
+    AmpDhtProtocolConfig cfg;
+    cfg.local_peer_id = peer_id;
+    cfg.listen_multiaddrs = {ma};
+    cfg.device_signing_secret = id.ml_dsa_secret_key;
+    cfg.device_signing_public = id.ml_dsa_public_key;
+    cfg.query_peer_keys = std::move(query_peers);
+    cfg.participate = true;
+    node.Configure(cfg);
+    node.Start();
+  };
+  configure(node_r, h->peer_id_r, h->ma_r, h->relay, {});
+  configure(node_a, h->peer_id_a, h->ma_a, h->alice, {h->peer_id_r});
+  configure(node_b, h->peer_id_b, h->ma_b, h->bob, {h->peer_id_r});
+  h->PumpUntil([&]() {
+    return node_r.RoutingTable().Contains(h->peer_id_a) && node_r.RoutingTable().Contains(h->peer_id_b) &&
+           node_a.RoutingTable().Contains(h->peer_id_r);
+  }, 4000);
+  ASSERT_TRUE(node_r.RoutingTable().Contains(h->peer_id_b));
+  ASSERT_FALSE(node_a.RoutingTable().Contains(h->peer_id_b));
+
+  const std::string nobody = "QmTWkSQAcGsETogTFKrPJ3GzdHG3vP9UwXVyp2HeK9YBvP";
+  const auto find = [&](const std::string& target) {
+    SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait;
+    node_a.FindPeer(target, [&wait](AmpDhtProtocol::FindPeerRoe result) { wait.Finish(std::move(result)); });
+    h->PumpUntil([&]() { return wait.IsSettled(); }, 4000);
+    return wait.Wait(std::chrono::seconds(5),
+                     AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "find_peer timed out"));
+  };
+  auto missed = find(nobody);
+  ASSERT_FALSE(static_cast<bool>(missed));
+  EXPECT_EQ(missed.error().GetCode(), AmpDhtProtocol::Err::NotFound) << missed.error().message;
+  EXPECT_TRUE(node_a.RoutingTable().Contains(h->peer_id_b)) << "asked B from R's hint, and B answered";
+
+  const uint64_t issued = node_a.Stats().find_peer_issued;
+  auto again = find(nobody);
+  ASSERT_FALSE(static_cast<bool>(again));
+  EXPECT_EQ(again.error().GetCode(), AmpDhtProtocol::Err::NotFound);
+  EXPECT_EQ(node_a.Stats().find_peer_issued, issued) << "the miss is cached: nothing asked";
+
+  node_a.Stop();
+  node_b.Stop();
+  node_r.Stop();
+}
+
+// Publishing (docs/DHT.md § 4.5): B stores its record at the closest nodes a walk to its key
+// finds — A too, though A is not B's query peer and never looked B up. A closed gate publishes
+// nothing; new addresses publish again at once.
+TEST(AmpDhtProtocolTest, ARecordIsPublishedAtTheClosestBehindTheGate) {
+  auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto h = std::move(*created);
+  h->ep_a->SetAcceptEnabled(true);  // A takes part: it is dialled at its published address
+  ASSERT_TRUE(static_cast<bool>(h->mgr_a().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(h->mgr_b().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+
+  AmpDhtProtocol node_a(*h->runtime_a);
+  AmpDhtProtocol node_r(*h->runtime_r);
+  AmpDhtProtocol node_b(*h->runtime_b);
+  const auto config_for = [](const std::string& peer_id, const std::string& ma, const pp::amp::MshIdentity& id,
+                             std::vector<std::string> query_peers) {
+    AmpDhtProtocolConfig cfg;
+    cfg.local_peer_id = peer_id;
+    cfg.listen_multiaddrs = {ma};
+    cfg.device_signing_secret = id.ml_dsa_secret_key;
+    cfg.device_signing_public = id.ml_dsa_public_key;
+    cfg.query_peer_keys = std::move(query_peers);
+    cfg.participate = true;
+    return cfg;
+  };
+  node_r.Configure(config_for(h->peer_id_r, h->ma_r, h->relay, {}));
+  node_r.Start();
+  node_a.Configure(config_for(h->peer_id_a, h->ma_a, h->alice, {h->peer_id_r}));
+  node_a.Start();
+  h->PumpUntil([&]() { return node_r.RoutingTable().Contains(h->peer_id_a); }, 4000);
+  ASSERT_TRUE(node_r.RoutingTable().Contains(h->peer_id_a));
+
+  // B's gate is closed (as if Blocked): nothing goes out.
+  std::atomic<bool> open{false};
+  std::vector<std::string> b_addrs = {h->ma_b};
+  std::mutex b_addrs_mu;
+  AmpDhtProtocolConfig cfg_b = config_for(h->peer_id_b, h->ma_b, h->bob, {h->peer_id_r});
+  cfg_b.may_publish = [&open]() { return open.load(); };
+  cfg_b.current_listen_multiaddrs = [&]() {
+    std::lock_guard lock(b_addrs_mu);
+    return b_addrs;
+  };
+  node_b.Configure(cfg_b);
+  node_b.Start();
+  h->PumpUntil([]() { return false; }, 200);
+  EXPECT_EQ(node_b.Stats().self_publishes, 0u);
+  EXPECT_FALSE(node_r.LocalRecord(h->peer_id_b).has_value());
+
+  open = true;
+  std::this_thread::sleep_for(std::chrono::milliseconds(DhtClient::kGateCheckMs + 50));
+  node_b.Tick();
+  h->PumpUntil([&]() { return node_a.LocalRecord(h->peer_id_b).has_value() && node_r.LocalRecord(h->peer_id_b).has_value(); },
+               4000);
+  ASSERT_TRUE(node_a.LocalRecord(h->peer_id_b).has_value()) << "stored at A, found by B's walk via R";
+  ASSERT_TRUE(node_r.LocalRecord(h->peer_id_b).has_value());
+  EXPECT_EQ(node_b.Stats().last_publish_targets, 2u);
+  const int64_t first_seq = node_r.LocalRecord(h->peer_id_b)->seq;
+
+  // New addresses: published again without waiting for ttl / 2.
+  const std::string moved_to = "/ip4/198.51.100.7/udp/9/adp/1.0.0/p2p/" + h->peer_id_b;
+  {
+    std::lock_guard lock(b_addrs_mu);
+    b_addrs = {h->ma_b, moved_to};
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(DhtClient::kGateCheckMs + 50));
+  node_b.Tick();
+  h->PumpUntil([&]() { return node_r.LocalRecord(h->peer_id_b)->seq > first_seq; }, 4000);
+  const auto republished = node_r.LocalRecord(h->peer_id_b);
+  ASSERT_TRUE(republished.has_value());
+  EXPECT_GT(republished->seq, first_seq);
+  EXPECT_EQ(republished->multiaddrs.size(), 2u);
+
+  node_a.Stop();
+  node_b.Stop();
+  node_r.Stop();
+}
+
+// Liveness comes from the reach record (docs/DHT.md D5): a peer it holds down is not dialled for
+// a walk nor stored at, and leaves the routing table once its link is down too.
+TEST(AmpDhtProtocolTest, PeersTheReachRecordHoldsDownAreSkippedAndDropped) {
+  auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto h = std::move(*created);
+  h->ep_a->SetAcceptEnabled(true);
+  ASSERT_TRUE(static_cast<bool>(h->mgr_a().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+  ASSERT_TRUE(static_cast<bool>(h->mgr_b().RegisterEndpoint(h->peer_id_r, h->ma_r)));
+
+  AmpDhtProtocol node_a(*h->runtime_a);
+  AmpDhtProtocol node_r(*h->runtime_r);
+  AmpDhtProtocol node_b(*h->runtime_b);
+  const auto config_for = [](const std::string& peer_id, const std::string& ma, const pp::amp::MshIdentity& id,
+                             std::vector<std::string> query_peers) {
+    AmpDhtProtocolConfig cfg;
+    cfg.local_peer_id = peer_id;
+    cfg.listen_multiaddrs = {ma};
+    cfg.device_signing_secret = id.ml_dsa_secret_key;
+    cfg.device_signing_public = id.ml_dsa_public_key;
+    cfg.query_peer_keys = std::move(query_peers);
+    cfg.participate = true;
+    return cfg;
+  };
+  std::atomic<bool> r_holds_a_down{false};
+  AmpDhtProtocolConfig cfg_r = config_for(h->peer_id_r, h->ma_r, h->relay, {});
+  cfg_r.reach_held_down = [&](const std::string& peer_id) { return r_holds_a_down && peer_id == h->peer_id_a; };
+  node_r.Configure(cfg_r);
+  node_r.Start();
+  node_a.Configure(config_for(h->peer_id_a, h->ma_a, h->alice, {h->peer_id_r}));
+  node_a.Start();
+  h->PumpUntil([&]() { return node_r.RoutingTable().Contains(h->peer_id_a); }, 4000);
+  ASSERT_TRUE(node_r.RoutingTable().Contains(h->peer_id_a));
+
+  // B's record holds A down: R's hint to A is not followed, and A is not stored at.
+  AmpDhtProtocolConfig cfg_b = config_for(h->peer_id_b, h->ma_b, h->bob, {h->peer_id_r});
+  cfg_b.reach_held_down = [&](const std::string& peer_id) { return peer_id == h->peer_id_a; };
+  node_b.Configure(cfg_b);
+  node_b.Start();
+  h->PumpUntil([&]() { return node_b.Stats().self_publishes > 0 && node_r.LocalRecord(h->peer_id_b).has_value(); },
+               4000);
+  ASSERT_EQ(node_b.Stats().self_publishes, 1u);
+  EXPECT_EQ(node_b.Stats().last_publish_targets, 1u) << "R only";
+  h->PumpUntil([]() { return false; }, 200);
+  EXPECT_FALSE(node_a.LocalRecord(h->peer_id_b).has_value());
+  EXPECT_FALSE(h->mgr_b().IsConnectedToPeerId(h->peer_id_a)) << "never dialled";
+
+  // R: held down but linked — kept; held down and unlinked — dropped.
+  r_holds_a_down = true;
+  node_r.SweepHeldDown();
+  EXPECT_TRUE(node_r.RoutingTable().Contains(h->peer_id_a)) << "its link is up";
+  h->mgr_r().RequestDropLink(h->peer_id_a);
+  h->PumpUntil([&]() { return !h->mgr_r().IsConnectedToPeerId(h->peer_id_a); }, 4000);
+  ASSERT_FALSE(h->mgr_r().IsConnectedToPeerId(h->peer_id_a));
+  node_r.SweepHeldDown();
+  EXPECT_FALSE(node_r.RoutingTable().Contains(h->peer_id_a));
+
+  node_a.Stop();
+  node_b.Stop();
+  node_r.Stop();
 }
 
 /** Lab acceptance: two participating Nodes discover each other's ADP addrs (no Brief HTTP). */

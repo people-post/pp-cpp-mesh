@@ -1,5 +1,7 @@
 #include "mesh/connectivity/MeshConnectivity.h"
 
+#include "mesh/reach/PeerReachSelect.h"
+
 #include "mesh/reach/AmpCircuitHopReach.h"
 #include "mesh/reachability/punch/AmpPunchCoordinator.h"
 #include "mesh/reachability/Reachability.h"
@@ -21,6 +23,11 @@ std::string PeerIdFromListenMultiaddr(const std::string& ma) {
     peer_id.resize(slash);
   }
   return peer_id;
+}
+
+logging::Logger& PeerReachLog() {
+  static logging::Logger logger = logging::getLogger("PeerReach");
+  return logger;
 }
 
 /** The mesh's own addrs (advertised, punch candidates) change without notice: re-read. */
@@ -89,7 +96,12 @@ void MeshConnectivity::SetDeps(MeshConnectivityDeps deps) {
   RunEdge([&]() {
     deps_ = std::move(deps);
     // The IO side (punch walk, rendezvous) reads the owner's policy snapshot, never the providers.
-    punch_.SetDeps({deps_.mesh, [this]() { return HopPolicy()->punch_introducers; }});
+    // What the record says about a peer, on the current network (rendezvous and punch read it).
+    auto reach_facts = [mesh = deps_.mesh, record = reach_record_](const std::string& peer_id) {
+      MeshHost* m = mesh ? mesh() : nullptr;
+      return record->Facts(peer_id, m ? m->NetworkChangeGeneration() : 0);
+    };
+    punch_.SetDeps({deps_.mesh, [this]() { return HopPolicy()->punch_introducers; }, reach_facts});
     CircuitRendezvousDeps rendezvous;
     rendezvous.mesh = deps_.mesh;
     rendezvous.rendezvous_candidates = [this]() { return HopPolicy()->rendezvous_candidates; };
@@ -98,6 +110,7 @@ void MeshConnectivity::SetDeps(MeshConnectivityDeps deps) {
       ICircuitHopReach* reach = CircuitReach();
       return reach ? reach->LastGoodRelayPeerKey() : std::string();
     };
+    rendezvous.reach_facts = reach_facts;
     rendezvous_.SetDeps(std::move(rendezvous));
   });
 }
@@ -138,7 +151,52 @@ void MeshConnectivity::Wire() {
     ArmLocalViewRefresh();
     WireDialRegistry(m, io);
     WireCircuitHopReach(m, io);
+    WireReachRecord(m);
     rendezvous_.InstallReparkListener();
+  });
+}
+
+uint64_t MeshConnectivity::NetworkGeneration() const {
+  MeshHost* m = mesh();
+  return m ? m->NetworkChangeGeneration() : 0;
+}
+
+PeerReachFacts MeshConnectivity::ReachFacts(const std::string& peer_id) const {
+  return reach_record_->Facts(peer_id, NetworkGeneration());
+}
+
+std::vector<std::string> MeshConnectivity::ChoosePeers(const std::vector<std::string>& candidates,
+                                                       const size_t max) const {
+  MeshHost* m = mesh();
+  auto chat = m ? m->ChatDeps() : std::nullopt;
+  const uint64_t gen = NetworkGeneration();
+  std::vector<ReachCandidate> view;
+  view.reserve(candidates.size());
+  for (const std::string& id : candidates) {
+    view.push_back({id, chat && chat->links.IsConnected(id), reach_record_->Facts(id, gen)});
+  }
+  return ChooseForJob(view, PeerReachRecord::NowMs(), max);
+}
+
+void MeshConnectivity::WireReachRecord(MeshHost* m) {
+  pp::amp::AmpStack* amp = m ? m->Amp() : nullptr;
+  if (!amp || reach_record_amp_ == amp) {
+    return;
+  }
+  reach_record_amp_ = amp;
+  // The listener dies with this Amp stack; it holds the record (not this) and the host, which owns
+  // the stack. Link events arrive on the io lane.
+  (void)amp->Runtime().AddLinkEventListener([record = reach_record_, m](const pp::amp::LinkEvent& event) {
+    const std::string peer = !event.peer_id.empty() ? event.peer_id : event.dial_key;
+    const uint64_t gen = m->NetworkChangeGeneration();
+    const PeerReachState before = record->Facts(peer, gen).state;
+    record->OnLinkEvent(event, PeerReachRecord::NowMs(), gen);
+    const PeerReachFacts after = record->Facts(peer, gen);
+    if (after.state != before && (after.state == PeerReachState::Down || before == PeerReachState::Down)) {
+      PeerReachLog().info << "peer " << peer << " " << PeerReachStateName(before) << "->"
+                                 << PeerReachStateName(after.state) << " failure="
+                                 << PeerReachFailureName(after.last_failure);
+    }
   });
 }
 
@@ -259,11 +317,11 @@ void MeshConnectivity::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io)
       circuit->tunnel, circuit->hops, circuit->links, io.io_pump,
       // Reach's dial surface and punch step are this object's reachability pieces (owned here, stable).
       [rendezvous = &rendezvous_](const std::string& exclude) { return rendezvous->DialableRelayIds(exclude); },
-      [punch = &punch_](const std::string& target_peer_id, std::function<void(Roe<void>)> on_done) {
+      [punch = &punch_](const std::string& target_peer_id, PunchIntroducerWalk::Done on_done) {
         punch->TryColdPunchAsync(target_peer_id, std::move(on_done));
       },
       [punch = &punch_](const std::string& introducer_peer_key, const std::string& target_peer_id,
-                        std::function<void(Roe<void>)> on_done) {
+                        PunchIntroducerWalk::Done on_done) {
         punch->TryUpgradePunchAsync(introducer_peer_key, target_peer_id, std::move(on_done));
       },
       io.post_io, io.post_after);
@@ -445,39 +503,39 @@ bool MeshConnectivity::PeerLanConfirmed(const std::string& peer_id) const {
 
 // --- reach ----------------------------------------------------------------------------------------
 
-Roe<void> MeshConnectivity::TryEnsureCircuitHopReachable(const std::string& hop_peer_id) {
+CircuitReachRoe MeshConnectivity::TryEnsureCircuitHopReachable(const std::string& hop_peer_id) {
   if (MeshHost* m = mesh(); m && m->IsStopping()) {
-    return Error("shutdown in progress");
+    return CircuitReachFailure::Of(CircuitReachErr::Unavailable, "shutdown in progress");
   }
   if (!circuit_hop_reach_) {
-    return Error("Amp circuit reach required");
+    return CircuitReachFailure::Of(CircuitReachErr::Unavailable, "Amp circuit reach required");
   }
   return circuit_hop_reach_->TryEnsureHopReachable(hop_peer_id);
 }
 
-Roe<void> MeshConnectivity::TryEnsurePeerReachable(const std::string& peer_key) {
+CircuitReachRoe MeshConnectivity::TryEnsurePeerReachable(const std::string& peer_key) {
   if (MeshHost* m = mesh(); m && m->IsStopping()) {
-    return Error("shutdown in progress");
+    return CircuitReachFailure::Of(CircuitReachErr::Unavailable, "shutdown in progress");
   }
   if (!circuit_hop_reach_) {
-    return Error("Amp circuit reach required");
+    return CircuitReachFailure::Of(CircuitReachErr::Unavailable, "Amp circuit reach required");
   }
   if (peer_key.empty()) {
-    return Error("missing peer");
+    return CircuitReachFailure::Of(CircuitReachErr::BadRequest, "missing peer");
   }
   return circuit_hop_reach_->TryEnsurePeerReachable(peer_key);
 }
 
-void MeshConnectivity::TryEnsurePeerReachableAsync(const std::string& peer_key, std::function<void(Roe<void>)> on_done) {
+void MeshConnectivity::TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done) {
   if (!on_done) {
     return;
   }
   if (MeshHost* m = mesh(); m && m->IsStopping()) {
-    on_done(Error("shutdown in progress"));
+    on_done(CircuitReachFailure::Of(CircuitReachErr::Unavailable, "shutdown in progress"));
   } else if (!circuit_hop_reach_) {
-    on_done(Error("Amp circuit reach required"));
+    on_done(CircuitReachFailure::Of(CircuitReachErr::Unavailable, "Amp circuit reach required"));
   } else if (peer_key.empty()) {
-    on_done(Error("missing peer"));
+    on_done(CircuitReachFailure::Of(CircuitReachErr::BadRequest, "missing peer"));
   } else {
     circuit_hop_reach_->TryEnsurePeerReachableAsync(peer_key, std::move(on_done));
   }

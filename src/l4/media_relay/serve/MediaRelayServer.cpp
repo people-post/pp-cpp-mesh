@@ -1,5 +1,7 @@
 #include "mesh/l4/media_relay/serve/MediaRelayServer.h"
 
+#include "mesh/l4/media_relay/MediaRelayErr.h"
+
 #include "mesh/l4/shared/ChannelSessionSlot.h"
 #include "mesh/l4/shared/ProductChannelPolicies.h"
 #include "amp/L3/ChannelSession.h"
@@ -391,11 +393,15 @@ struct MediaRelayServer::Impl {
     quotes.Clear();
   }
 
-  void Reject(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const std::string& error,
-              const MediaRelayAttachEvent ev) {
+  /** A refusal: its code for the client's logic, its text for logs (docs/ERRORS.md). */
+  void Reject(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const MediaRelayRefusal refusal,
+              const std::string& error, const MediaRelayAttachEvent ev) {
     common::Object err;
     err.set("v", int64_t{1});
     err.set("ok", false);
+    if (const char* code = MediaRelayRefusalWire(refusal); *code != '\0') {
+      err.set("code", std::string(code));
+    }
     err.set("error", error);
     channel.EnqueueOutbound(JsonToBody(common::DumpJson(err)));
     (void)sm.Apply(ev);
@@ -472,10 +478,12 @@ struct MediaRelayServer::Impl {
     const auto decision = DecideMediaRelayOpAdmit(admit);
     if (decision != MediaRelayOpAdmitDecision::Allow) {
       metrics.quotes_refused_admission.Inc();
-      Reject(channel, sm,
-             decision == MediaRelayOpAdmitDecision::RefuseStranger ? "prefer contacts: stranger refused"
-                                                                   : "media-relay not ready",
-             MediaRelayAttachEvent::AdmitFail);
+      if (decision == MediaRelayOpAdmitDecision::RefuseStranger) {
+        Reject(channel, sm, MediaRelayRefusal::Refused, "prefer contacts: stranger refused",
+               MediaRelayAttachEvent::AdmitFail);
+      } else {
+        Reject(channel, sm, MediaRelayRefusal::NotReady, "media-relay not ready", MediaRelayAttachEvent::AdmitFail);
+      }
       return false;
     }
     MediaRelayQuoteRequest req;
@@ -489,14 +497,14 @@ struct MediaRelayServer::Impl {
     auto carried = ChooseCarriedVideoLevels({req.video_levels, req.video_parallel}, video_policy);
     if (!carried) {
       metrics.quotes_refused_video_level.Inc();
-      Reject(channel, sm, carried.error().message, MediaRelayAttachEvent::AdmitFail);
+      Reject(channel, sm, MediaRelayRefusal::BadRequest, carried.error().message, MediaRelayAttachEvent::AdmitFail);
       return false;
     }
     auto q = BuildDefaultMediaRelayQuote(req);
     q.video_levels = *carried;
     if (!quotes.Add(q, req.session_id, sm.remote, Clock::now())) {
       metrics.quotes_refused_busy.Inc();
-      Reject(channel, sm, "media-relay busy", MediaRelayAttachEvent::AdmitFail);
+      Reject(channel, sm, MediaRelayRefusal::Busy, "media-relay busy", MediaRelayAttachEvent::AdmitFail);
       return false;
     }
     metrics.quotes_issued.Inc();
@@ -523,21 +531,21 @@ struct MediaRelayServer::Impl {
   bool HandleAccept(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const common::Object& root,
                     MediaRelayOpAdmitContext admit) {
     if (sm.phase != MediaRelayAttachPhase::Control && sm.phase != MediaRelayAttachPhase::Quoted) {
-      Reject(channel, sm, "accept not allowed in phase", MediaRelayAttachEvent::OpAccept);
+      Reject(channel, sm, MediaRelayRefusal::BadRequest, "accept not allowed in phase", MediaRelayAttachEvent::OpAccept);
       return false;
     }
     const std::string quote_id = root.getString("quote_id").value_or("");
     const auto now = Clock::now();
     const MediaRelayQuoteBook::Entry* pending = quotes.Find(quote_id, now);
     if (!pending) {
-      Reject(channel, sm, "unknown quote", MediaRelayAttachEvent::AttachFail);
+      Reject(channel, sm, MediaRelayRefusal::UnknownQuote, "unknown quote", MediaRelayAttachEvent::AttachFail);
       return false;
     }
     // Admit before consuming: a refused accept leaves the quote for a retry to be refused the same way.
     admit.call_id = pending->call_id;
     admit.session_exists_for_call = hosts_by_call.contains(admit.call_id);
     if (DecideMediaRelayOpAdmit(admit) != MediaRelayOpAdmitDecision::Allow) {
-      Reject(channel, sm, "prefer contacts: stranger refused", MediaRelayAttachEvent::AdmitFail);
+      Reject(channel, sm, MediaRelayRefusal::Refused, "prefer contacts: stranger refused", MediaRelayAttachEvent::AdmitFail);
       return false;
     }
     sm.call_id = pending->call_id;
@@ -561,7 +569,7 @@ struct MediaRelayServer::Impl {
                     const common::Object& root, MediaRelayOpAdmitContext admit) {
     if (!sm.Apply(MediaRelayAttachEvent::OpAttach)) {
       metrics.attaches_refused.Inc();
-      Reject(*channel, sm, "attach not allowed in phase", MediaRelayAttachEvent::OpAttach);
+      Reject(*channel, sm, MediaRelayRefusal::BadRequest, "attach not allowed in phase", MediaRelayAttachEvent::OpAttach);
       return false;
     }
     const std::string token = root.getString("session_token").value_or(sm.session_token);
@@ -570,19 +578,21 @@ struct MediaRelayServer::Impl {
     sm.call_id = call_id;
     if (token.empty() || call_id.empty()) {
       metrics.attaches_refused.Inc();
-      Reject(*channel, sm, "missing session_token or call_id", MediaRelayAttachEvent::AttachFail);
+      Reject(*channel, sm, MediaRelayRefusal::BadRequest, "missing session_token or call_id",
+             MediaRelayAttachEvent::AttachFail);
       return false;
     }
     if (!MediaRelayAuthStubOk(auth, call_id)) {
       metrics.attaches_refused.Inc();
-      Reject(*channel, sm, "auth failed", MediaRelayAttachEvent::AttachFail);
+      Reject(*channel, sm, MediaRelayRefusal::AuthFailed, "auth failed", MediaRelayAttachEvent::AttachFail);
       return false;
     }
     admit.call_id = call_id;
     admit.session_exists_for_call = hosts_by_call.contains(call_id);
     if (DecideMediaRelayOpAdmit(admit) != MediaRelayOpAdmitDecision::Allow) {
       metrics.attaches_refused.Inc();
-      Reject(*channel, sm, "prefer contacts: stranger refused", MediaRelayAttachEvent::AdmitFail);
+      Reject(*channel, sm, MediaRelayRefusal::Refused, "prefer contacts: stranger refused",
+             MediaRelayAttachEvent::AdmitFail);
       return false;
     }
     std::shared_ptr<HostSession> host = hosts_by_call[call_id];
@@ -610,7 +620,7 @@ struct MediaRelayServer::Impl {
                             const std::vector<uint8_t>& frame) {
     auto root = common::TryParseObject(BodyToJson(frame));
     if (!root) {
-      Reject(*channel, sm, "invalid media-relay json", MediaRelayAttachEvent::Cancel);
+      Reject(*channel, sm, MediaRelayRefusal::BadRequest, "invalid media-relay json", MediaRelayAttachEvent::Cancel);
       return false;
     }
     const std::string op = root->getString("op").value_or("");
@@ -641,7 +651,7 @@ struct MediaRelayServer::Impl {
         return HandleParticipantControl(host, part, *root);
       }
     }
-    Reject(*channel, sm, "unsupported op", MediaRelayAttachEvent::OpUnsupported);
+    Reject(*channel, sm, MediaRelayRefusal::BadRequest, "unsupported op", MediaRelayAttachEvent::OpUnsupported);
     return false;
   }
 
@@ -770,13 +780,14 @@ void MediaRelayServer::AbortInflight() {
   impl_->deferred.Invalidate();
 }
 
-Roe<MediaRelayAttachResult> MediaRelayServer::AttachLocal(const std::string& call_id,
-                                                          const std::string& local_peer_id, FrameHandler on_frame) {
+MediaRelayRoe<MediaRelayAttachResult> MediaRelayServer::AttachLocal(const std::string& call_id,
+                                                                    const std::string& local_peer_id,
+                                                                    FrameHandler on_frame) {
   if (call_id.empty()) {
-    return Error("missing call_id");
+    return MediaRelayFailure::Of(MediaRelayErr::BadRequest, "missing call_id");
   }
   if (local_peer_id.empty()) {
-    return Error("amp media-relay: missing local peer id");
+    return MediaRelayFailure::Of(MediaRelayErr::NotStarted, "amp media-relay: missing local peer id");
   }
   std::lock_guard lock(impl_->mu);
   if (impl_->local_part_ && impl_->local_session_ && impl_->local_session_->call_id == call_id &&

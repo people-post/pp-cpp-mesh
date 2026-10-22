@@ -46,12 +46,17 @@ TEST(CircuitHopAttemptBudgetTest, NestedEstablishClamps) {
   EXPECT_EQ(pp::mesh::CircuitNestedEstablishTimeoutMs(1000), 0);
 }
 
+// A relay's terminal answer (or no ack in time) is a fast miss; a refusal or a broken link is not.
 TEST(CircuitHopAttemptBudgetTest, FastFailErrors) {
-  EXPECT_TRUE(pp::mesh::CircuitBridgeErrorIsFastFail("circuit hop reach failed: tunnel endpoint not registered"));
-  EXPECT_TRUE(pp::mesh::CircuitBridgeErrorIsFastFail("circuit target peer endpoint not dialable"));
-  EXPECT_TRUE(pp::mesh::CircuitBridgeErrorIsFastFail("relay preferred undialable"));
-  EXPECT_TRUE(pp::mesh::CircuitBridgeErrorIsFastFail("circuit-relay bridge timed out"));
-  EXPECT_FALSE(pp::mesh::CircuitBridgeErrorIsFastFail("circuit hop reach failed: tunnel timeout"));
+  using pp::mesh::CircuitBridgeMissIsFastFail;
+  using pp::mesh::CircuitTunnelErr;
+  EXPECT_TRUE(CircuitBridgeMissIsFastFail(CircuitTunnelErr::TargetNotReserved));
+  EXPECT_TRUE(CircuitBridgeMissIsFastFail(CircuitTunnelErr::TargetUnreachable));
+  EXPECT_TRUE(CircuitBridgeMissIsFastFail(CircuitTunnelErr::RelayNoEndpoint));
+  EXPECT_TRUE(CircuitBridgeMissIsFastFail(CircuitTunnelErr::Timeout)) << "the relay did not ack";
+  EXPECT_FALSE(CircuitBridgeMissIsFastFail(CircuitTunnelErr::RelayBusy));
+  EXPECT_FALSE(CircuitBridgeMissIsFastFail(CircuitTunnelErr::RelayLinkFailed));
+  EXPECT_FALSE(CircuitBridgeMissIsFastFail(CircuitTunnelErr::Aborted));
 }
 
 TEST(CircuitHopAttemptBudgetTest, NotRegRetriesSameRelayOnceThenAdvances) {

@@ -31,6 +31,12 @@ constexpr int kAssocRedialBackoffMs = 1500;
  * (~8 s) — 4 s parked=0 while the hop dial was still in flight (dogfood fd4e3de).
  */
 constexpr int kSeedParkAwaitMs = 12000;
+/**
+ * The dial to a peer on our LAN before the seed park: a LAN handshake takes milliseconds, so one
+ * that has not landed by then is not on our LAN (two homes on the same 192.168.1.0/24) — abandon it
+ * and park as before.
+ */
+constexpr int kLanDialMs = 1500;
 
 using Lane = std::shared_ptr<pp::SerialExecutor>;
 
@@ -51,7 +57,53 @@ void ScheduleOn(const Lane& lane, const std::chrono::milliseconds delay, std::fu
   }
 }
 
+using Err = PeerReachCoordinator::Err;
+using Failure = PeerReachCoordinator::Failure;
+
+Failure Cancelled() {
+  return Failure::Of(Err::Cancelled, "peer reach cancelled");
+}
+
+Failure NoDialRegistry() {
+  return Failure::Of(Err::Unavailable, "dial registry not available");
+}
+
 } // namespace
+
+PeerReachCoordinator::Failure PeerReachCoordinator::WrapLinkFailure(const IChatPeerLinks::Failure& link) {
+  using LinkErr = IChatPeerLinks::Err;
+  Err code = Err::Generic;
+  switch (link.GetCode()) {
+  case LinkErr::EndpointNotRegistered:
+    code = Err::NoEndpoint;
+    break;
+  case LinkErr::DialInBackoff:
+    code = Err::DialInBackoff;
+    break;
+  case LinkErr::TooManyConcurrentDials:
+  case LinkErr::MaxLinksReached:
+    code = Err::DialBusy;
+    break;
+  case LinkErr::DialTimeout:
+    code = Err::NoAnswer;
+    break;
+  case LinkErr::HandshakeFailed:
+    code = Err::Refused;
+    break;
+  case LinkErr::TransportFailed:
+    code = Err::TransportFailed;
+    break;
+  default:
+    code = Err::Generic;
+    break;
+  }
+  return Failure::Of(code, detail::AppendFrom("peer reach: dial failed", "link", link.message));
+}
+
+PeerReachCoordinator::Failure PeerReachCoordinator::WrapCircuitFailure(const CircuitReachFailure& circuit) {
+  const Err code = circuit.GetCode() == CircuitReachErr::Aborted ? Err::Cancelled : Err::CircuitFailed;
+  return Failure::Of(code, detail::AppendFrom("peer reach: circuit failed", "circuit", circuit.message));
+}
 
 const char* PeerLinkKindName(const PeerLinkKind kind) {
   switch (kind) {
@@ -80,7 +132,7 @@ struct PeerReachCoordinator::Attempt {
   bool IsAwait() const { return req.mode == PeerReachMode::Await; }
 
   int64_t deadline_ms = 0;
-  Error last_error{"peer not connected"};
+  Failure last_error = Failure::Of(Err::NotConnected, "peer not connected");
   bool circuit_started = false;
   bool circuit_inflight = false;
   bool assoc_started = false;
@@ -88,10 +140,20 @@ struct PeerReachCoordinator::Attempt {
   int assoc_attempts = 0;
   bool seed_park_preassoc_done = false;
   bool seed_park_ok = false;
+  /**
+   * A seed park is running (before the private dial, or before the circuit): nothing of ours touches
+   * the peer's link meanwhile, so the peer connecting (its dial landing inbound) still settles the
+   * reach — the park can take its whole timeout when the seed is gone.
+   */
+  bool seed_park_inflight = false;
+  /** The brief same-LAN dial before the park: tried (once), and still out. */
+  bool lan_dial_done = false;
+  bool lan_dial_inflight = false;
 };
 
 PeerReachCoordinator::PeerReachCoordinator(PeerReachPorts ports)
-    : dial_(ports.dial), circuit_(ports.circuit), lane_(std::move(ports.lane)), dial_budget_ms_(kDialBudgetMs),
+    : dial_(ports.dial), circuit_(ports.circuit), lane_(std::move(ports.lane)),
+      local_listen_addrs_(std::move(ports.local_listen_addrs)), dial_budget_ms_(kDialBudgetMs),
       alive_(std::make_shared<std::atomic<bool>>(true)) {
   redirectLogger("PeerReach");
 }
@@ -113,12 +175,13 @@ void PeerReachCoordinator::SetDeps(PeerReachPorts ports) {
     std::lock_guard lock(mu_);
     lane_changed = lane_ != ports.lane;
     lane_ = std::move(ports.lane);
+    local_listen_addrs_ = std::move(ports.local_listen_addrs);
   }
   dial_.store(ports.dial, std::memory_order_release);
   circuit_.store(ports.circuit, std::memory_order_release);
   if (lane_changed) {
     // Their steps and watchdogs were on the old lane, which drops them as its runtime stops.
-    FailAll(Error("mesh stopped"));
+    FailAll(Failure::Of(Err::Unavailable, "mesh stopped"));
   }
 }
 
@@ -155,7 +218,7 @@ PeerReachId PeerReachCoordinator::Ensure(PeerReachRequest request, Done on_done)
   }
   const auto lane = Lane();
   if (!lane) {
-    Finish(a, Error("dial registry not available"));
+    Finish(a, NoDialRegistry());
     return a->id;
   }
   PostOn(lane, [this, alive = alive_, a]() {
@@ -211,13 +274,13 @@ void PeerReachCoordinator::ReleasePeer(const std::string& key) {
   dial->ClearPeerCircuitHop(key);
 }
 
-void PeerReachCoordinator::UpgradeToDirect(const std::string& peer_id, std::function<void(Roe<void>)> on_done) {
+void PeerReachCoordinator::UpgradeToDirect(const std::string& peer_id, std::function<void(UpgradeRoe)> on_done) {
   if (!on_done) {
     return;
   }
   const auto lane = Lane();
   if (!lane) {
-    on_done(Error("circuit reach not available"));
+    on_done(Failure::Of(Err::Unavailable, "circuit reach not available"));
     return;
   }
   PostOn(lane, [this, alive = alive_, lane, peer_id, on_done = std::move(on_done)]() mutable {
@@ -226,15 +289,16 @@ void PeerReachCoordinator::UpgradeToDirect(const std::string& peer_id, std::func
     }
     ICircuitHopReach* circuit = circuit_.load(std::memory_order_acquire);
     if (!circuit || peer_id.empty()) {
-      on_done(Error(peer_id.empty() ? "missing peer" : "circuit reach not available"));
+      on_done(peer_id.empty() ? Failure::Of(Err::BadRequest, "missing peer")
+                              : Failure::Of(Err::Unavailable, "circuit reach not available"));
       return;
     }
     log().info << "direct upgrade punch peer=" << peer_id;
     // Circuit reach answers from inside its own handling: run the caller's continuation after it.
-    circuit->TryUpgradeToDirectAsync(peer_id, [alive, lane, on_done = std::move(on_done)](Roe<void> result) mutable {
+    circuit->TryUpgradeToDirectAsync(peer_id, [alive, lane, on_done = std::move(on_done)](CircuitReachRoe result) mutable {
       PostOn(lane, [alive, on_done = std::move(on_done), result = std::move(result)]() mutable {
         if (alive->load(std::memory_order_acquire)) {
-          on_done(std::move(result));
+          on_done(result ? UpgradeRoe() : UpgradeRoe(WrapCircuitFailure(result.error())));
         }
       });
     });
@@ -280,26 +344,26 @@ void PeerReachCoordinator::Cancel(const PeerReachId id) {
     }
   }
   if (a) {
-    Finish(a, Error("peer reach cancelled"));
+    Finish(a, Cancelled());
   }
 }
 
 void PeerReachCoordinator::CancelAll() {
-  FailAll(Error("peer reach cancelled"));
+  FailAll(Cancelled());
 }
 
-void PeerReachCoordinator::FailAll(const Error& error) {
+void PeerReachCoordinator::FailAll(const Failure& failure) {
   std::unordered_map<PeerReachId, AttemptPtr> all;
   {
     std::lock_guard lock(mu_);
     all = attempts_;
   }
   for (auto& [id, a] : all) {
-    Finish(a, error);
+    Finish(a, failure);
   }
 }
 
-void PeerReachCoordinator::Finish(const AttemptPtr& a, Roe<PeerReachResult> result) {
+void PeerReachCoordinator::Finish(const AttemptPtr& a, ReachRoe result) {
   if (a->settled.exchange(true, std::memory_order_acq_rel)) {
     return;
   }
@@ -365,6 +429,30 @@ bool PeerReachCoordinator::PreferredIsPublic(const Attempt& a) const {
   return false;
 }
 
+bool PeerReachCoordinator::PreferredOnOurLan(const Attempt& a) const {
+  IDialRegistry* dial = dial_.load(std::memory_order_acquire);
+  std::function<std::vector<std::string>()> local;
+  {
+    std::lock_guard lock(mu_);
+    local = local_listen_addrs_;
+  }
+  if (!dial || !local) {
+    return false;
+  }
+  for (const auto& k : a.req.keys) {
+    if (auto ma = dial->PreferredMultiaddr(k); ma && !ma->empty()) {
+      if (!MultiaddrHasPrivateIpv4Host(*ma)) {
+        return false;
+      }
+      const std::vector<std::string> mine = local();
+      return std::any_of(mine.begin(), mine.end(), [&](const std::string& own) {
+        return MultiaddrHasPrivateIpv4Host(own) && IsSameIpv4Subnet24(own, *ma);
+      });
+    }
+  }
+  return false;
+}
+
 void PeerReachCoordinator::ClearBackoff(const Attempt& a) {
   if (IDialRegistry* dial = dial_.load(std::memory_order_acquire)) {
     for (const auto& k : a.req.keys) {
@@ -379,11 +467,11 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
     return;
   }
   if (a->req.keys.empty() || a->Primary().empty()) {
-    Finish(a, Error("missing peer key"));
+    Finish(a, Failure::Of(Err::BadRequest, "missing peer key"));
     return;
   }
   if (!dial_.load(std::memory_order_acquire)) {
-    Finish(a, Error("dial registry not available"));
+    Finish(a, NoDialRegistry());
     return;
   }
   const bool circuit = circuit_.load(std::memory_order_acquire) != nullptr;
@@ -436,7 +524,8 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
 }
 
 bool PeerReachCoordinator::TrySettleConnected(const AttemptPtr& a) {
-  const bool mutating = a->circuit_inflight || (a->assoc_started && !a->assoc_done);
+  const bool mutating = (a->circuit_inflight && !a->seed_park_inflight) || (a->assoc_started && !a->assoc_done) ||
+                        a->lan_dial_inflight;
   const bool wait_for_circuit = a->req.exclude_direct && !a->circuit_started && !AnyCircuitHop(*a);
   // exclude_direct wants the relay: the direct link the caller already has does not settle it.
   const bool have_link = a->req.exclude_direct ? AnyConnectedRelayed(*a) : AnyConnected(*a);
@@ -463,12 +552,18 @@ void PeerReachCoordinator::Tick(const AttemptPtr& a) {
     return;
   }
   if (!dial_.load(std::memory_order_acquire)) {
-    Finish(a, Error("dial registry not available"));
+    Finish(a, NoDialRegistry());
     return;
   }
   // PeerLinkManager is Amp-IO only: do not read link state while our own EnsureAssociation or
   // circuit StartBridge is mutating it (dogfood 085210 / 091029). Hop registry reads are mutexed.
   if (TrySettleConnected(a)) {
+    return;
+  }
+  if (a->seed_park_inflight || a->lan_dial_inflight) {
+    // The park answers by its own timeout (the LAN dial by its short one); until then only the
+    // peer connecting moves us on.
+    ScheduleTick(a, kPollMs);
     return;
   }
   if (util::NowUnixMs() >= a->deadline_ms) {
@@ -514,7 +609,13 @@ bool PeerReachCoordinator::MaybeParkBeforePrivateDial(const AttemptPtr& a) {
   if (a->seed_park_preassoc_done || !circuit_.load(std::memory_order_acquire) || PreferredIsPublic(*a)) {
     return false;
   }
+  // A peer on our LAN: its private dial cannot be the dual-NAT case the park guards against, and
+  // needs no seed — dial it first, briefly (a gone seed used to hold this dial for the whole park).
+  if (MaybeDialOnOurLan(a)) {
+    return true;
+  }
   a->seed_park_preassoc_done = true;
+  a->seed_park_inflight = true;
   log().info << "seed park before private Preferred peer=" << a->Primary();
   a->seed_park(
       [this, alive = alive_, lane = Lane(), a](bool parked) {
@@ -522,13 +623,68 @@ bool PeerReachCoordinator::MaybeParkBeforePrivateDial(const AttemptPtr& a) {
           if (!alive->load(std::memory_order_acquire)) {
             return;
           }
+          a->seed_park_inflight = false;
           a->seed_park_ok = parked;
           log().info << "seed park (pre-assoc) parked=" << (parked ? 1 : 0);
           Tick(a);
         });
       },
       kSeedParkAwaitMs);
+  ScheduleTick(a, kPollMs);
   return true;
+}
+
+bool PeerReachCoordinator::MaybeDialOnOurLan(const AttemptPtr& a) {
+  IDialRegistry* dial = dial_.load(std::memory_order_acquire);
+  if (a->lan_dial_done || a->IsAwait() || a->req.exclude_direct || !dial || !PreferredOnOurLan(*a)) {
+    return false;
+  }
+  a->lan_dial_done = true;
+  a->lan_dial_inflight = true;
+  log().info << "same-LAN dial before the seed park peer=" << a->Primary();
+  dial->EnsureAssociation(a->Primary(), [this, alive = alive_, lane = Lane(), a](IChatPeerLinks::LinkRoe assoc) {
+    if (!alive->load(std::memory_order_acquire) || !a->lan_dial_inflight) {
+      return;  // abandoned at kLanDialMs: the park went on without it
+    }
+    // Runs inside FinishDial, on the lane: no longer out (the timer below sees it), continue after.
+    a->lan_dial_inflight = false;
+    const bool ok = static_cast<bool>(assoc);
+    const bool connected_now = ok && AnyConnected(*a);
+    const bool direct_now = connected_now && AnyConnectedDirect(*a);
+    PostOn(lane, [this, alive, a, ok, connected_now, direct_now]() {
+      if (alive->load(std::memory_order_acquire)) {
+        OnLanDialDone(a, ok, connected_now, direct_now);
+      }
+    });
+  });
+  ScheduleOn(Lane(), std::chrono::milliseconds(kLanDialMs), [this, alive = alive_, a]() {
+    if (!alive->load(std::memory_order_acquire) || !a->lan_dial_inflight || a->settled.load(std::memory_order_acquire)) {
+      return;
+    }
+    a->lan_dial_inflight = false;
+    log().info << "same-LAN dial no answer in " << kLanDialMs << " ms peer=" << a->Primary() << " (parking)";
+    AbandonDial(a->Primary());
+    Tick(a);
+  });
+  ScheduleTick(a, kPollMs);
+  return true;
+}
+
+void PeerReachCoordinator::OnLanDialDone(const AttemptPtr& a, const bool ok, const bool connected_now,
+                                         const bool direct_now) {
+  if (a->settled.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (ok && connected_now) {
+    PeerReachResult r;
+    r.kind = direct_now ? PeerLinkKind::Direct : PeerLinkKind::Relayed;
+    log().info << "same-LAN dial ok peer=" << a->Primary() << " path=" << PeerLinkKindName(r.kind);
+    Finish(a, r);
+    return;
+  }
+  log().info << "same-LAN dial missed peer=" << a->Primary() << " (parking)";
+  ClearBackoff(*a);
+  Tick(a);
 }
 
 bool PeerReachCoordinator::MaybeStartAssociation(const AttemptPtr& a) {
@@ -559,7 +715,7 @@ bool PeerReachCoordinator::MaybeStartAssociation(const AttemptPtr& a) {
   log().info << "EnsureAssociation start peer=" << a->Primary() << " attempt=" << a->assoc_attempts
              << " mode=" << (a->IsAwait() ? "await" : "reach");
   // V049 / B31: both modes dial (simultaneous open); Amp A026 elects one PeerLink.
-  dial->EnsureAssociation(a->Primary(), [this, alive = alive_, lane = Lane(), a](Roe<void> assoc) {
+  dial->EnsureAssociation(a->Primary(), [this, alive = alive_, lane = Lane(), a](IChatPeerLinks::LinkRoe assoc) {
     if (!alive->load(std::memory_order_acquire)) {
       return;
     }
@@ -578,7 +734,7 @@ bool PeerReachCoordinator::MaybeStartAssociation(const AttemptPtr& a) {
   return true;
 }
 
-void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, Roe<void> assoc, const bool connected_now,
+void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, IChatPeerLinks::LinkRoe assoc, const bool connected_now,
                                              const bool direct_now) {
   if (a->settled.load(std::memory_order_acquire)) {
     return;
@@ -612,7 +768,7 @@ void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, Roe<void> asso
       return;
     }
   } else {
-    a->last_error = assoc.error();
+    a->last_error = WrapLinkFailure(assoc.error());
     log().info << "EnsureAssociation miss peer=" << a->Primary() << " err=" << a->last_error.message
                << " attempt=" << a->assoc_attempts;
     // The dial already finished (this callback): ClearDialBackoff only. AbortInflightDial on a
@@ -654,12 +810,14 @@ bool PeerReachCoordinator::MaybeStartCircuit(const AttemptPtr& a) {
   // Always confirm a Connected seed before StartBridge / punch-wait: the pre-assoc park may have
   // timed out, or a later private dial dropped the hop link (dogfood 88e16f5c).
   if (a->seed_park) {
+    a->seed_park_inflight = true;
     a->seed_park(
         [this, alive = alive_, lane = Lane(), a, allow_circuit](bool parked) {
           PostOn(lane, [this, alive, a, allow_circuit, parked]() {
             if (!alive->load(std::memory_order_acquire)) {
               return;
             }
+            a->seed_park_inflight = false;
             a->seed_park_ok = parked;
             log().info << "seed park before circuit/punch peer=" << a->Primary()
                        << " parked=" << (parked ? 1 : 0);
@@ -690,7 +848,7 @@ void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const bool allow_cir
     a->circuit_inflight = false;
     return;
   }
-  auto on_via = [this, alive = alive_, lane = Lane(), a](Roe<void> via) {
+  auto on_via = [this, alive = alive_, lane = Lane(), a](CircuitReachRoe via) {
     if (!alive->load(std::memory_order_acquire)) {
       return;
     }
@@ -712,7 +870,7 @@ void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const bool allow_cir
   }
 }
 
-void PeerReachCoordinator::OnCircuitDone(const AttemptPtr& a, Roe<void> via, const bool connected_now,
+void PeerReachCoordinator::OnCircuitDone(const AttemptPtr& a, CircuitReachRoe via, const bool connected_now,
                                          const bool relayed_now) {
   a->circuit_inflight = false;
   if (a->settled.load(std::memory_order_acquire)) {
@@ -727,7 +885,8 @@ void PeerReachCoordinator::OnCircuitDone(const AttemptPtr& a, Roe<void> via, con
     Finish(a, r);
     return;
   }
-  a->last_error = via ? Error("peer not connected after circuit/punch") : via.error();
+  a->last_error = via ? Failure::Of(Err::NotConnected, "peer not connected after circuit/punch")
+                      : WrapCircuitFailure(via.error());
   log().info << "circuit/punch miss peer=" << a->Primary() << " err=" << a->last_error.message
              << " via_ok=" << (via ? 1 : 0);
   // A relay-only reach (standby / TX-only escalation) is ours alone: nobody else builds that circuit.

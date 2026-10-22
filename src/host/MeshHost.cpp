@@ -529,6 +529,17 @@ void MeshHost::ConfigureAmpDht(AmpDhtProtocolConfig config) {
   if (!amp_dht_) {
     return;
   }
+  // The publish gate and the published addresses follow the network (docs/DHT.md § 4.5).
+  if (!config.current_listen_multiaddrs) {
+    config.current_listen_multiaddrs = [this]() {
+      auto addrs = AdvertisedListenMultiaddrs();
+      std::erase_if(addrs, [](const std::string& ma) { return !IsUsableAdpListen(ma); });
+      return addrs;
+    };
+  }
+  if (!config.may_publish) {
+    config.may_publish = [this]() { return reachability_->Snapshot().status != ReachabilityStatus::Blocked; };
+  }
   RunOnLane([&]() { amp_dht_->Configure(std::move(config)); });  // its tick reads the config there
 }
 

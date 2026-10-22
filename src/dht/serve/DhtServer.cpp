@@ -4,8 +4,10 @@
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
+#include "mesh/dht/DhtKey.h"
 #include "mesh/dht/DhtRecordCodec.h"
 #include "common/ValueJson.h"
+#include "crypto/SodiumUtil.h"
 #include "common/Lifetime.h"
 
 #include <atomic>
@@ -50,7 +52,11 @@ common::Value RecordsToJsonArray(const std::vector<PeerRoutingRecord>& records) 
 struct DhtServer::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
   DhtRecordStore* store = nullptr;
+  const DhtRoutingTable* table = nullptr;
+  NoteHeard note_heard;
   WorkerPost post_worker;
+  /** Answers say whether we take part (a peer is admitted from its answers only if it does). */
+  std::atomic<bool> participate{false};
   std::atomic<bool> stopped{false};
   /** Guards protocol-handler raw Impl* past Stop — OWNERSHIP.md § Lifetime. */
   pp::Lifetime deferred;
@@ -114,6 +120,7 @@ struct DhtServer::Impl {
               response.set("req_id", req_id);
               response.set("version", int64_t{kDhtWireVersion});
               response.set("peer_id", local_peer_id);
+              response.set("participant", participate.load(std::memory_order_acquire));
             } else if (op == "find_peer" || op == "store") {
               if (!limiter.Allow(remote_peer)) {
                 {
@@ -136,7 +143,14 @@ struct DhtServer::Impl {
                             records.push_back(*local);
                           }
                           response.set("records", RecordsToJsonArray(records));
-                          response.set("closer_peers", common::makeArray(std::vector<common::Value>{}));
+                          std::vector<DhtCloserPeer> closer;
+                          if (const auto target_key = DhtKeyOfPeerId(peer_id)) {
+                            for (DhtContact& contact : table->Closest(*target_key, kDhtCloserPeers, remote_peer)) {
+                              closer.push_back({std::move(contact.peer_id), std::move(contact.multiaddr)});
+                            }
+                          }
+                          response.set("closer_peers", DhtCloserPeersToArray(closer));
+                          response.set("participant", participate.load(std::memory_order_acquire));
                         } else {
                           {
                             std::lock_guard lock(stats_mutex);
@@ -157,10 +171,14 @@ struct DhtServer::Impl {
                                   reject_code = "bad_signature";
                                 } else if (!*verified) {
                                   reject_code = "bad_signature";
+                                } else if (!parsed->public_key_b64.empty() &&
+                                           parsed->public_key_b64 != pp::Base64Encode(remote_pk)) {
+                                  reject_code = "bad_key";
                                 } else if (auto existing = store->Get(parsed->peer_id);
                                            existing && existing->seq > parsed->seq) {
                                   reject_code = "seq_regression";
-                                } else if (!store->Put(*parsed)) {
+                                } else if (parsed->public_key_b64 = pp::Base64Encode(remote_pk);
+                                           !store->Put(*parsed)) {  // served checkable to anyone
                                   reject_code = "store_failed";
                                 } else {
                                   ok = true;
@@ -175,6 +193,11 @@ struct DhtServer::Impl {
                           if (!ok) {
                             std::lock_guard lock(stats_mutex);
                             ++stats.store_rejected;
+                          } else if (note_heard) {
+                            // It publishes, so it takes part; its own record says where to dial it.
+                            if (auto stored = store->Get(remote_peer)) {
+                              note_heard(remote_peer, PeerRoutingRecordDialAddr(*stored));
+                            }
                           }
                           if (!ok && !reject_code.empty()) {
                             response = MakeErrorResponse(req_id, reject_code, reject_code);
@@ -197,10 +220,13 @@ struct DhtServer::Impl {
 
 };
 
-DhtServer::DhtServer(pp::amp::MeshRuntime& runtime, DhtRecordStore& store, WorkerPost post_worker)
+DhtServer::DhtServer(pp::amp::MeshRuntime& runtime, DhtRecordStore& store, const DhtRoutingTable& table,
+                     NoteHeard note_heard, WorkerPost post_worker)
     : impl_(std::make_unique<Impl>()), runtime_(runtime) {
   impl_->runtime = &runtime_;
   impl_->store = &store;
+  impl_->table = &table;
+  impl_->note_heard = std::move(note_heard);
   impl_->post_worker = std::move(post_worker);
 }
 
@@ -208,6 +234,7 @@ DhtServer::~DhtServer() { Stop(); }
 
 void DhtServer::Configure(const AmpDhtProtocolConfig& config) {
   impl_->local_peer_id = config.local_peer_id;
+  impl_->participate.store(config.participate, std::memory_order_release);
   impl_->limiter.Configure(config.tunables.inbound_ops_per_peer_per_window,
                            config.tunables.inbound_rate_window_seconds);
 }

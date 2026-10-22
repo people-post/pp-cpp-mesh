@@ -79,6 +79,9 @@ std::string EncodePunchResult(const PunchResult& msg) {
   o.set("epoch_id", msg.epoch_id);
   o.set("ok", msg.ok);
   o.set("winner_multiaddr", msg.winner_multiaddr);
+  if (const char* code = PunchRefusalWire(msg.refusal); !msg.ok && *code != '\0') {
+    o.set("code", std::string(code));
+  }
   o.set("error", msg.error);
   return common::DumpJson(o);
 }
@@ -149,6 +152,9 @@ std::optional<PunchResult> DecodePunchResult(const common::Object& root) {
   msg.ok = root.getIf<bool>("ok").value_or(false);
   msg.winner_multiaddr = root.getString("winner_multiaddr").value_or("");
   msg.error = root.getString("error").value_or("");
+  if (!msg.ok) {
+    msg.refusal = PunchRefusalFromResult(root.getString("code").value_or(""), msg.error);
+  }
   return msg;
 }
 

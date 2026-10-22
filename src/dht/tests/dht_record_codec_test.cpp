@@ -1,7 +1,9 @@
 #include "mesh/dht/DhtRecordCodec.h"
 #include "mesh/dht/DhtRecordStore.h"
 
+#include "amp/link/PeerId.h"
 #include "crypto/MlDsa.h"
+#include "crypto/SodiumUtil.h"
 #include "mesh/testing/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
@@ -55,6 +57,60 @@ TEST(DhtRecordCodecTest, SignVerifyRoundTripWithCapabilities) {
   ASSERT_TRUE(parsed->capabilities.has_value());
   EXPECT_TRUE(parsed->capabilities->circuit_relay);
   EXPECT_TRUE(parsed->capabilities->media_relay);
+}
+
+// A record that carries its signer's key can be checked by anyone, not only over its subject's link.
+TEST(DhtRecordCodecTest, ARecordWithItsKeyChecksOnItsOwn) {
+  auto keys = pp::MlDsa::GenerateKeyPair();
+  auto other = pp::MlDsa::GenerateKeyPair();
+  ASSERT_TRUE(static_cast<bool>(keys));
+  ASSERT_TRUE(static_cast<bool>(other));
+
+  PeerRoutingRecord record;
+  record.peer_id = pp::amp::PeerIdFromIdentityKey(keys->public_key);
+  record.seq = 1;
+  record.ttl_seconds = 3600;
+  record.issued_at = 1'700'000'000;
+  record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/1.0.0/p2p/" + record.peer_id};
+  auto signed_record = SignPeerRoutingRecord(record, keys->secret_key);
+  ASSERT_TRUE(static_cast<bool>(signed_record));
+
+  EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(*signed_record)) << "no key: not checkable";
+
+  signed_record->public_key_b64 = pp::Base64Encode(keys->public_key);
+  auto parsed = PeerRoutingRecordFromObject(PeerRoutingRecordToObject(*signed_record));
+  ASSERT_TRUE(static_cast<bool>(parsed));
+  EXPECT_EQ(parsed->public_key_b64, signed_record->public_key_b64);
+  EXPECT_TRUE(VerifyPeerRoutingRecordStandalone(*parsed));
+
+  PeerRoutingRecord wrong_key = *parsed;  // a key that does not derive the PeerId
+  wrong_key.public_key_b64 = pp::Base64Encode(other->public_key);
+  EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(wrong_key));
+
+  PeerRoutingRecord altered = *parsed;  // the right key, the signed fields changed
+  altered.multiaddrs = {"/ip4/198.51.100.9/udp/443/adp/1.0.0/p2p/" + record.peer_id};
+  EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(altered));
+}
+
+// closer_peers are hints from a stranger: only well-formed ones that bind their PeerId pass.
+TEST(DhtRecordCodecTest, CloserPeersKeepOnlyWellFormedHints) {
+  const std::string a = "QmTWkSQAcGsETogTFKrPJ3GzdHG3vP9UwXVyp2HeK9YBvP";
+  const std::string b = "QmeKYz9h9AozszFqAkRzwxx4xGheEMYRVrLHuh7EMG7Bie";
+  const auto ma = [](const std::string& peer) { return "/ip4/203.0.113.7/udp/443/adp/1.0.0/p2p/" + peer; };
+  common::Object response;
+  response.set("closer_peers", DhtCloserPeersToArray({
+                                   {a, ma(a)},
+                                   {b, ma(a)},        // the address names someone else
+                                   {a, ma(a)},        // twice
+                                   {"Qm0lI", ma("Qm0lI")},  // not base58
+                                   {b, ma(b)},
+                               }));
+  const auto peers = DhtCloserPeersFromResponse(response);
+  ASSERT_EQ(peers.size(), 2u);
+  EXPECT_EQ(peers[0].peer_id, a);
+  EXPECT_EQ(peers[1].peer_id, b);
+  EXPECT_EQ(DhtCloserPeersFromResponse(response, 1).size(), 1u);
+  EXPECT_TRUE(DhtCloserPeersFromResponse(common::Object{}).empty());
 }
 
 TEST(DhtRecordCodecTest, RejectsExpiredRecord) {

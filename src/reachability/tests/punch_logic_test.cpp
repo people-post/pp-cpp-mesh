@@ -108,6 +108,25 @@ TEST(PunchLogicTest, SyncAndResultRoundTrip) {
   EXPECT_EQ(result_decoded->winner_multiaddr, result.winner_multiaddr);
 }
 
+// A failed result carries its code on the wire; one from a peer before codes is read from its text.
+TEST(PunchLogicTest, AFailedResultCarriesItsCode) {
+  PunchResult refused;
+  refused.epoch_id = "ep-2";
+  refused.refusal = PunchRefusal::TargetUnknown;
+  refused.error = "anything at all";
+  auto root = common::TryParseObject(EncodePunchResult(refused));
+  ASSERT_TRUE(root);
+  EXPECT_EQ(root->getString("code").value_or(""), "target_unknown");
+  auto decoded = DecodePunchResult(*root);
+  ASSERT_TRUE(decoded);
+  EXPECT_FALSE(decoded->ok);
+  EXPECT_EQ(decoded->refusal, PunchRefusal::TargetUnknown) << "by its code, not its text";
+
+  EXPECT_EQ(PunchRefusalFromResult("", "punch: target endpoint unknown to introducer"), PunchRefusal::TargetUnknown);
+  EXPECT_EQ(PunchRefusalFromResult("", "punch: target declines this initiator"), PunchRefusal::Declined);
+  EXPECT_EQ(PunchRefusalFromResult("from_the_future", "declines"), PunchRefusal::Generic) << "a code wins over text";
+}
+
 TEST(PunchLogicTest, PickPunchIntroducerPrefersConnectedContact) {
   const std::vector<std::string> contacts = {"contact-a", "contact-b"};
   const std::vector<std::string> seeds = {"seed-1"};

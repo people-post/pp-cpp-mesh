@@ -15,6 +15,7 @@
 #include <chrono>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -49,7 +50,30 @@ MediaRelayQuote ParseQuoteResponse(const common::Object& root) {
   return q;
 }
 
+using Err = MediaRelayErr;
+using Failure = MediaRelayFailure;
+
+Failure Aborted() {
+  return Failure::Of(Err::Aborted, "media-relay aborted");
+}
+
+/** A hop's refusal from its reply (its code; older hops' text). */
+Failure Refusal(const common::Object& root, const char* fallback) {
+  const std::string text = root.getString("error").value_or("");
+  return Failure::Of(MediaRelayErrFromReply(root.getString("code").value_or(""), text),
+                     detail::AppendFrom("media-relay: refused", "hop", text.empty() ? std::string(fallback) : text));
+}
+
 } // namespace
+
+MediaRelayClientCoordinator::Failure MediaRelayClientCoordinator::WrapLinkFailure(
+    const pp::amp::PeerLinkManager::Failure& link) {
+  using LinkErr = pp::amp::PeerLinkManager::Err;
+  const Err code = link.GetCode() == LinkErr::EndpointNotRegistered ? Err::HopNoEndpoint
+                   : link.GetCode() == LinkErr::ChannelOpenFailed   ? Err::ChannelFailed
+                                                                    : Err::LinkFailed;
+  return Failure::Of(code, detail::AppendFrom("media-relay: hop link failed", "link", link.message));
+}
 
 struct MediaRelayClientCoordinator::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
@@ -210,18 +234,18 @@ struct MediaRelayClientCoordinator::Impl {
         if (session->phase == MediaRelayBundlePhase::Closing) {
           continue;
         }
-        TearDown(*session, false, "media-relay peer link lost");
+        TearDown(*session, false, Failure::Of(Err::Closed, "media-relay peer link lost"));
       }
     }
     for (const auto id : timed_out) {
       std::lock_guard lock(mu);
       if (auto* session = Find(id)) {
-        TearDown(*session, false, "media-relay timed out");
+        TearDown(*session, false, Failure::Of(Err::Timeout, "media-relay timed out"));
       }
     }
   }
 
-  void FinishQuote(Session& session, Roe<MediaRelayQuote> result) {
+  void FinishQuote(Session& session, MediaRelayRoe<MediaRelayQuote> result) {
     if (session.finished) {
       return;
     }
@@ -233,7 +257,7 @@ struct MediaRelayClientCoordinator::Impl {
     }
   }
 
-  void FinishAttach(Session& session, Roe<MediaRelayAttachResult> result) {
+  void FinishAttach(Session& session, MediaRelayRoe<MediaRelayAttachResult> result) {
     if (session.finished) {
       return;
     }
@@ -245,17 +269,20 @@ struct MediaRelayClientCoordinator::Impl {
     }
   }
 
-  void TearDown(Session& session, const bool local_cancel, const std::string& error) {
+  void TearDown(Session& session, const bool local_cancel, Failure failure) {
     session.local_cancel = local_cancel || session.local_cancel;
     session.phase = MediaRelayBundlePhase::Closing;
     if (session.channel) {
       CloseQuietSlot(session.channel, ResolveLink(session.hop_peer_key));
     }
     if (!session.finished) {
+      if (failure.message.empty()) {
+        failure = Aborted();
+      }
       if (session.role == MediaRelayBundleRole::ClientQuote) {
-        FinishQuote(session, Error(error.empty() ? "media-relay aborted" : error));
+        FinishQuote(session, failure);
       } else if (session.role == MediaRelayBundleRole::ClientAttach) {
-        FinishAttach(session, Error(error.empty() ? "media-relay aborted" : error));
+        FinishAttach(session, failure);
       } else {
         session.finished = true;
       }
@@ -368,12 +395,12 @@ struct MediaRelayClientCoordinator::Impl {
       return false;
     }
     if (!frame) {
-      TearDown(*session, false, "media-relay channel failed");
+      TearDown(*session, false, Failure::Of(Err::Closed, "media-relay channel failed"));
       return false;
     }
     auto root = common::TryParseObject(BodyToJson(*frame));
     if (!root) {
-      TearDown(*session, false, "invalid media-relay json");
+      TearDown(*session, false, Failure::Of(Err::BadReply, "invalid media-relay json"));
       return false;
     }
     if (session->role == MediaRelayBundleRole::ClientQuote && session->phase == MediaRelayBundlePhase::WaitQuote) {
@@ -383,7 +410,7 @@ struct MediaRelayClientCoordinator::Impl {
         return true;
       }
       if (decision == MediaRelayQuoteAckDecision::Fail) {
-        TearDown(*session, false, root->getString("error").value_or("quote failed"));
+        TearDown(*session, false, Refusal(*root, "quote failed"));
         return false;
       }
       auto quote = ParseQuoteResponse(*root);
@@ -403,7 +430,7 @@ struct MediaRelayClientCoordinator::Impl {
     }
     if (session->phase == MediaRelayBundlePhase::WaitAccept) {
       if (!root->getIf<bool>("ok").value_or(false)) {
-        TearDown(*session, false, root->getString("error").value_or("accept failed"));
+        TearDown(*session, false, Refusal(*root, "accept failed"));
         return false;
       }
       session->session_token = root->getString("session_token").value_or("");
@@ -415,7 +442,7 @@ struct MediaRelayClientCoordinator::Impl {
       attach_req.set("call_id", session->call_id);
       attach_req.set("auth", session->auth_stub);
       if (!session->channel->EnqueueOutbound(JsonToBody(common::DumpJson(attach_req)))) {
-        TearDown(*session, false, "failed to send attach");
+        TearDown(*session, false, Failure::Of(Err::ChannelFailed, "failed to send attach"));
         return false;
       }
       session->phase = MediaRelayBundlePhase::WaitAttachAck;
@@ -428,7 +455,7 @@ struct MediaRelayClientCoordinator::Impl {
         return true;
       }
       if (decision == MediaRelayAttachAckDecision::Fail) {
-        TearDown(*session, false, root->getString("error").value_or("attach failed"));
+        TearDown(*session, false, Refusal(*root, "attach failed"));
         return false;
       }
       session->phase = MediaRelayBundlePhase::Attached;
@@ -460,7 +487,7 @@ struct MediaRelayClientCoordinator::Impl {
     });
     session.phase = wait_phase;
     if (!session.channel->EnqueueOutbound(JsonToBody(outbound_json))) {
-      TearDown(session, false, "failed to send on circuit hop");
+      TearDown(session, false, Failure::Of(Err::ChannelFailed, "failed to send on circuit hop"));
     }
     return true;
   }
@@ -488,7 +515,8 @@ struct MediaRelayClientCoordinator::Impl {
                   .finished = session->finished,
               });
               if (decision != MediaRelayBundleCloseDecision::Ignore) {
-                TearDown(*session, session->local_cancel, "media-relay channel closed");
+                TearDown(*session, session->local_cancel,
+                         session->local_cancel ? Aborted() : Failure::Of(Err::Closed, "media-relay channel closed"));
               }
             }
           });
@@ -512,7 +540,7 @@ struct MediaRelayClientCoordinator::Impl {
               return;
             }
             if (!channel) {
-              TearDown(*session, false, channel.error().message);
+              TearDown(*session, false, WrapLinkFailure(channel.error()));
               return;
             }
             channel_id = *channel;
@@ -525,13 +553,13 @@ struct MediaRelayClientCoordinator::Impl {
                   return;
                 }
                 if (!open) {
-                  TearDown(*session, false, "media-relay: channel open failed");
+                  TearDown(*session, false, Failure::Of(Err::ChannelFailed, "media-relay: channel open failed"));
                   return;
                 }
                 BindClientChannel(*session, hop, channel_id);
                 session->phase = wait_phase;
                 if (!session->channel || !session->channel->EnqueueOutbound(JsonToBody(json))) {
-                  TearDown(*session, false, send_error);
+                  TearDown(*session, false, Failure::Of(Err::ChannelFailed, send_error));
                 }
               });
         });
@@ -568,21 +596,21 @@ struct MediaRelayClientCoordinator::Impl {
     OpenAndSend(session, json, MediaRelayBundlePhase::WaitAccept, "failed to send accept");
   }
 
-  /** Posts `on_finished(Error(why))` to io and returns true when a bundle cannot start. */
+  /** Posts `on_finished` its failure to io and returns true when a bundle cannot start. */
   template <typename Finished>
   bool RefuseStart(const std::string& hop_peer_key, Finished& on_finished) {
-    const char* why = nullptr;
+    std::optional<Failure> why;
     if (!started.load(std::memory_order_acquire)) {
-      why = "media-relay service not started";
+      why = Failure::Of(Err::NotStarted, "media-relay service not started");
     } else if (!runtime->Links().GetLinkSnapshot(hop_peer_key).has_endpoint &&
                !(circuit_hops && circuit_hops->Find(hop_peer_key, kMediaRelayProtocolId))) {
-      why = "hop peer endpoint not registered";
+      why = Failure::Of(Err::HopNoEndpoint, "hop peer endpoint not registered");
     }
     if (!why) {
       return false;
     }
     if (on_finished) {
-      runtime->PostToIo([on_finished = std::move(on_finished), why]() mutable { on_finished(Error(why)); });
+      runtime->PostToIo([on_finished = std::move(on_finished), why = *why]() mutable { on_finished(why); });
     }
     return true;
   }
@@ -661,10 +689,10 @@ void MediaRelayClientCoordinator::AbortInflight() {
     }
   });
   for (auto& cb : quote_cbs) {
-    cb(Error("media-relay aborted"));
+    cb(Aborted());
   }
   for (auto& cb : attach_cbs) {
-    cb(Error("media-relay aborted"));
+    cb(Aborted());
   }
   // Poison already-queued PostIo(self) work; new posts after this capture a fresh snap.
   impl_->deferred.Invalidate();
@@ -703,7 +731,7 @@ MediaRelaySessionId MediaRelayClientCoordinator::StartAttach(
   if (impl_->started.load(std::memory_order_acquire) && (quote_id.empty() || call_id.empty())) {
     if (on_finished) {
       runtime_.PostToIo([on_finished = std::move(on_finished)]() mutable {
-        on_finished(Error("missing quote_id or call_id"));
+        on_finished(Failure::Of(Err::BadRequest, "missing quote_id or call_id"));
       });
     }
     return {};
@@ -743,7 +771,7 @@ void MediaRelayClientCoordinator::Cancel(const MediaRelaySessionId id) {
   impl_->PostIo([impl = impl_.get(), id] {
     std::lock_guard lock(impl->mu);
     if (auto* session = impl->Find(id)) {
-      impl->TearDown(*session, true, "media-relay aborted");
+      impl->TearDown(*session, true, Aborted());
     }
   });
 }
@@ -778,17 +806,17 @@ void MediaRelayClientCoordinator::RemoveClientTransportLostObserver(uint64_t tok
   impl_->client_lost_observers_.erase(token);
 }
 
-Roe<MediaRelayAttachResult> MediaRelayClientCoordinator::AttachAsLocalHop(
+MediaRelayRoe<MediaRelayAttachResult> MediaRelayClientCoordinator::AttachAsLocalHop(
     const std::string& call_id, std::function<void(MediaDataFrame)> on_frame) {
   if (call_id.empty()) {
-    return Error("missing call_id");
+    return Failure::Of(Err::BadRequest, "missing call_id");
   }
   if (!IsStarted() || !impl_->local_server || !impl_->local_server->IsStarted()) {
-    return Error("media_relay not started");
+    return Failure::Of(Err::NotStarted, "media_relay not started");
   }
   const std::string local_peer = runtime_.Links().LocalCapability().local_peer_id;
   if (local_peer.empty()) {
-    return Error("amp media-relay: missing local peer id");
+    return Failure::Of(Err::NotStarted, "amp media-relay: missing local peer id");
   }
   std::lock_guard lock(impl_->mu);
   if (!impl_->local_server->LocalAttachedTo(call_id, local_peer)) {
@@ -797,7 +825,7 @@ Roe<MediaRelayAttachResult> MediaRelayClientCoordinator::AttachAsLocalHop(
   return impl_->local_server->AttachLocal(call_id, local_peer, std::move(on_frame));
 }
 
-Roe<void> MediaRelayClientCoordinator::Subscribe(const uint32_t stream_id, const uint16_t channel_id) {
+MediaRelayRoe<void> MediaRelayClientCoordinator::Subscribe(const uint32_t stream_id, const uint16_t channel_id) {
   const uint64_t key = MediaRelaySubKey(stream_id, channel_id);
   std::shared_ptr<pp::amp::ChannelSession> channel;
   {
@@ -809,7 +837,7 @@ Roe<void> MediaRelayClientCoordinator::Subscribe(const uint32_t stream_id, const
       return {};
     }
     if (!impl_->client_.channel) {
-      return Error("not attached");
+      return Failure::Of(Err::NotAttached, "not attached");
     }
     impl_->client_.subscriptions.insert(key);
     channel = impl_->client_.channel;
@@ -824,12 +852,12 @@ Roe<void> MediaRelayClientCoordinator::Subscribe(const uint32_t stream_id, const
   if (!sent) {
     std::lock_guard lock(impl_->mu);
     impl_->client_.subscriptions.erase(key);
-    return Error("not attached");
+    return Failure::Of(Err::NotAttached, "not attached");
   }
   return {};
 }
 
-Roe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame& frame) {
+MediaRelayRoe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame& frame) {
   std::shared_ptr<pp::amp::ChannelSession> channel;
   {
     std::lock_guard lock(impl_->mu);
@@ -840,7 +868,7 @@ Roe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame& frame) {
     if (impl_->local_server && impl_->local_server->SendLocal(frame)) {
       return {};
     }
-    return Error("not attached");
+    return Failure::Of(Err::NotAttached, "not attached");
   }
   // The channel session is io-affine: senders (the engine's capture thread) enqueue under the
   // runtime io lock, or they race the mesh pump on the same mux (failed writes, SIGSEGV). And not
@@ -849,7 +877,7 @@ Roe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame& frame) {
   // and then the mesh pump. Order: io lock → mu, as the io tick.
   const std::vector<uint8_t> body = EncodeMediaDataFrame(frame);
   if (!runtime_.WithIoLock([&]() { return channel->EnqueueOutbound(body); })) {
-    return Error("not attached");
+    return Failure::Of(Err::NotAttached, "not attached");
   }
   return {};
 }

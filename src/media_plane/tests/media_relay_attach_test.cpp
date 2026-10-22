@@ -41,7 +41,7 @@ public:
 class FakeServiceReach final : public ICircuitHopReach {
 public:
   explicit FakeServiceReach(FakeDial& dial) : dial_(dial) {}
-  Roe<void> TryEnsureHopReachable(const std::string& hop) override {
+  CircuitReachRoe TryEnsureHopReachable(const std::string& hop) override {
     ++calls;
     if (during_reach) {
       during_reach();
@@ -50,9 +50,11 @@ public:
       dial_.relay_routes.insert(hop);
       return {};
     }
-    return Error("circuit hop reach failed");
+    return CircuitReachFailure::Of(CircuitReachErr::NoRelays, "circuit hop reach failed");
   }
-  Roe<void> TryEnsurePeerReachable(const std::string& /*peer*/) override { return Error("unused"); }
+  CircuitReachRoe TryEnsurePeerReachable(const std::string& /*peer*/) override {
+    return CircuitReachFailure::Of(CircuitReachErr::Generic, "unused");
+  }
 
   bool lands = true;
   int calls = 0;
@@ -67,37 +69,42 @@ class FakeRelay final : public IMediaRelayClient {
 public:
   Roe<std::string> LocalPeerIdBase58() const override { return std::string("12D3KooWLocal"); }
   bool IsStarted() const override { return true; }
-  Roe<MediaRelayQuote> RequestQuote(const std::string& hop, const MediaRelayQuoteRequest& request,
-                                    int /*timeout_ms*/) override {
+  MediaRelayRoe<MediaRelayQuote> RequestQuote(const std::string& hop, const MediaRelayQuoteRequest& request,
+                                              int /*timeout_ms*/) override {
     ++quotes;
     last_quote_hop = hop;
     last_quote = request;
+    if (!quote_ok) {
+      return MediaRelayFailure::Of(MediaRelayErr::HopBusy, "quote refused");  // as a hop's refusal arrives
+    }
     MediaRelayQuote q;
-    q.ok = quote_ok;
-    q.error = quote_ok ? "" : "quote refused";
+    q.ok = true;
     q.quote_id = "q-1";
     q.a_up_bps = 32000;
     q.rate = rate;
     return q;
   }
-  Roe<MediaRelayAttachResult> AcceptAndAttach(const std::string& hop, const std::string& quote_id,
-                                              const std::string& session_id, const std::string& auth,
-                                              std::function<void(MediaDataFrame)> on_frame,
-                                              int /*timeout_ms*/) override {
+  MediaRelayRoe<MediaRelayAttachResult> AcceptAndAttach(const std::string& hop, const std::string& quote_id,
+                                                        const std::string& session_id, const std::string& auth,
+                                                        std::function<void(MediaDataFrame)> on_frame,
+                                                        int /*timeout_ms*/) override {
     ++attaches;
     last_attach = {hop, quote_id, session_id, auth};
     frame_sink = std::move(on_frame);
+    if (!attach_ok) {
+      return MediaRelayFailure::Of(MediaRelayErr::AuthFailed, "attach refused");
+    }
     MediaRelayAttachResult r;
-    r.ok = attach_ok;
-    r.error = attach_ok ? "" : "attach refused";
+    r.ok = true;
     return r;
   }
   void StartClientFrameReader() override {}
-  Roe<MediaRelayAttachResult> AttachAsLocalHop(const std::string&, std::function<void(MediaDataFrame)>) override {
-    return Error("unused");
+  MediaRelayRoe<MediaRelayAttachResult> AttachAsLocalHop(const std::string&,
+                                                         std::function<void(MediaDataFrame)>) override {
+    return MediaRelayFailure::Of(MediaRelayErr::Generic, "unused");
   }
-  Roe<void> Subscribe(uint32_t, uint16_t) override { return {}; }
-  Roe<void> SendFrame(const MediaDataFrame&) override { return {}; }
+  MediaRelayRoe<void> Subscribe(uint32_t, uint16_t) override { return {}; }
+  MediaRelayRoe<void> SendFrame(const MediaDataFrame&) override { return {}; }
   void Detach() override {}
   bool IsAttached() const override { return false; }
   bool IsLocalHopAttached() const override { return false; }
@@ -135,10 +142,10 @@ protected:
     r.quote.participants = 3;
     return r;
   }
-  std::optional<Roe<MediaRelayAttached>> Run(MediaRelayAttachRequest request, MediaRelayAttachHooks hooks = {}) {
-    std::optional<Roe<MediaRelayAttached>> out;
+  std::optional<MediaRelayRoe<MediaRelayAttached>> Run(MediaRelayAttachRequest request, MediaRelayAttachHooks hooks = {}) {
+    std::optional<MediaRelayRoe<MediaRelayAttached>> out;
     AttachToMediaRelayAsync(Ports(), std::move(request), std::move(hooks),
-                            [&out](Roe<MediaRelayAttached> r) { out = std::move(r); });
+                            [&out](MediaRelayRoe<MediaRelayAttached> r) { out = std::move(r); });
     return out;
   }
 
@@ -177,7 +184,7 @@ TEST_F(MediaRelayAttachTest, ServiceReachMissFailsBeforeQuote) {
   auto out = Run(Request());
   ASSERT_TRUE(out);
   ASSERT_FALSE(*out);
-  EXPECT_EQ(out->error().message, "hop not dialable");
+  EXPECT_EQ(out->error().GetCode(), MediaRelayErr::HopNoEndpoint);
   EXPECT_EQ(relay_.quotes, 0);
 }
 
@@ -190,6 +197,7 @@ TEST_F(MediaRelayAttachTest, QuoteGateRejectsWithoutAttaching) {
   auto out = Run(Request("/ip4/203.0.113.9/udp/1"), std::move(hooks));
   ASSERT_TRUE(out);
   ASSERT_FALSE(*out);
+  EXPECT_EQ(out->error().GetCode(), MediaRelayErr::QuoteDeclined);
   EXPECT_EQ(out->error().message, "paid hop");
   EXPECT_EQ(relay_.attaches, 0);
 }
@@ -200,7 +208,7 @@ TEST_F(MediaRelayAttachTest, NoLongerWantedAbortsAfterQuote) {
   auto out = Run(Request("/ip4/203.0.113.9/udp/1"), std::move(hooks));
   ASSERT_TRUE(out);
   ASSERT_FALSE(*out);
-  EXPECT_EQ(out->error().message, "attach aborted");
+  EXPECT_EQ(out->error().GetCode(), MediaRelayErr::Aborted);
   EXPECT_EQ(relay_.quotes, 1);
   EXPECT_EQ(relay_.attaches, 0);
 }
@@ -210,14 +218,14 @@ TEST_F(MediaRelayAttachTest, RelayRefusalsSurface) {
   auto quoted = Run(Request("/ip4/203.0.113.9/udp/1"));
   ASSERT_TRUE(quoted);
   ASSERT_FALSE(*quoted);
-  EXPECT_EQ(quoted->error().message, "quote refused");
+  EXPECT_EQ(quoted->error().GetCode(), MediaRelayErr::HopBusy) << "the hop's code passes through";
 
   relay_.quote_ok = true;
   relay_.attach_ok = false;
   auto attached = Run(Request("/ip4/203.0.113.9/udp/1"));
   ASSERT_TRUE(attached);
   ASSERT_FALSE(*attached);
-  EXPECT_EQ(attached->error().message, "attach refused");
+  EXPECT_EQ(attached->error().GetCode(), MediaRelayErr::AuthFailed);
 }
 
 // PR #233 review: the mesh may stop (and free relay / dial) while service reach is outstanding —
@@ -229,27 +237,27 @@ TEST_F(MediaRelayAttachTest, MeshStopDuringServiceReachFailsWithoutTouchingPorts
   ports.objects_snap = objects.Snapshot();
   reach_.during_reach = [&objects]() { objects.Invalidate(); };
 
-  std::optional<Roe<MediaRelayAttached>> attached;
-  AttachToMediaRelayAsync(ports, Request(), {}, [&attached](Roe<MediaRelayAttached> r) { attached = std::move(r); });
+  std::optional<MediaRelayRoe<MediaRelayAttached>> attached;
+  AttachToMediaRelayAsync(ports, Request(), {}, [&attached](MediaRelayRoe<MediaRelayAttached> r) { attached = std::move(r); });
   ASSERT_TRUE(attached);
   ASSERT_FALSE(*attached);
-  EXPECT_EQ(attached->error().message, "mesh media stopped");
+  EXPECT_EQ(attached->error().GetCode(), MediaRelayErr::Aborted) << attached->error().message;
 
   dial_.relay_routes.clear();  // the first reach landed; the quote must go through reach again
   ports.objects_snap = objects.Snapshot();  // the objects were rebuilt: a fresh generation
   reach_.during_reach = [&objects]() { objects.Invalidate(); };
-  std::optional<Roe<MediaRelayQuote>> quoted;
-  QuoteMediaRelayAsync(ports, Request(), [&quoted](Roe<MediaRelayQuote> r) { quoted = std::move(r); });
+  std::optional<MediaRelayRoe<MediaRelayQuote>> quoted;
+  QuoteMediaRelayAsync(ports, Request(), [&quoted](MediaRelayRoe<MediaRelayQuote> r) { quoted = std::move(r); });
   ASSERT_TRUE(quoted);
   ASSERT_FALSE(*quoted);
-  EXPECT_EQ(quoted->error().message, "mesh media stopped");
+  EXPECT_EQ(quoted->error().GetCode(), MediaRelayErr::Aborted) << quoted->error().message;
   EXPECT_EQ(relay_.quotes, 0);
   EXPECT_EQ(relay_.attaches, 0);
 }
 
 TEST_F(MediaRelayAttachTest, MissingPortsFail) {
-  std::optional<Roe<MediaRelayAttached>> out;
-  AttachToMediaRelayAsync(MediaRelayAttachPorts{}, Request(), {}, [&out](Roe<MediaRelayAttached> r) { out = r; });
+  std::optional<MediaRelayRoe<MediaRelayAttached>> out;
+  AttachToMediaRelayAsync(MediaRelayAttachPorts{}, Request(), {}, [&out](MediaRelayRoe<MediaRelayAttached> r) { out = r; });
   ASSERT_TRUE(out);
   EXPECT_FALSE(*out);
 }

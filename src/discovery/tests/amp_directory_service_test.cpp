@@ -77,5 +77,50 @@ TEST(AmpDirectoryProtocolTest, WrapLinkFailureMapsCodes) {
       AmpDirectoryProtocol::Err::ChannelFailed);
 }
 
+// The owner's chooser decides which query peers a list asks; none worth asking answers at once.
+TEST(AmpDirectoryProtocolTest, AListAsksOnlyTheChosenQueryPeers) {
+  auto created = pp::mesh::test::AmpMeshHarness::Create();
+  ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
+  auto harness = std::move(*created);
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_a().RegisterEndpoint("seed", harness->ma_b)));
+  ASSERT_TRUE(static_cast<bool>(harness->mgr_b().RegisterEndpoint("client", harness->ma_a)));
+  auto pump = [&]() { harness->PumpBoth(); };
+  AmpDirectoryProtocol seed(*harness->runtime_b, pump);
+  AmpDirectoryProtocol client(*harness->runtime_a, pump);
+  AmpDirectoryProtocolConfig seed_cfg;
+  seed_cfg.local_peer_id = harness->peer_id_b;
+  seed.Configure(seed_cfg);
+  MeshNodeHit published;
+  published.relay_user_id = "relay-seed";
+  published.entity_kind = "mesh_node";
+  seed.SetNodesSnapshot({published});
+
+  std::vector<std::string> offered;
+  bool gone = false;
+  AmpDirectoryProtocolConfig client_cfg;
+  client_cfg.local_peer_id = harness->peer_id_a;
+  client_cfg.query_peer_keys = {"gone-peer", "seed"};
+  client_cfg.choose_query_peers = [&](const std::vector<std::string>& keys) {
+    offered = keys;
+    return gone ? std::vector<std::string>{} : std::vector<std::string>{"seed"};
+  };
+  client.Configure(client_cfg);
+  seed.Start();
+  client.Start();
+
+  auto listed = client.ListMeshNodes();
+  ASSERT_TRUE(static_cast<bool>(listed)) << listed.error().message;
+  EXPECT_EQ(offered, client_cfg.query_peer_keys);
+  ASSERT_EQ(listed->size(), 1u);
+
+  gone = true;
+  auto none = client.ListMeshNodes();
+  ASSERT_FALSE(static_cast<bool>(none));
+  EXPECT_EQ(none.error().GetCode(), DirectoryClient::Err::NotFound);
+
+  client.Stop();
+  seed.Stop();
+}
+
 } // namespace
 } // namespace pp::mesh

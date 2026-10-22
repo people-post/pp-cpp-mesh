@@ -2,6 +2,7 @@ pp_mesh_add_folder_library(reach
   SOURCES
     AmpCircuitHopReach.cpp
     PeerReachCoordinator.cpp
+    PeerReachRecord.cpp
     PunchIntroducerWalk.cpp
     SignalingPunchExchange.cpp
     CircuitRendezvousCoordinator.cpp

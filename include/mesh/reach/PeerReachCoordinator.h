@@ -3,6 +3,7 @@
 #include "mesh/l4/circuit/CircuitBridgeTarget.h"
 #include "mesh/reach/MeshReachPorts.h"
 
+#include "common/CodedFailure.h"
 #include "common/Module.h"
 #include "common/SerialExecutor.h"
 
@@ -81,6 +82,11 @@ struct PeerReachPorts {
   IDialRegistry* dial = nullptr;
   ICircuitHopReach* circuit = nullptr;
   std::shared_ptr<pp::SerialExecutor> lane;
+  /**
+   * This node's listen multiaddrs, read on the lane. A peer whose private Preferred sits on one of
+   * their /24s is dialed once, briefly, before the seed park (docs/PEER_REACH.md § 5). None: never.
+   */
+  std::function<std::vector<std::string>()> local_listen_addrs;
 };
 
 /**
@@ -96,8 +102,42 @@ struct PeerReachPorts {
  */
 class PeerReachCoordinator : public Module {
 public:
+  /**
+   * Why a reach failed: the most telling failure of the attempt — the direct dial's when that
+   * failed last, the circuit's when that ran last (docs/ERRORS.md).
+   */
+  enum class Err : int32_t {
+    Ok = 0,
+    /** No mesh: no lane, no dial registry, or the mesh stopped. */
+    Unavailable,
+    /** No peer key. */
+    BadRequest,
+    Cancelled,
+    NoEndpoint,
+    DialInBackoff,
+    /** Too many dials or links. */
+    DialBusy,
+    NoAnswer,
+    /** The handshake failed. */
+    Refused,
+    /** The OS could not send: the link may be stale (dial fresh next time). */
+    TransportFailed,
+    /** The circuit / punch step failed (`message` has its chain). */
+    CircuitFailed,
+    /** The budget ran out without a link and without a more specific failure. */
+    NotConnected,
+    Generic,
+  };
+  using Failure = CodedFailure<Err>;
+  using ReachRoe = CodedRoe<PeerReachResult, Err>;
+  using UpgradeRoe = CodedRoe<void, Err>;
   using SeedParkAwait = std::function<void(std::function<void(bool parked)>, int timeout_ms)>;
-  using Done = std::function<void(Roe<PeerReachResult>)>;
+  using Done = std::function<void(ReachRoe)>;
+
+  /** A direct dial's failure, as the reach's. */
+  static Failure WrapLinkFailure(const IChatPeerLinks::Failure& link);
+  /** The circuit / punch step's failure, as the reach's. */
+  static Failure WrapCircuitFailure(const CircuitReachFailure& circuit);
 
   explicit PeerReachCoordinator(PeerReachPorts ports);
   ~PeerReachCoordinator() override;
@@ -147,7 +187,7 @@ public:
    * relay as introducer. OK once a direct link is Connected — the call moves onto it by itself.
    * `on_done` on the lane (inline when there is none).
    */
-  void UpgradeToDirect(const std::string& peer_id, std::function<void(Roe<void>)> on_done);
+  void UpgradeToDirect(const std::string& peer_id, std::function<void(UpgradeRoe)> on_done);
   /**
    * Pick the dial key for a peer known under both an alias (e.g. `account:`) and its mesh PeerId.
    * The PeerId is preferred: the Connected PeerLink lives under it, while the alias can look
@@ -167,18 +207,20 @@ private:
   std::shared_ptr<pp::SerialExecutor> Lane() const;
   /** On the lane (or there is none). Debug assertions. */
   bool OnLane() const;
-  void FailAll(const Error& error);
+  void FailAll(const Failure& failure);
   void Start(const AttemptPtr& a);
   void Tick(const AttemptPtr& a);
   void ScheduleTick(const AttemptPtr& a, int delay_ms);
-  void Finish(const AttemptPtr& a, Roe<PeerReachResult> result);
+  void Finish(const AttemptPtr& a, ReachRoe result);
   bool TrySettleConnected(const AttemptPtr& a);
   bool MaybeParkBeforePrivateDial(const AttemptPtr& a);
+  bool MaybeDialOnOurLan(const AttemptPtr& a);
+  void OnLanDialDone(const AttemptPtr& a, bool ok, bool connected_now, bool direct_now);
   bool MaybeStartAssociation(const AttemptPtr& a);
-  void OnAssociationDone(const AttemptPtr& a, Roe<void> assoc, bool connected_now, bool direct_now);
+  void OnAssociationDone(const AttemptPtr& a, IChatPeerLinks::LinkRoe assoc, bool connected_now, bool direct_now);
   bool MaybeStartCircuit(const AttemptPtr& a);
   void KickCircuit(const AttemptPtr& a, bool allow_circuit);
-  void OnCircuitDone(const AttemptPtr& a, Roe<void> via, bool connected_now, bool relayed_now);
+  void OnCircuitDone(const AttemptPtr& a, CircuitReachRoe via, bool connected_now, bool relayed_now);
 
   bool AnyConnected(const Attempt& a) const;
   bool AnyConnectedDirect(const Attempt& a) const;
@@ -186,12 +228,15 @@ private:
   bool AnyCircuitHop(const Attempt& a) const;
   bool AnyConnectedRelayed(const Attempt& a) const;
   bool PreferredIsPublic(const Attempt& a) const;
+  /** The private IPv4 Preferred shares a /24 with one of this node's listen addrs. */
+  bool PreferredOnOurLan(const Attempt& a) const;
   void ClearBackoff(const Attempt& a);
 
   std::atomic<IDialRegistry*> dial_{nullptr};
   std::atomic<ICircuitHopReach*> circuit_{nullptr};
   mutable std::mutex mu_;  // a leaf: never held while posting or calling out
   std::shared_ptr<pp::SerialExecutor> lane_;  // mu_
+  std::function<std::vector<std::string>()> local_listen_addrs_;  // mu_
   SeedParkAwait seed_park_;
   int64_t dial_budget_ms_;
   PeerReachId next_id_ = 1;

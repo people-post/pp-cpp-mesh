@@ -41,61 +41,18 @@ TEST(CircuitRendezvousPolicyTest, ParkOrderWithoutConnectedKeepsInputOrder) {
   EXPECT_EQ(out[2], "c");
 }
 
-TEST(CircuitRendezvousPolicyTest, CoverageKMatchesStartBridgeBudget) {
-  EXPECT_EQ(pp::mesh::kCircuitRendezvousParkCoverage, pp::mesh::kCircuitMaxStartBridgeAttempts);
-}
-
-TEST(CircuitRendezvousPolicyTest, ColdDialCoverAllRemaining) {
-  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(5, 2, pp::mesh::kCircuitRendezvousParkCoverage, true), 3u);
-  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(2, 2, pp::mesh::kCircuitRendezvousParkCoverage, true), 0u);
-  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(0, 0, pp::mesh::kCircuitRendezvousParkCoverage, true), 0u);
-}
-
-TEST(CircuitRendezvousPolicyTest, ColdDialMinimumCoverageOnly) {
-  // K=4: 1 Connected → cold-dial 3 more.
-  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(6, 1, 4, false), 3u);
-  // Already covered by Connected.
-  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(6, 4, 4, false), 0u);
-  // Surface smaller than K → cold all remaining.
-  EXPECT_EQ(pp::mesh::RendezvousColdDialLimit(3, 1, 4, false), 2u);
-}
-
-TEST(CircuitRendezvousPolicyTest, ParkCoverageMet) {
-  EXPECT_TRUE(pp::mesh::RendezvousParkCoverageMet(4, 6, 4));
-  EXPECT_TRUE(pp::mesh::RendezvousParkCoverageMet(3, 3, 4)); // surface < K
-  EXPECT_FALSE(pp::mesh::RendezvousParkCoverageMet(2, 6, 4));
-  EXPECT_FALSE(pp::mesh::RendezvousParkCoverageMet(0, 0, 4));
-}
-
-TEST(CircuitRendezvousPolicyTest, DialerTopKCoveredByParkPrefix) {
-  // Shared surface order (BuildCircuitHopList). Dialer may sticky-reorder, but answerer
-  // covering the full surface (or ≥K) contains any dialer top-K after Connected band.
-  const std::vector<std::string> surface = {"s1", "s2", "c1", "c2", "c3"};
-  const auto park = pp::mesh::OrderRendezvousParkAttempts(surface, [](const std::string& key) {
-    return key == "s2";
-  });
-  ASSERT_GE(park.size(), pp::mesh::kCircuitRendezvousParkCoverage);
-  std::unordered_set<std::string> parked;
-  for (std::size_t i = 0; i < pp::mesh::kCircuitRendezvousParkCoverage; ++i) {
-    parked.insert(park[i]);
-  }
-  // Connected s2 is first; prefix of K includes s2 plus next surface members.
-  EXPECT_TRUE(parked.count("s2") > 0);
-  EXPECT_EQ(park[0], "s2");
-}
-
 // call-path-resilience k2: one unreachable seed used to hold the answerer's Accept for the whole
-// 12 s park deadline. Now ≥1 Connected arms a short grace; all Connected settles at once.
+// 12 s park deadline. Now ≥1 Connected arms a short grace; enough Connected settles at once.
 TEST(SeedParkStepTest, OneSeedConnectedArmsGraceInsteadOfWaitingTheDeadline) {
   using pp::mesh::DecideSeedParkStep;
   using pp::mesh::SeedParkStep;
-  EXPECT_EQ(DecideSeedParkStep(/*all=*/false, /*any=*/true, /*at_deadline=*/false, /*grace_armed=*/false),
+  EXPECT_EQ(DecideSeedParkStep(/*enough=*/false, /*any=*/true, /*at_deadline=*/false, /*grace_armed=*/false),
             SeedParkStep::ArmGrace);
   EXPECT_EQ(DecideSeedParkStep(false, true, false, /*grace_armed=*/true), SeedParkStep::Wait) << "grace armed once";
   EXPECT_EQ(DecideSeedParkStep(false, true, /*at_deadline (grace end)=*/true, true), SeedParkStep::SettleOk);
 }
 
-TEST(SeedParkStepTest, AllConnectedSettlesAndNoneWaitsUntilTheDeadline) {
+TEST(SeedParkStepTest, EnoughConnectedSettlesAndNoneWaitsUntilTheDeadline) {
   using pp::mesh::DecideSeedParkStep;
   using pp::mesh::SeedParkStep;
   EXPECT_EQ(DecideSeedParkStep(true, true, false, false), SeedParkStep::SettleOk);

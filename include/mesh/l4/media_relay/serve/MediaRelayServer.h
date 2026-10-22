@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mesh/l4/media_relay/MediaRelayErr.h"
+
 #include "amp/link/MeshRuntime.h"
 #include "common/metrics/MetricsRegistry.h"
 #include "mesh/l4/media_relay/MediaRelayTypes.h"
@@ -54,7 +56,7 @@ public:
 
   // --- local participant (this node's client on its own hop) --------------------------------
   /** Join (or create) the hosted session for `call_id`; re-attaching the same call swaps the handler. */
-  Roe<MediaRelayAttachResult> AttachLocal(const std::string& call_id, const std::string& local_peer_id,
+  MediaRelayRoe<MediaRelayAttachResult> AttachLocal(const std::string& call_id, const std::string& local_peer_id,
                                           FrameHandler on_frame);
   /** True when the local participant is in `call_id` as `local_peer_id`. */
   bool LocalAttachedTo(const std::string& call_id, const std::string& local_peer_id) const;
