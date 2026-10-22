@@ -1,6 +1,7 @@
 #include "mesh/reachability/ReachabilityEngine.h"
 
 #include "amp/link/AdpMultiaddr.h"
+#include "amp/link/PeerId.h"
 #include "mesh/reachability/dial_back/client/DialBackClient.h"
 #include "mesh/reachability/NatTraversal.h"
 #include "mesh/reachability/ReachabilityNetIf.h"
@@ -205,11 +206,16 @@ void ReachabilityEngine::ProbeSeed(AmpReachabilityProbeDeps deps, ReachabilitySn
     return;
   }
 
-  const std::string seed_key = "reachability:seed";
-  if (auto registered = deps.links->RegisterEndpoint(seed_key, *seed_ma); !registered) {
-    result.signals.seed_dial_error = registered.error().message;
-    Complete(std::move(result), /*classify=*/true);
-    return;
+  // Dial the seed under its PeerId, like everyone else does: a second key for the same peer is a
+  // second link, and the two drop each other (the other key's first exchanges fail).
+  const std::string seed_peer_id = pp::amp::PeerIdFromMultiaddr(*seed_ma);
+  const std::string seed_key = seed_peer_id.empty() ? std::string("reachability:seed") : seed_peer_id;
+  if (!deps.links->GetLinkSnapshot(seed_key).has_endpoint) {
+    if (auto registered = deps.links->RegisterEndpoint(seed_key, *seed_ma); !registered) {
+      result.signals.seed_dial_error = registered.error().message;
+      Complete(std::move(result), /*classify=*/true);
+      return;
+    }
   }
 
   // Link work completes on Amp IO; the result is completed on the lane (Complete).
