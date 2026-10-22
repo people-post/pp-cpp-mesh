@@ -70,20 +70,53 @@ TEST(MeshConnectivityTest, WireWithoutAMeshLeavesNoSharedObjects) {
 TEST(MeshConnectivityTest, HopPolicyIsTheAppsPushedSnapshot) {
   {
     MeshConnectivity connectivity;
-    EXPECT_TRUE(connectivity.HopPolicy()->bootstrap_seeds.empty());
+    EXPECT_TRUE(connectivity.HopPolicy()->Seeds().empty());
     MeshHopCandidate seed;
     seed.peer_id = "12D3KooWSeedA";
     MeshHopPolicy policy;
-    policy.bootstrap_seeds = {seed};
+    seed.roles = kReachRoleSeed;
+    policy.candidates = {seed};
     std::thread([&connectivity, policy]() { connectivity.SetHopPolicy(policy); }).join();
-    ASSERT_EQ(connectivity.HopPolicy()->bootstrap_seeds.size(), 1u);
-    EXPECT_EQ(connectivity.HopPolicy()->bootstrap_seeds.front().peer_id, "12D3KooWSeedA");
+    ASSERT_EQ(connectivity.HopPolicy()->Seeds().size(), 1u);
+    EXPECT_EQ(connectivity.HopPolicy()->Seeds().front().peer_id, "12D3KooWSeedA");
 
     connectivity.Wire();  // no mesh: nothing wired; the pushed policy stays
-    ASSERT_EQ(connectivity.HopPolicy()->bootstrap_seeds.size(), 1u);
+    ASSERT_EQ(connectivity.HopPolicy()->Seeds().size(), 1u);
     connectivity.Clear();
-    EXPECT_TRUE(connectivity.HopPolicy()->bootstrap_seeds.empty()) << "teardown drops it";
+    EXPECT_TRUE(connectivity.HopPolicy()->Seeds().empty()) << "teardown drops it";
   }
+}
+
+// One list, each candidate with its roles (docs/PEER_REACH.md § 3.3): every role reads its view
+// in the policy's order; introducers ask contacts first.
+TEST(MeshConnectivityTest, EachRoleReadsItsViewOfTheOneList) {
+  const auto hop = [](const char* id, MeshHopAffinity affinity, uint32_t roles) {
+    MeshHopCandidate c;
+    c.peer_id = id;
+    c.affinity = affinity;
+    c.roles = roles;
+    return c;
+  };
+  MeshHopPolicy policy;
+  policy.candidates = {
+      hop("QmSeedA", MeshHopAffinity::OrgSeed, kReachRoleRendezvous | kReachRoleSeed | kReachRoleIntroducer),
+      hop("QmFriend", MeshHopAffinity::Contact, kReachRoleRendezvous | kReachRoleIntroducer),
+      hop("QmVolunteer", MeshHopAffinity::DirectoryNode, kReachRoleRendezvous | kReachRoleSeed),
+      hop("QmStranger", MeshHopAffinity::DhtDiscovered, kReachRoleRendezvous),
+      hop("QmMediaOnly", MeshHopAffinity::DirectoryNode, 0),
+  };
+  const auto ids = [](const std::vector<MeshHopCandidate>& hops) {
+    std::vector<std::string> out;
+    for (const auto& h : hops) {
+      out.push_back(h.peer_id);
+    }
+    return out;
+  };
+  EXPECT_EQ(ids(policy.Rendezvous()), (std::vector<std::string>{"QmSeedA", "QmFriend", "QmVolunteer", "QmStranger"}));
+  EXPECT_EQ(ids(policy.Seeds()), (std::vector<std::string>{"QmSeedA", "QmVolunteer"}));
+  const MeshPunchIntroducers introducers = policy.Introducers();
+  EXPECT_EQ(introducers.contact_peer_ids, std::vector<std::string>{"QmFriend"});
+  EXPECT_EQ(introducers.seed_peer_ids, std::vector<std::string>{"QmSeedA"});
 }
 
 } // namespace

@@ -219,11 +219,10 @@ Rules built on it:
 
 ## 7. Build order
 
-Status: 1–4 done in pp-cpp-mesh (`fix/seed-park-settles-on-connect`, then `feat/reach-roles`,
-local); pp-cpp-amp v2.25.0 released. pp-browser (`fix/seed-reach-selection`, local) fills
-`PeerReachPorts::local_listen_addrs` and has step 5's first part: the directory refresh asks two
-providers via `ChoosePeers`, media ranking drops hops held down, DHT hops are Public. Open: the
-one candidate list with roles (the rest of step 5), DHT query peers and step 6.
+Status: 1–6 done. Step 5's last part (pp-cpp-mesh after v1.3.0): the app pushes one candidate
+list, each candidate with its roles (`MeshHopCandidate::roles`, `MeshReachRole`); the mesh reads
+the rendezvous surface, the bootstrap seeds and the introducers from it (`MeshHopPolicy::
+Rendezvous` / `Seeds` / `Introducers`). The DHT (step 6) is docs/DHT.md.
 
 Each step ships on its own (unit tests + the pp-browser labs):
 

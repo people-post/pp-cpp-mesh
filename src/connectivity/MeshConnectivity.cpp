@@ -101,11 +101,11 @@ void MeshConnectivity::SetDeps(MeshConnectivityDeps deps) {
       MeshHost* m = mesh ? mesh() : nullptr;
       return record->Facts(peer_id, m ? m->NetworkChangeGeneration() : 0);
     };
-    punch_.SetDeps({deps_.mesh, [this]() { return HopPolicy()->punch_introducers; }, reach_facts});
+    punch_.SetDeps({deps_.mesh, [this]() { return HopPolicy()->Introducers(); }, reach_facts});
     CircuitRendezvousDeps rendezvous;
     rendezvous.mesh = deps_.mesh;
-    rendezvous.rendezvous_candidates = [this]() { return HopPolicy()->rendezvous_candidates; };
-    rendezvous.bootstrap_seeds = [this]() { return HopPolicy()->bootstrap_seeds; };
+    rendezvous.rendezvous_candidates = [this]() { return HopPolicy()->Rendezvous(); };
+    rendezvous.bootstrap_seeds = [this]() { return HopPolicy()->Seeds(); };
     rendezvous.last_good_relay = [this]() {
       ICircuitHopReach* reach = CircuitReach();
       return reach ? reach->LastGoodRelayPeerKey() : std::string();
@@ -198,6 +198,28 @@ void MeshConnectivity::WireReachRecord(MeshHost* m) {
                                  << PeerReachFailureName(after.last_failure);
     }
   });
+}
+
+std::vector<MeshHopCandidate> MeshHopPolicy::WithRole(const uint32_t role) const {
+  std::vector<MeshHopCandidate> out;
+  for (const MeshHopCandidate& candidate : candidates) {
+    if ((candidate.roles & role) != 0) {
+      out.push_back(candidate);
+    }
+  }
+  return out;
+}
+
+MeshPunchIntroducers MeshHopPolicy::Introducers() const {
+  MeshPunchIntroducers out;
+  for (const MeshHopCandidate& candidate : candidates) {
+    if ((candidate.roles & kReachRoleIntroducer) == 0 || candidate.peer_id.empty()) {
+      continue;
+    }
+    (candidate.affinity == MeshHopAffinity::Contact ? out.contact_peer_ids : out.seed_peer_ids)
+        .push_back(candidate.peer_id);
+  }
+  return out;
 }
 
 void MeshConnectivity::SetHopPolicy(MeshHopPolicy policy) {

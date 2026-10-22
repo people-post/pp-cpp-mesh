@@ -23,6 +23,19 @@ enum class MeshReachabilityClass {
   Blocked,
 };
 
+/**
+ * What a candidate may be used for (docs/PEER_REACH.md § 3.1). The app decides per source and
+ * pushes one list (`MeshHopPolicy`); the mesh reads each role's view from it.
+ */
+enum MeshReachRole : uint32_t {
+  /** Park / reserve, circuit R1 (the rendezvous surface). */
+  kReachRoleRendezvous = 1u << 0,
+  /** A bootstrap seed: the park waits on these and dials them first. */
+  kReachRoleSeed = 1u << 1,
+  /** Coordinated punch. A contact introducer is asked before the others. */
+  kReachRoleIntroducer = 1u << 2,
+};
+
 struct MeshHopCandidate {
   std::string peer_id;
   /** Dial multiaddr including `/p2p/<PeerId>` when known. */
@@ -35,6 +48,8 @@ struct MeshHopCandidate {
   /** From mesh directory capabilities (n-dir); used for media/circuit filters. */
   bool advertises_media_relay = false;
   bool advertises_circuit_relay = false;
+  /** `MeshReachRole` bits (0: none — a hop ranked for media only). */
+  uint32_t roles = 0;
 };
 
 } // namespace pp::mesh
