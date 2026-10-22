@@ -26,7 +26,7 @@ struct CircuitTunnelBridgeResult {
 };
 
 /**
- * Client side of `/pp-browser/circuit/1.0.0` on MeshRuntime ([A022]): ask a relay to bridge to a
+ * Client side of `/pp-mesh/circuit/1.0.0` on MeshRuntime ([A022]): ask a relay to bridge to a
  * target (`StartBridge`), or park on a relay so it can bridge to us without dialing into our NAT
  * (`StartReserve`). MeshHost Starts one whenever Amp is up. SoftMigrate NAT adopts the bridged
  * ChannelSession via AmpCircuitHopRegistry ([A020] / D9 step 5c).

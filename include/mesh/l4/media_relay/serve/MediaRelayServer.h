@@ -17,7 +17,7 @@
 namespace pp::mesh {
 
 /**
- * Serving side of `/pp-browser/datagram-relay/1.0.0` on MeshRuntime ([A022]): answers inbound
+ * Serving side of `/pp-mesh/datagram-relay/1.0.0` on MeshRuntime ([A022]): answers inbound
  * quote / accept / attach under the admission policy, keeps the quote book, and fans frames out
  * between the participants of each hosted session. MeshHost owns one when Amp is up; the protocol
  * handler is always registered and `SetServeInbound(false)` refuses new work.

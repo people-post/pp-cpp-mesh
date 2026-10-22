@@ -19,8 +19,9 @@ its history; pp-browser and its headless node `pp-node` are its first consumers.
 - **Threads:** control runs on the mesh's I/O lane; the host gives each instance `work` / `blocking`
   executors and a metrics registry; the mesh never calls app code synchronously —
   [docs/THREADING.md](docs/THREADING.md).
-- **Wire IDs are contracts.** Protocol IDs keep their `/pp-browser/…` names (and the mDNS service type
-  its `_pp-browser._tcp`): renaming one breaks every deployed peer.
+- **Wire IDs are contracts.** The mesh's protocol ids are `/pp-mesh/…` (and the mDNS service type
+  `_pp-mesh._tcp`); an id names the repo that owns it, never an app. Renaming one breaks every
+  deployed peer.
 
 ## Layout
 

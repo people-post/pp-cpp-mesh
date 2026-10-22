@@ -18,7 +18,7 @@
 namespace pp::mesh {
 namespace {
 
-inline constexpr const char* kAmpBridgeTargetProtocol = "/pp-browser/circuit-relay-bridge-test/1.0.0";
+inline constexpr const char* kAmpBridgeTargetProtocol = "/test/circuit-relay-bridge/1.0.0";
 
 class CircuitRelayServerClientTest : public ::testing::Test {
 protected:

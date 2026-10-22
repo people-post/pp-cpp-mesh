@@ -18,7 +18,7 @@ class UdpMulticastSocket;
 }
 
 /** mDNS service type for pp-browser LAN peer discovery (ns2). */
-inline constexpr const char* kLanMdnsServiceType = "_pp-browser._tcp.local";
+inline constexpr const char* kLanMdnsServiceType = "_pp-mesh._tcp.local";
 
 struct LanMdnsDiscoveredPeer {
   std::string peer_id_base58;

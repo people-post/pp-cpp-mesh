@@ -16,7 +16,7 @@
 namespace pp::mesh {
 
 /**
- * Client side of `/pp-browser/datagram-relay/1.0.0` on MeshRuntime ([A022]): outbound quote and
+ * Client side of `/pp-mesh/datagram-relay/1.0.0` on MeshRuntime ([A022]): outbound quote and
  * accept → attach bundles to a hop, then the one attached client session (subscribe / send /
  * frames / loss observers). Circuit-backed hops adopt sessions from AmpCircuitHopRegistry (D9 step
  * 5c). MeshHost owns one when Amp is up; `AmpMediaRelayClient` adapts it to `IMediaRelayClient`

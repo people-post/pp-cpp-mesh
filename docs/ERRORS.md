@@ -34,9 +34,9 @@ one legacy function per protocol, and only there.
 
 | Protocol | Reply | Codes |
 |----------|-------|-------|
-| `/pp-browser/circuit/1.0.0` | `{"ok":false,"code":…,"error":…}` | `target_not_reserved` (the target is not parked here), `target_unreachable` (the relay could not reach it), `busy` (standby refused), `refused` (scope, unknown dialer), `not_ready`, `bad_request` — `CircuitRefusal` |
-| `/pp-browser/reach/punch/1.0.0` | result `{"ok":false,"code":…,"error":…}` | `target_unknown` (the introducer does not know, or cannot reach, the target), `declined` (the target declines this initiator — the introducer passes it on), `no_candidates`, `send_failed`, `bad_request`, `no_path` (no burst path won) — `PunchRefusal` |
-| `/pp-browser/datagram-relay/1.0.0` | `{"ok":false,"code":…,"error":…}` | `busy`, `refused` (scope), `not_ready`, `auth_failed`, `unknown_quote`, `bad_request` — `MediaRelayRefusal` |
+| `/pp-mesh/circuit/1.0.0` | `{"ok":false,"code":…,"error":…}` | `target_not_reserved` (the target is not parked here), `target_unreachable` (the relay could not reach it), `busy` (standby refused), `refused` (scope, unknown dialer), `not_ready`, `bad_request` — `CircuitRefusal` |
+| `/pp-mesh/reach/punch/1.0.0` | result `{"ok":false,"code":…,"error":…}` | `target_unknown` (the introducer does not know, or cannot reach, the target), `declined` (the target declines this initiator — the introducer passes it on), `no_candidates`, `send_failed`, `bad_request`, `no_path` (no burst path won) — `PunchRefusal` |
+| `/pp-mesh/datagram-relay/1.0.0` | `{"ok":false,"code":…,"error":…}` | `busy`, `refused` (scope), `not_ready`, `auth_failed`, `unknown_quote`, `bad_request` — `MediaRelayRefusal` |
 
 An unknown code (from a newer peer) reads as the protocol's generic refusal, never as its text.
 

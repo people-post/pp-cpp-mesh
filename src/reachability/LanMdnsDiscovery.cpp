@@ -501,7 +501,7 @@ void LanMdnsDiscovery::HandlePacket(const uint8_t* data, size_t len) {
                                  packet.begin() + static_cast<std::ptrdiff_t>(offset + rdlen));
       offset += rdlen;
 
-      if (*name == kLanMdnsServiceType || name->find("_pp-browser._tcp.local") != std::string::npos ||
+      if (*name == kLanMdnsServiceType || name->find(kLanMdnsServiceType) != std::string::npos ||
           name->find(".local") != std::string::npos) {
         if (type == kDnsTypeSrv) {
           if (auto port = ParseSrvPort(rdata)) {

@@ -7,11 +7,11 @@
 
 namespace pp::amp {
 
-// Realtime media frames for `/pp-browser/realtime/1.0.0`: amp's core
+// Realtime media frames for `/pp/realtime/1.0.0`: amp's core
 // CallMediaChannelPolicy() (no read timeout: muted or paused media is silent).
 
 /**
- * Reliable hello/heartbeat/teardown leg for `/pp-browser/realtime/1.0.0` (AMP-CHANNEL).
+ * Reliable hello/heartbeat/teardown leg for `/pp/realtime/1.0.0` (AMP-CHANNEL).
  * Lives for the call; no read timeout: CallMediaLegCoordinator owns liveness (connect deadline,
  * active-path silence failover, standby staleness), and a standby path's heartbeat is slower
  * than any short channel timeout.
@@ -27,7 +27,7 @@ inline ChannelPolicy CallMediaControlChannelPolicy() {
 }
 
 /**
- * Product Bulk OPEN for `/pp-browser/blob/1.0.0`.
+ * Product Bulk OPEN for `/pp/blob/1.0.0`.
  * Wraps Amp `MakeBulkChannelPolicy()` (class + size) and adds read_once / timeout.
  * Do not re-copy Bulk defaults here — see pp-cpp-amp docs/OWNERSHIP.md.
  */
@@ -42,7 +42,7 @@ inline ChannelPolicy BulkChannelPolicy(bool read_once) {
 }
 
 /**
- * `/pp-browser/circuit/1.0.0` tunnel: JSON bridge handshake then opaque DATA splice.
+ * `/pp-mesh/circuit/1.0.0` tunnel: JSON bridge handshake then opaque DATA splice.
  * Reliable; not read_once (stays open for forward). No read timeout by default: a splice
  * (e.g. one-way relayed media) or a reservation is legitimately silent on one side; the
  * circuit coordinators bound the handshake and the reservation TTL themselves.
