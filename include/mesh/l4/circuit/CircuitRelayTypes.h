@@ -18,13 +18,6 @@ struct CircuitRelayAdmissionPolicy {
   std::unordered_set<std::string> contact_peer_ids;
 };
 
-/** Circuit bridge outcome. */
-struct CircuitRelayBridgeResult {
-  bool ok = false;
-  std::string error;
-  std::string resolved_multiaddr;
-};
-
 /**
  * Why a relay refuses a bridge / reserve request: the `code` of its error ack (docs/ERRORS.md).
  * The ack's `error` text is for logs only.

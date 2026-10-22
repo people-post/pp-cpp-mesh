@@ -34,13 +34,22 @@ struct MeshConnectivityDeps {
   std::function<void(const std::string& key, const std::string& multiaddr)> register_direct_endpoint;
 };
 
-/** Candidate policy as the app last pushed it (read on the Amp IO strand). */
+/**
+ * Candidate policy as the app last pushed it (read on the Amp IO strand): one list, in the app's
+ * order, each candidate with the roles it may play (docs/PEER_REACH.md § 3.3). Self / target are
+ * filtered by the mesh.
+ */
 struct MeshHopPolicy {
-  /** Rendezvous surface (contacts ∪ directory ∪ DHT ∪ seeds); self / target are filtered by the mesh. */
-  std::vector<MeshHopCandidate> rendezvous_candidates;
-  /** Effective bootstrap seeds (configured ∪ directory). */
-  std::vector<MeshHopCandidate> bootstrap_seeds;
-  MeshPunchIntroducers punch_introducers;
+  std::vector<MeshHopCandidate> candidates;
+
+  /** Those allowed `role`, in the policy's order. */
+  std::vector<MeshHopCandidate> WithRole(uint32_t role) const;
+  /** The rendezvous surface (contacts ∪ directory ∪ DHT ∪ seeds, as the app allows). */
+  std::vector<MeshHopCandidate> Rendezvous() const { return WithRole(kReachRoleRendezvous); }
+  /** The bootstrap seeds a park waits on. */
+  std::vector<MeshHopCandidate> Seeds() const { return WithRole(kReachRoleSeed); }
+  /** Introducers: contacts, then the others (seeds), each in the policy's order. */
+  MeshPunchIntroducers Introducers() const;
 };
 
 /**
