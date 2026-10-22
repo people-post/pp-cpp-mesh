@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(pp-cpp-mesh VERSION 1.4.1 LANGUAGES C CXX)
+project(pp-cpp-mesh VERSION 2.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
