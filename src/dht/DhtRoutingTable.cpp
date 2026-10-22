@@ -10,16 +10,23 @@ DhtRoutingTable::DhtRoutingTable(const std::string& self_peer_id, const size_t k
   Reset(self_peer_id);
 }
 
-void DhtRoutingTable::Reset(const std::string& self_peer_id) {
+void DhtRoutingTable::Reset(const std::string& self_peer_id, const size_t k) {
   std::lock_guard lock(mutex_);
-  if (self_key_ && self_peer_id == self_peer_id_) {
+  const size_t new_k = k > 0 ? k : k_;
+  if (self_key_ && self_peer_id == self_peer_id_ && new_k == k_) {
     return;
   }
+  k_ = new_k;
   self_key_ = self_peer_id.empty() ? std::nullopt : DhtKeyOfPeerId(self_peer_id);
   self_peer_id_ = self_peer_id;
   for (Bucket& bucket : buckets_) {
     bucket = Bucket{};
   }
+}
+
+size_t DhtRoutingTable::K() const {
+  std::lock_guard lock(mutex_);
+  return k_;
 }
 
 bool DhtRoutingTable::Valid() const {
