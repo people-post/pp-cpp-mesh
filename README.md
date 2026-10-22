@@ -20,7 +20,7 @@ its history; pp-browser and its headless node `pp-node` are its first consumers.
   executors and a metrics registry; the mesh never calls app code synchronously —
   [docs/THREADING.md](docs/THREADING.md).
 - **Wire IDs are contracts.** The mesh's protocol ids are `/pp-mesh/…` (and the mDNS service type
-  `_pp-mesh._tcp`); an id names the repo that owns it, never an app. Renaming one breaks every
+  `_pp-mesh._udp`); an id names the repo that owns it, never an app. Renaming one breaks every
   deployed peer.
 
 ## Layout
