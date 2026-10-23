@@ -655,7 +655,7 @@ struct MediaRelayServer::Impl {
     return false;
   }
 
-  void HandleInboundChannel(const std::string& remote_peer_id, const uint32_t channel_id) {
+  void HandleInboundChannel(pp::amp::LinkHandle handle, const std::string& remote_peer_id, const uint32_t channel_id) {
     if (stopped.load(std::memory_order_acquire) || remote_peer_id.empty()) {
       return;
     }
@@ -664,8 +664,8 @@ struct MediaRelayServer::Impl {
     sm->remote = remote_peer_id;
     (void)sm->Apply(MediaRelayAttachEvent::StreamOpened);
 
-    *channel_holder = runtime->Links().BindChannel(
-        remote_peer_id, channel_id, pp::amp::MediaRelayClientChannelPolicy(),
+    *channel_holder = runtime->Links().BindChannelOnLink(
+        handle, channel_id, pp::amp::MediaRelayClientChannelPolicy(),
         [this, channel_holder, sm](Roe<std::vector<uint8_t>> frame) {
           auto channel = *channel_holder;
           if (!channel || !frame || stopped.load(std::memory_order_acquire)) {
@@ -717,8 +717,8 @@ void MediaRelayServer::Start() {
   impl_->io_tick_id = runtime_.AddIoTick(impl_->lifetime.Bind([impl = impl_.get()] { impl->Tick(); }));
   runtime_.Links().SetProtocolHandler(
       kMediaRelayProtocolId,
-      impl_->lifetime.Bind([impl = impl_.get()](pp::amp::LinkHandle /*handle*/, const std::string& remote_peer_id,
-                                                const uint32_t ch) { impl->HandleInboundChannel(remote_peer_id, ch); }));
+      impl_->lifetime.Bind([impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id,
+                                                const uint32_t ch) { impl->HandleInboundChannel(handle, remote_peer_id, ch); }));
 }
 
 void MediaRelayServer::Stop() {

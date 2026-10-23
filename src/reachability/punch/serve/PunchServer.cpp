@@ -416,7 +416,7 @@ struct PunchServer::Impl {
     }
   }
 
-  void HandleInboundOnLink(pp::amp::LinkHandle /*handle*/, const std::string& remote_peer_id_in,
+  void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id_in,
                            uint32_t channel_id) {
     if (stopped.load(std::memory_order_acquire) || !runtime || remote_peer_id_in.empty()) {
       return;
@@ -425,8 +425,8 @@ struct PunchServer::Impl {
     auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
     auto phase = std::make_shared<std::string>("await_first");
     auto punch_remote_peer_id = std::make_shared<std::string>();
-    *session_holder = Links().BindChannel(
-        remote_peer_id, channel_id, PunchJsonChannelPolicy(std::chrono::milliseconds{8000}),
+    *session_holder = Links().BindChannelOnLink(
+        handle, channel_id, PunchJsonChannelPolicy(std::chrono::milliseconds{8000}),
         [this, session_holder, remote_peer_id, phase, punch_remote_peer_id](Roe<std::vector<uint8_t>> frame) {
           auto session = *session_holder;
           if (!session || !frame || stopped.load(std::memory_order_acquire)) {

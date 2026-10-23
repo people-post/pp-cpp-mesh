@@ -82,8 +82,8 @@ struct DhtServer::Impl {
       remote_pk = link.RemoteIdentityPublicKey();
     });
     auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
-    *session_holder = Links().BindChannel(
-        remote_peer_id, channel_id, InboundReplyPolicy(pp::amp::ControlJsonChannelPolicy()),
+    *session_holder = Links().BindChannelOnLink(
+        handle, channel_id, InboundReplyPolicy(pp::amp::ControlJsonChannelPolicy()),
         [this, session_holder, remote_pk = std::move(remote_pk),
          remote_peer = remote_peer_id](Roe<std::vector<uint8_t>> frame) mutable {
           auto session = *session_holder;

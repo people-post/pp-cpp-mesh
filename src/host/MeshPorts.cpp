@@ -218,6 +218,15 @@ public:
     });
   }
 
+  std::shared_ptr<pp::amp::ChannelSession> BindChannelOnLink(pp::amp::LinkHandle link, uint32_t channel_id,
+                                                             pp::amp::ChannelPolicy policy,
+                                                             pp::amp::ChannelSession::FrameHandler on_frame,
+                                                             pp::amp::ChannelSession::ClosedCallback on_closed) override {
+    return runtime_.WithIoLock([&] {
+      return links_.BindChannelOnLink(link, channel_id, std::move(policy), std::move(on_frame), std::move(on_closed));
+    });
+  }
+
 private:
   pp::amp::MeshRuntime& runtime_;
   pp::amp::PeerLinkManager& links_;
