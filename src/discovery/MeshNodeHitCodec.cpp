@@ -65,6 +65,9 @@ common::Object MeshNodeHitToObject(const MeshNodeHit& hit) {
   if (hit.kem_public_key_b64) {
     object.set("kem_public_key_b64", *hit.kem_public_key_b64);
   }
+  if (hit.kem_binding_signature_b64) {
+    object.set("kem_binding_signature_b64", *hit.kem_binding_signature_b64);
+  }
   object.set("capabilities", CapabilitiesToObject(hit.capabilities));
   std::vector<common::Value> endpoints;
   endpoints.reserve(hit.endpoints.size());
@@ -106,6 +109,9 @@ Roe<MeshNodeHit> MeshNodeHitFromObject(const common::Object& object) {
   }
   if (auto kem = object.getString("kem_public_key_b64")) {
     hit.kem_public_key_b64 = *kem;
+  }
+  if (auto binding = object.getString("kem_binding_signature_b64")) {
+    hit.kem_binding_signature_b64 = *binding;
   }
   if (const common::Object* caps = object.getObject("capabilities")) {
     hit.capabilities = CapabilitiesFromObject(*caps);

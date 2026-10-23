@@ -48,6 +48,8 @@ struct DirectoryHit {
   std::optional<std::string> account_id;
   std::optional<std::string> signing_public_key_b64;
   std::optional<std::string> kem_public_key_b64;
+  /** The account's ML-DSA signature binding `kem_public_key_b64` to it (pp-browser:kem-binding-v1). */
+  std::optional<std::string> kem_binding_signature_b64;
   std::vector<DirectoryEndpoint> endpoints;
   std::vector<std::string> multiaddrs;
   /** Initiation floor in pp_credit minor units; missing on wire → 0 (P001). */
@@ -86,6 +88,8 @@ struct MeshNodeHit {
   int64_t seq = 0;
   std::optional<std::string> signing_public_key_b64;
   std::optional<std::string> kem_public_key_b64;
+  /** The account's ML-DSA signature binding `kem_public_key_b64` to it (pp-browser:kem-binding-v1). */
+  std::optional<std::string> kem_binding_signature_b64;
 };
 
 inline const DirectoryEndpoint* PreferredDirectoryEndpoint(const std::vector<DirectoryEndpoint>& endpoints) {
