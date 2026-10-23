@@ -185,6 +185,15 @@ public:
       const std::string& peer_key, uint32_t channel_id, pp::amp::ChannelPolicy policy,
       pp::amp::ChannelSession::FrameHandler on_frame,
       pp::amp::ChannelSession::ClosedCallback on_closed = {}) = 0;
+  /**
+   * Bind a channel on the one link `link` names — what a ProtocolHandler must use for its inbound
+   * channel: channels are numbered per link, and with two links to one peer (direct and relayed) the
+   * peer's id names the other one. Empty when that link is gone.
+   */
+  virtual std::shared_ptr<pp::amp::ChannelSession> BindChannelOnLink(
+      pp::amp::LinkHandle link, uint32_t channel_id, pp::amp::ChannelPolicy policy,
+      pp::amp::ChannelSession::FrameHandler on_frame,
+      pp::amp::ChannelSession::ClosedCallback on_closed = {}) = 0;
 };
 
 struct MeshChatDeps {

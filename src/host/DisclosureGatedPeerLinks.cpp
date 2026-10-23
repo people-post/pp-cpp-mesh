@@ -113,4 +113,10 @@ std::shared_ptr<pp::amp::ChannelSession> DisclosureGatedPeerLinks::BindChannel(
   return inner_.BindChannel(peer_key, channel_id, std::move(policy), std::move(on_frame), std::move(on_closed));
 }
 
+std::shared_ptr<pp::amp::ChannelSession> DisclosureGatedPeerLinks::BindChannelOnLink(
+    const pp::amp::LinkHandle link, const uint32_t channel_id, pp::amp::ChannelPolicy policy,
+    pp::amp::ChannelSession::FrameHandler on_frame, pp::amp::ChannelSession::ClosedCallback on_closed) {
+  return inner_.BindChannelOnLink(link, channel_id, std::move(policy), std::move(on_frame), std::move(on_closed));
+}
+
 } // namespace pp::mesh

@@ -34,7 +34,7 @@ pp_mesh_dependency(pp-cpp-common pp_common
 pp_mesh_dependency(pp-cpp-crypto pp_crypto
   https://github.com/people-post/pp-cpp-crypto.git v1.0.0)
 pp_mesh_dependency(pp-cpp-amp pp_amp_link
-  https://github.com/people-post/pp-cpp-amp.git v3.0.0)
+  https://github.com/people-post/pp-cpp-amp.git v3.1.0)
 
 if(PP_MESH_WITH_UPNP AND NOT (ANDROID OR IOS) AND NOT TARGET libminiupnpc-static)
   set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)

@@ -290,14 +290,14 @@ struct DialBackServer::Impl {
     });
   }
 
-  void HandleInboundOnLink(pp::amp::LinkHandle /*handle*/, const std::string& remote_peer_id,
+  void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id,
                            const uint32_t channel_id) {
     if (stopped.load(std::memory_order_acquire) || !runtime || remote_peer_id.empty()) {
       return;
     }
     auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
-    *session_holder = Links().BindChannel(
-        remote_peer_id, channel_id, InboundReplyPolicy(pp::amp::ControlJsonChannelPolicy(kDialBackServeReadTimeout)),
+    *session_holder = Links().BindChannelOnLink(
+        handle, channel_id, InboundReplyPolicy(pp::amp::ControlJsonChannelPolicy(kDialBackServeReadTimeout)),
         [this, session_holder, remote_peer_id](Roe<std::vector<uint8_t>> frame) {
           auto session = *session_holder;
           if (!session || !frame || stopped.load(std::memory_order_acquire)) {
