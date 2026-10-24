@@ -24,8 +24,9 @@ this repo, **B** = pp-browser `src/`.
 |------|----------|----------------|---------------|---------|
 | Effective bootstrap peers | B `foundation/data/MeshRole.cpp:42-88` | directory nodes, then config `bootstrap_peers` (else 2 built-in seeds) | none; per call | DHT endpoints, rendezvous, `bootstrap_seeds` |
 | `MeshHopPolicy::bootstrap_seeds` | B `feature/conversations/MeshConnectivityWiring.cpp:68-75` | effective list, or config only (`trusted_relays_only`); org seeds dropped when the probe failed | pushed every 5 s and on directory update | seed warm / park (M `src/reach/CircuitRendezvousCoordinator.cpp`) |
-| `MeshHopPolicy::rendezvous_candidates` | B `domain/people/MeshHopPolicy.cpp:169-209` | contacts ∪ directory ∪ DHT ∪ seeds | none | reserve, park, `DialableRelayIds` |
+| `MeshHopPolicy::rendezvous_candidates` | B `domain/people/MeshHopPolicy.cpp:169-209` | contacts ∪ directory ∪ DHT ∪ seeds, kept only when a circuit relay (org seed, or listed with `circuit_relay`) | none | reserve, park, `DialableRelayIds` |
 | Park surface | M `CircuitRendezvousCoordinator.cpp:248-280` | sticky R1, then Connected, then the rest | park cold-dials **all** remaining, serially | PeerReach park gate, Accept |
+| Circuit reach relays | M `src/reach/AmpCircuitHopReach.cpp` (`OrderCircuitRelayAttempts`, `CircuitRelayRefusals`) | sticky R1, then Connected, then the rest; a relay that refused a circuit in the last 10 min goes behind all of them | 4 bridges in a 14 s envelope | `EnsureViaCircuit` |
 | `MeshHopPolicy::punch_introducers` | B `MeshConnectivityWiring.cpp:76-82` | contacts (Connected first), then config seeds | walk with a tried set | cold punch (M `src/reach/PunchIntroducerWalk.cpp`) |
 | Directory query peers | B `feature/conversations/ConversationsHub.cpp:916-941` | Amp directory providers, then seeds | none; every 300 s | directory refresh |
 | DHT query peers | B `feature/node/NodeMeshServices.cpp:50-68` | directory nodes, then seeds | none | DHT store / find_peer |

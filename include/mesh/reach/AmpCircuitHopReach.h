@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mesh/l4/circuit/CircuitRelayRefusals.h"
 #include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "mesh/host/MeshPorts.h"
@@ -94,6 +95,8 @@ private:
   std::atomic<uint64_t> inflight_tunnel_value_{0};
   /** Last relay that completed a bridge Install (sticky first try — H010). */
   std::string last_good_relay_peer_key_;
+  /** Relays that refused a circuit lately: tried after the others. */
+  CircuitRelayRefusals refusals_;
 };
 
 } // namespace pp::mesh
