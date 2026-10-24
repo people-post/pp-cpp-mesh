@@ -1,4 +1,5 @@
 #include "mesh/l4/circuit/CircuitHopAttemptBudget.h"
+#include "mesh/l4/circuit/CircuitRelayRefusals.h"
 
 #include <gtest/gtest.h>
 
@@ -74,4 +75,23 @@ TEST(CircuitHopAttemptBudgetTest, StickyRetryOnceOnFastFail) {
   EXPECT_FALSE(pp::mesh::CircuitShouldRetryStickyOnce("seed", "seed", false, false, 1));
   EXPECT_FALSE(pp::mesh::CircuitShouldRetryStickyOnce("seed", "seed", false, true,
                                                  pp::mesh::kCircuitMaxStartBridgeAttempts));
+}
+
+// pp-browser #379: a peer that refused a circuit goes behind the others until its hold ends or it
+// serves a bridge — it is not dropped, so a relay that was only starting is still tried last.
+TEST(CircuitRelayRefusalsTest, ARefusingRelayIsTriedLastUntilItsHoldEnds) {
+  using pp::mesh::kCircuitRelayRefusedHoldMs;
+  pp::mesh::CircuitRelayRefusals refusals;
+  const int64_t t0 = 1'000'000;
+  refusals.Note("phone", t0);
+  const std::vector<std::string> order = {"phone", "relay-a", "relay-b"};
+  EXPECT_EQ(refusals.Demote(order, t0 + 1), (std::vector<std::string>{"relay-a", "relay-b", "phone"}));
+  EXPECT_TRUE(refusals.Refused("phone", t0 + 1));
+  EXPECT_EQ(refusals.Demote({"phone"}, t0 + 1), std::vector<std::string>{"phone"}) << "not dropped";
+  EXPECT_EQ(refusals.Demote(order, t0 + kCircuitRelayRefusedHoldMs), order) << "the hold ended";
+  EXPECT_FALSE(refusals.Refused("phone", t0 + kCircuitRelayRefusedHoldMs));
+
+  refusals.Note("relay-a", t0);
+  refusals.Clear("relay-a");
+  EXPECT_EQ(refusals.Demote(order, t0 + 1), order) << "a bridge through it clears the refusal";
 }

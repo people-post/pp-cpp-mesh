@@ -330,9 +330,12 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   } else if (!last_good_relay_peer_key_.empty()) {
     sticky = last_good_relay_peer_key_;
   }
-  auto relays = std::make_shared<std::vector<std::string>>(OrderCircuitRelayAttempts(
-      std::move(collected), sticky,
-      [this](const std::string& key) { return links_.IsConnected(key); }));
+  const int64_t now_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+  auto relays = std::make_shared<std::vector<std::string>>(refusals_.Demote(
+      OrderCircuitRelayAttempts(std::move(collected), sticky,
+                                [this](const std::string& key) { return links_.IsConnected(key); }),
+      now_ms));
 
   AmpReachLog().info << "EnsureViaCircuit start target=" << target_peer_id
                      << " protocol=" << target_protocol << " nested=" << (nested_session ? 1 : 0)
@@ -485,6 +488,12 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         const std::string relay_ma = links_.PreferredMultiaddr(relay_key).value_or("");
         AmpReachLog().info << "EnsureViaCircuit tunnel miss relay=" << relay_key
                            << " preferred_ma=" << relay_ma << " err=" << last_fail->message;
+        if (!result && tunnel_code == CircuitTunnelErr::RelayRefused) {
+          // Not ready, or not for us: the next reach tries it after the others (#379).
+          refusals_.Note(relay_key, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        Clock::now().time_since_epoch())
+                                        .count());
+        }
         const bool fast_fail = !result && CircuitBridgeMissIsFastFail(tunnel_code);
         const bool not_reg = tunnel_code == CircuitTunnelErr::TargetNotReserved;
         auto go_same = [advance_relay, index, id]() { (*advance_relay)(index, id); };
@@ -552,6 +561,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
               }
               (void)hops_.Install(target_peer_id, relay_key, target_protocol, session, id);
               last_good_relay_peer_key_ = relay_key;
+              refusals_.Clear(relay_key);
               if (on_relay_chosen_) {
                 on_relay_chosen_(relay_key);
               }
@@ -598,6 +608,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         return;
       }
       last_good_relay_peer_key_ = relay_key;
+      refusals_.Clear(relay_key);
       if (on_relay_chosen_) {
         on_relay_chosen_(relay_key);
       }
