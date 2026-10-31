@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace pp::mesh {
 
@@ -82,6 +83,10 @@ public:
 
   /** Relays holding a reservation for us now (parked: they can bridge dialers to this node). Any thread. */
   size_t ParkedRelayCount() const;
+  /** Those relays' PeerIds, sorted: what a callee advertises so the dialer tries them first (H013). Any thread. */
+  std::vector<std::string> ParkedRelays() const;
+  /** Called on the IO thread after a relay starts or stops holding a reservation for us. */
+  void SetOnParkedChanged(std::function<void()> on_changed);
 
   /** Tunnel records held (in setup, bridged or reserved). Any thread. */
   size_t TunnelCount() const;

@@ -130,6 +130,16 @@ public:
     }
   }
   /**
+   * TryEnsurePeerReachableAsync with what the peer told us (H013): `advertised_relays` are the relays
+   * it holds reservations on, best first — a circuit tries them before its own ranking, and only they
+   * earn a same-relay retry on `not registered`. A reach that cannot use them ignores them.
+   */
+  virtual void TryEnsurePeerReachableViaAsync(const std::string& peer_key, CircuitReachDone on_done,
+                                              bool allow_circuit, std::vector<std::string> advertised_relays) {
+    (void)advertised_relays;
+    TryEnsurePeerReachableAsync(peer_key, std::move(on_done), allow_circuit);
+  }
+  /**
    * A relayed link to the peer even when a direct one is up (TX-only escalation, a call's relay
    * standby — k6): a circuit only, never a punch; OK once a relay carrier link is Connected.
    */

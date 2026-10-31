@@ -62,6 +62,35 @@ inline std::vector<std::string> OrderCircuitRelayAttempts(
 }
 
 /**
+ * The relays the target says it holds reservations on (a call's CallAccept, H013) go first, in its
+ * order, then the rest as ranked. Advertised relays the dialer cannot dial are not added: a
+ * StartBridge needs the relay's endpoint.
+ */
+inline std::vector<std::string> PutAdvertisedRelaysFirst(std::vector<std::string> ranked,
+                                                         const std::vector<std::string>& advertised) {
+  if (advertised.empty()) {
+    return ranked;
+  }
+  std::vector<std::string> ordered;
+  ordered.reserve(ranked.size());
+  for (const std::string& key : advertised) {
+    auto it = std::find(ranked.begin(), ranked.end(), key);
+    if (it != ranked.end()) {
+      ordered.push_back(std::move(*it));
+      ranked.erase(it);
+    }
+  }
+  for (std::string& key : ranked) {
+    ordered.push_back(std::move(key));
+  }
+  return ordered;
+}
+
+inline bool IsAdvertisedRelay(const std::vector<std::string>& advertised, const std::string& key) {
+  return std::find(advertised.begin(), advertised.end(), key) != advertised.end();
+}
+
+/**
  * StartBridge timeout_ms for this attempt.
  * `remaining_ms` is wall time left in the EnsureViaCircuit envelope.
  * Nested call-media reserves nest slack so ack+Establish can finish inside the envelope.
@@ -101,13 +130,13 @@ inline bool CircuitBridgeMissIsFastFail(const CircuitTunnelErr code) {
 }
 
 /**
- * `not registered`: hop event-waited and answerer still parking — retry **this** relay
- * once, then advance so a second seed can be tried (B27). `bridges_started` already
- * includes the failed attempt (1 after first miss → allow one same-relay retry).
+ * `not registered` from a relay the target advertised (H013): its reservation there may have just
+ * lapsed or be renewing, so retry **this** relay once. A relay the target did not advertise is
+ * advanced past at once — nothing would make the target appear there in time.
  */
-inline bool CircuitShouldRetrySameRelayOnNotReg(const bool not_reg,
-                                                const std::size_t bridges_started) {
-  return not_reg && bridges_started == 1;
+inline bool CircuitShouldRetrySameRelayOnNotReg(const bool not_reg, const bool advertised_relay,
+                                                const bool already_retried) {
+  return not_reg && advertised_relay && !already_retried;
 }
 
 /**

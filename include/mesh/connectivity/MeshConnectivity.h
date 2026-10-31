@@ -65,6 +65,8 @@ struct MeshLocalView {
   bool media_relay_started = false;
   bool punch_started = false;
   std::vector<std::string> punch_candidate_addrs;
+  /** Relays holding a reservation for this node (sorted): what a callee advertises (H013). */
+  std::vector<std::string> parked_relays;
 };
 
 /**

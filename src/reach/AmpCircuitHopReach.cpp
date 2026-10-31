@@ -130,6 +130,12 @@ void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_
 
 void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done,
                                                      const bool allow_circuit) {
+  TryEnsurePeerReachableViaAsync(peer_key, std::move(on_done), allow_circuit, {});
+}
+
+void AmpCircuitHopReach::TryEnsurePeerReachableViaAsync(const std::string& peer_key, CircuitReachDone on_done,
+                                                        const bool allow_circuit,
+                                                        std::vector<std::string> advertised_relays) {
   if (!on_done) {
     return;
   }
@@ -137,7 +143,8 @@ void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key
     on_done(Failure::Of(Err::BadRequest, "missing peer"));
     return;
   }
-  auto run = [this, peer_key, allow_circuit, on_done = std::move(on_done)]() mutable {
+  auto run = [this, peer_key, allow_circuit, advertised_relays = std::move(advertised_relays),
+              on_done = std::move(on_done)]() mutable {
   if (links_.IsConnected(peer_key)) {
     on_done(CircuitReachRoe());
     return;
@@ -235,7 +242,8 @@ void AmpCircuitHopReach::TryEnsurePeerReachableAsync(const std::string& peer_key
         auto last_err = std::make_shared<Failure>(
             !via ? via.error() : Failure::Of(Err::NotConnected, "peer not connected after circuit"));
         run_punch(std::move(last_err));
-      });
+      },
+      CircuitStandbyPriority::None, std::move(advertised_relays));
   };
   if (post_io_) {
     post_io_(std::move(run));
@@ -281,7 +289,8 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
                                                const std::string& target_protocol,
                                                const bool register_endpoint, const bool nested_session,
                                                CircuitReachDone on_done,
-                                               const CircuitStandbyPriority standby_priority) {
+                                               const CircuitStandbyPriority standby_priority,
+                                               std::vector<std::string> advertised_relays) {
   if (!on_done) {
     return;
   }
@@ -289,7 +298,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   // Ticks on IO — ClearDialBackoff / snapshot / OpenChannel off-strand AVs around dial
   // timeout (dogfood 085210, ~8s after StartBridge).
   auto run = [this, target_peer_id, target_protocol, register_endpoint, nested_session, standby_priority,
-              on_done = std::move(on_done)]() mutable {
+              advertised_relays = std::move(advertised_relays), on_done = std::move(on_done)]() mutable {
   if (!circuit_.IsStarted()) {
     on_done(Failure::Of(Err::Unavailable, "amp circuit-relay not available"));
     return;
@@ -332,14 +341,18 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   }
   const int64_t now_ms =
       std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
-  auto relays = std::make_shared<std::vector<std::string>>(refusals_.Demote(
-      OrderCircuitRelayAttempts(std::move(collected), sticky,
-                                [this](const std::string& key) { return links_.IsConnected(key); }),
-      now_ms));
+  // H013: the relays the target says it is parked on go first, whatever our own ranking or a recent
+  // refusal says; only they earn a same-relay retry on `not registered`.
+  auto advertised = std::make_shared<const std::vector<std::string>>(std::move(advertised_relays));
+  auto relays = std::make_shared<std::vector<std::string>>(PutAdvertisedRelaysFirst(
+      refusals_.Demote(OrderCircuitRelayAttempts(std::move(collected), sticky,
+                                                 [this](const std::string& key) { return links_.IsConnected(key); }),
+                       now_ms),
+      *advertised));
 
   AmpReachLog().info << "EnsureViaCircuit start target=" << target_peer_id
                      << " protocol=" << target_protocol << " nested=" << (nested_session ? 1 : 0)
-                     << " relays=" << relays->size() << " sticky=" << sticky
+                     << " relays=" << relays->size() << " advertised=" << advertised->size() << " sticky=" << sticky
                      << " envelope_ms=" << kCircuitReachEnvelopeMs
                      << " max_bridges=" << kCircuitMaxStartBridgeAttempts;
 
@@ -361,6 +374,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   auto last_fail = std::make_shared<Failure>(Failure::Of(Err::RelayUnusable, "circuit hop reach failed"));
   auto bridges_started = std::make_shared<std::size_t>(0);
   auto sticky_retried = std::make_shared<bool>(false);
+  auto not_reg_retried = std::make_shared<std::vector<std::string>>();
   const auto envelope_deadline = Clock::now() + std::chrono::milliseconds(kCircuitReachEnvelopeMs);
   const uint64_t gen = deferred_.Snapshot();
   auto aborted = [tok = deferred_.token(), gen]() {
@@ -369,7 +383,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   auto try_relay = std::make_shared<std::function<void(size_t)>>();
   *try_relay = [this, target_peer_id, target_protocol, register_endpoint, nested_session, bridge_target,
                 relays, last_fail, bridges_started, sticky_retried, sticky, envelope_deadline, aborted,
-                try_relay, on_done = std::move(on_done)](size_t index) mutable {
+                advertised, not_reg_retried, try_relay, on_done = std::move(on_done)](size_t index) mutable {
     if (aborted()) {
       AmpReachLog().info << "EnsureViaCircuit aborted target=" << target_peer_id << " index=" << index;
       on_done(Aborted());
@@ -466,7 +480,7 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
     auto on_bridge = std::make_shared<CircuitClientCoordinator::BridgeFinished>();
     *on_bridge = [this, target_peer_id, target_protocol, register_endpoint, nested_session, relay_key,
                   sticky, settled, tunnel_id, last_fail, bridges_started, sticky_retried,
-                  envelope_deadline, aborted, try_relay, index, advance_relay,
+                  envelope_deadline, aborted, try_relay, index, advance_relay, advertised, not_reg_retried,
                   on_done](CircuitClientCoordinator::BridgeRoe result) mutable {
       if (settled->exchange(true, std::memory_order_acq_rel)) {
         return;
@@ -497,10 +511,12 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
         const bool fast_fail = !result && CircuitBridgeMissIsFastFail(tunnel_code);
         const bool not_reg = tunnel_code == CircuitTunnelErr::TargetNotReserved;
         auto go_same = [advance_relay, index, id]() { (*advance_relay)(index, id); };
-        // Same-relay not-reg: hop already event-waited; answerer may still be parking (H010).
-        // Do not require sticky — first connect often has none.
-        if (CircuitShouldRetrySameRelayOnNotReg(not_reg, *bridges_started)) {
-          AmpReachLog().info << "EnsureViaCircuit not-reg retry same relay=" << relay_key
+        // Same-relay not-reg (H013): only on a relay the target advertised — its reservation there may
+        // be renewing. Any other relay: advance, nothing would make the target appear there in time.
+        if (CircuitShouldRetrySameRelayOnNotReg(not_reg, IsAdvertisedRelay(*advertised, relay_key),
+                                                IsAdvertisedRelay(*not_reg_retried, relay_key))) {
+          not_reg_retried->push_back(relay_key);
+          AmpReachLog().info << "EnsureViaCircuit not-reg retry advertised relay=" << relay_key
                              << " bridges=" << *bridges_started;
           // B27: announce this R1 so answerer PreferLateReserve re-parks while we retry once.
           if (on_relay_chosen_) {

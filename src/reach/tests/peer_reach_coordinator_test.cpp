@@ -149,6 +149,13 @@ public:
   std::atomic<int> calls{0};
   std::atomic<bool> last_allow_circuit{false};
   bool connects = true;
+  std::vector<std::string> last_advertised;  // read after the reach settles
+
+  void TryEnsurePeerReachableViaAsync(const std::string& peer_key, CircuitReachDone on_done, const bool allow_circuit,
+                                      std::vector<std::string> advertised_relays) override {
+    last_advertised = std::move(advertised_relays);
+    TryEnsurePeerReachableAsync(peer_key, std::move(on_done), allow_circuit);
+  }
 
 private:
   FakeDialRegistry& dial_;
@@ -483,6 +490,52 @@ TEST_F(PeerReachCoordinatorTest, AwaitWithoutPunchWaitsForThePeersCircuit) {
   EXPECT_EQ(circuit_->calls.load(), 0) << "no punch";
   EXPECT_EQ(dial_->ensure_calls.load(), 0);
   EXPECT_EQ((*out->result)->kind, PeerLinkKind::Relayed);
+}
+
+// H013: a call's answerer waits for the caller's circuit past the usual budget — the caller only
+// starts once our CallAccept crossed its inbox.
+TEST_F(PeerReachCoordinatorTest, AnAwaitsHoldKeepsWaitingForThePeer) {
+  dial_->endpoints[kPeer] = kPrivateMa;
+  auto req = Request(PeerReachMode::Await);
+  req.allow_punch = false;
+  req.await_hold_ms = 1500;  // the fixture's dial budget is 300 ms
+  const auto began = std::chrono::steady_clock::now();
+  auto out = Run(req);
+  std::thread peer([this] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(900));
+    dial_->Connect(kPeer, /*carrier=*/true, /*hop=*/true);
+  });
+  const bool done = WaitDone(out, std::chrono::seconds(10));
+  peer.join();
+  ASSERT_TRUE(done);
+  ASSERT_TRUE(*out->result) << out->result->error().message;
+  EXPECT_GE(std::chrono::steady_clock::now() - began, std::chrono::milliseconds(850)) << "still waiting at 900 ms";
+  EXPECT_EQ((*out->result)->kind, PeerLinkKind::Relayed);
+}
+
+TEST_F(PeerReachCoordinatorTest, AnAwaitsHoldEndsWhenNobodyComes) {
+  dial_->endpoints[kPeer] = kPrivateMa;
+  auto req = Request(PeerReachMode::Await);
+  req.allow_punch = false;
+  req.await_hold_ms = 700;
+  const auto began = std::chrono::steady_clock::now();
+  auto out = Run(req);
+  ASSERT_TRUE(WaitDone(out, std::chrono::seconds(10)));
+  EXPECT_FALSE(*out->result);
+  const auto took = std::chrono::steady_clock::now() - began;
+  EXPECT_GE(took, std::chrono::milliseconds(650));
+  EXPECT_LT(took, std::chrono::seconds(5));
+}
+
+// H013: the relays the peer advertised reach the circuit, which tries them first.
+TEST_F(PeerReachCoordinatorTest, AdvertisedRelaysReachTheCircuit) {
+  dial_->endpoints[kPeer] = kPrivateMa;
+  auto req = Request(PeerReachMode::Reach);
+  req.advertised_relays = {"QmRelayB", "QmRelayA"};
+  auto out = Run(req);
+  ASSERT_TRUE(WaitDone(out, std::chrono::seconds(10)));
+  ASSERT_TRUE(*out->result) << out->result->error().message;
+  EXPECT_EQ(circuit_->last_advertised, (std::vector<std::string>{"QmRelayB", "QmRelayA"}));
 }
 
 // TX-only escalate: exclude_direct builds a circuit even from Await and over a connected link.

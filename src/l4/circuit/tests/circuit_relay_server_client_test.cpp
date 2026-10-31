@@ -304,6 +304,8 @@ TEST_F(CircuitRelayServerClientTest, ReserveThenBridge) {
 // with the answerer's reservation ("Couldn't connect"). Held reservations keep the relay link hot.
 TEST_F(CircuitRelayServerClientTest, ReserveKeepsRelayLinkHotUntilReleased) {
   EXPECT_EQ(client_b_->ParkedRelayCount(), 0u);
+  std::atomic<int> parked_changes{0};
+  client_b_->SetOnParkedChanged([&parked_changes]() { parked_changes.fetch_add(1); });
   BridgeWait reserve_wait;
   auto rid = client_b_->StartReserve("relay", reserve_wait.Fn(), 15000);
   ASSERT_TRUE(rid);
@@ -313,6 +315,9 @@ TEST_F(CircuitRelayServerClientTest, ReserveKeepsRelayLinkHotUntilReleased) {
   ASSERT_EQ(client_b_->Phase(rid), CircuitTunnelPhase::Reserved);
 
   EXPECT_EQ(client_b_->ParkedRelayCount(), 1u) << "a held reservation is parking";
+  harness_->PumpAll();
+  EXPECT_EQ(client_b_->ParkedRelays(), std::vector<std::string>{"relay"}) << "what a callee advertises (H013)";
+  EXPECT_EQ(parked_changes.load(), 1);
 
   auto* relay_link = harness_->mgr_b().FindLink("relay");
   ASSERT_NE(relay_link, nullptr);
@@ -329,6 +334,8 @@ TEST_F(CircuitRelayServerClientTest, ReserveKeepsRelayLinkHotUntilReleased) {
   client_b_->CancelTunnel(rid);
   harness_->PumpAll();
   EXPECT_EQ(client_b_->ParkedRelayCount(), 0u);
+  EXPECT_TRUE(client_b_->ParkedRelays().empty());
+  EXPECT_EQ(parked_changes.load(), 2) << "told when it is held and when it is released";
   // Released: back to the cold lifecycle (may already be evicted — the relay never talks first).
   relay_link = harness_->mgr_b().FindLink("relay");
   EXPECT_TRUE(relay_link == nullptr || !relay_link->IsWarm()) << "released reservation must drop the hot tier";
