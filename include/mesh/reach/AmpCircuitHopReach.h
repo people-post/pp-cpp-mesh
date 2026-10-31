@@ -48,6 +48,8 @@ public:
                      IoAfter post_after = {});
 
   void TryEnsureHopReachableAsync(const std::string& hop_peer_id, CircuitReachDone on_done) override;
+  void TryEnsurePeerReachableViaAsync(const std::string& peer_key, CircuitReachDone on_done, bool allow_circuit,
+                                      std::vector<std::string> advertised_relays) override;
   void TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done,
                                    bool allow_circuit = true) override;
   void TryUpgradeToDirectAsync(const std::string& peer_key, CircuitReachDone on_done) override;
@@ -72,7 +74,8 @@ public:
 private:
   void EnsureViaCircuitAsync(const std::string& target_peer_id, const std::string& target_protocol,
                              bool register_endpoint, bool nested_session, CircuitReachDone on_done,
-                             CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None);
+                             CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None,
+                             std::vector<std::string> advertised_relays = {});
 
   void NoteInflightTunnel(CircuitTunnelId id);
   void ClearInflightTunnel(CircuitTunnelId id);

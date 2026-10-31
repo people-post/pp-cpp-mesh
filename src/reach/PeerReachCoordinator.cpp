@@ -131,6 +131,7 @@ struct PeerReachCoordinator::Attempt {
   const std::string& Primary() const { return req.keys.front(); }
   bool IsAwait() const { return req.mode == PeerReachMode::Await; }
 
+  int64_t started_ms = 0;
   int64_t deadline_ms = 0;
   Failure last_error = Failure::Of(Err::NotConnected, "peer not connected");
   bool circuit_started = false;
@@ -506,12 +507,15 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
              << " exclude_direct=" << (a->req.exclude_direct ? 1 : 0)
              << " has_circuit_reach=" << (circuit ? 1 : 0) << " budget_ms=" << a->dial_budget_ms;
 
-  a->deadline_ms = util::NowUnixMs() + a->dial_budget_ms;
+  a->started_ms = util::NowUnixMs();
+  a->deadline_ms = a->started_ms + a->dial_budget_ms;
   // Hard deadline independent of the tick chain (dogfood af934e: EnsureAssociation never called
-  // back). Covers the peer's dial overlap (V049) + circuit slack. Must not touch dial state —
-  // it can fire mid-StartBridge and race PeerLinkManager::FinishDial (dogfood 091029).
+  // back). Covers the peer's dial overlap (V049) + circuit slack, or an await's hold (H013). Must
+  // not touch dial state — it can fire mid-StartBridge and race PeerLinkManager::FinishDial (dogfood 091029).
+  const int64_t watchdog_ms =
+      std::max(a->dial_budget_ms + kPeerDialOverlapMs + kCircuitEnsureBudgetMs, AwaitHoldMs(*a)) + 250;
   ScheduleOn(
-      Lane(), std::chrono::milliseconds(a->dial_budget_ms + kPeerDialOverlapMs + kCircuitEnsureBudgetMs + 250),
+      Lane(), std::chrono::milliseconds(watchdog_ms),
       [this, alive = alive_, a]() {
         if (!alive->load(std::memory_order_acquire) || a->settled.load(std::memory_order_acquire)) {
           return;
@@ -521,6 +525,10 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
         Finish(a, a->last_error);
       });
   Tick(a);
+}
+
+int64_t PeerReachCoordinator::AwaitHoldMs(const Attempt& a) {
+  return a.IsAwait() ? std::max<int64_t>(a.req.await_hold_ms, 0) : 0;
 }
 
 bool PeerReachCoordinator::TrySettleConnected(const AttemptPtr& a) {
@@ -805,6 +813,10 @@ bool PeerReachCoordinator::MaybeStartCircuit(const AttemptPtr& a) {
     // Production await: cover the peer's dial overlap + circuit slack (gtests keep a short budget).
     a->deadline_ms = std::max(a->deadline_ms, now + kPeerDialOverlapMs + kCircuitEnsureBudgetMs);
   }
+  if (!allow_circuit) {
+    // An await's hold (H013): the peer may only start its circuit once our answer crossed its inbox.
+    a->deadline_ms = std::max(a->deadline_ms, a->started_ms + AwaitHoldMs(*a));
+  }
   log().info << "circuit/punch start peer=" << a->Primary() << " circuit_budget_ms=" << kCircuitEnsureBudgetMs
              << " allow_circuit=" << (allow_circuit ? 1 : 0);
   // Always confirm a Connected seed before StartBridge / punch-wait: the pre-assoc park may have
@@ -866,7 +878,7 @@ void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const bool allow_cir
     // A relayed link is the point (TX-only escalation, relay standby): a direct link does not count.
     circuit->TryEnsureRelayedAsync(a->Primary(), std::move(on_via), a->req.circuit_standby_priority);
   } else {
-    circuit->TryEnsurePeerReachableAsync(a->Primary(), std::move(on_via), allow_circuit);
+    circuit->TryEnsurePeerReachableViaAsync(a->Primary(), std::move(on_via), allow_circuit, a->req.advertised_relays);
   }
 }
 

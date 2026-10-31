@@ -26,7 +26,7 @@ this repo, **B** = pp-browser `src/`.
 | `MeshHopPolicy::bootstrap_seeds` | B `feature/conversations/MeshConnectivityWiring.cpp:68-75` | effective list, or config only (`trusted_relays_only`); org seeds dropped when the probe failed | pushed every 5 s and on directory update | seed warm / park (M `src/reach/CircuitRendezvousCoordinator.cpp`) |
 | `MeshHopPolicy::rendezvous_candidates` | B `domain/people/MeshHopPolicy.cpp:169-209` | contacts ∪ directory ∪ DHT ∪ seeds, kept only when a circuit relay (org seed, or listed with `circuit_relay`) | none | reserve, park, `DialableRelayIds` |
 | Park surface | M `CircuitRendezvousCoordinator.cpp:248-280` | sticky R1, then Connected, then the rest | park cold-dials **all** remaining, serially | PeerReach park gate, Accept |
-| Circuit reach relays | M `src/reach/AmpCircuitHopReach.cpp` (`OrderCircuitRelayAttempts`, `CircuitRelayRefusals`) | sticky R1, then Connected, then the rest; a relay that refused a circuit in the last 10 min goes behind all of them | 4 bridges in a 14 s envelope | `EnsureViaCircuit` |
+| Circuit reach relays | M `src/reach/AmpCircuitHopReach.cpp` (`PutAdvertisedRelaysFirst`, `OrderCircuitRelayAttempts`, `CircuitRelayRefusals`) | the relays the target advertised (`PeerReachRequest::advertised_relays`: a call's CallAccept names where the callee is parked), in its order; then sticky R1, Connected, the rest; a relay that refused a circuit in the last 10 min goes behind all but the advertised | 4 bridges in a 14 s envelope; a `not registered` miss retries once only on an advertised relay | `EnsureViaCircuit` |
 | `MeshHopPolicy::punch_introducers` | B `MeshConnectivityWiring.cpp:76-82` | contacts (Connected first), then config seeds | walk with a tried set | cold punch (M `src/reach/PunchIntroducerWalk.cpp`) |
 | Directory query peers | B `feature/conversations/ConversationsHub.cpp:916-941` | Amp directory providers, then seeds | none; every 300 s | directory refresh |
 | DHT query peers | B `feature/node/NodeMeshServices.cpp:50-68` | directory nodes, then seeds | none | DHT store / find_peer |
@@ -188,7 +188,12 @@ Rules built on it:
   may be the very peer being reached (a contact that relays), and dialing it is the dual-NAT dial
   the park exists to prevent (hard lab `B-HARD-CALL-NAT-COLD-DIRTY` caught a surface-wide park).
 - **Circuit dial:** the relays circuit reach may bridge through leave out those held down
-  (unless Connected) — a StartBridge through one would only time out.
+  (unless Connected) — a StartBridge through one would only time out. Relays the target
+  advertised go first (pp-browser media-hop-reachability H013): the target knows where it holds a
+  reservation; the dialer only guesses. Only those get a second try on `not registered`.
+- **Awaiting side:** `PeerReachRequest::await_hold_ms` keeps an await open at least that long from
+  its start, waiting for the peer's circuit (a call's answerer: the caller starts only once our
+  CallAccept crossed its inbox). The waiter ends it sooner by cancelling.
 - **PeerReach:** the park before a private dial uses the selection; with every rendezvous peer
   Down it answers at once and the private dial goes ahead. A same-LAN private Preferred (on one
   of our listen addresses' /24s, `PeerReachPorts::local_listen_addrs`) is dialed first, without

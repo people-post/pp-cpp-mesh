@@ -151,6 +151,11 @@ void MeshConnectivity::Wire() {
     ArmLocalViewRefresh();
     WireDialRegistry(m, io);
     WireCircuitHopReach(m, io);
+    if (CircuitClientCoordinator* circuit = m ? m->AmpCircuitClient() : nullptr) {
+      // A callee advertises the view's parked relays in its answer (H013): republish as they change,
+      // not only on the periodic refresh.
+      circuit->SetOnParkedChanged(deferred_.Bind([this]() { RefreshLocalView(); }));
+    }
     WireReachRecord(m);
     rendezvous_.InstallReparkListener();
   });
@@ -293,6 +298,9 @@ void MeshConnectivity::RefreshLocalViewOnLane() {
     if (AmpPunchCoordinator* punch = m->AmpPunch()) {
       view.punch_started = punch->IsStarted();
       view.punch_candidate_addrs = punch->LocalCandidateAddrs();
+    }
+    if (CircuitClientCoordinator* circuit = m->AmpCircuitClient()) {
+      view.parked_relays = circuit->ParkedRelays();
     }
   }
   PublishLocalView(std::move(view));

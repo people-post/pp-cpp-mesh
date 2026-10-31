@@ -110,6 +110,7 @@ struct CircuitClientCoordinator::Impl {
    * "Couldn't connect"). Hot while ≥ 1 reservation is held (K008).
    */
   std::unordered_map<std::string, int> reserved_relays;
+  std::function<void()> on_parked_changed;
 
   void PostIo(std::function<void()> task) {
     if (!runtime || !task) {
@@ -233,6 +234,7 @@ struct CircuitClientCoordinator::Impl {
   void NoteReserveHeld(const std::string& relay_key) {
     if (++reserved_relays[relay_key] == 1) {
       runtime->Links().MarkHot(relay_key);
+      PostFinishCb(on_parked_changed);
     }
   }
 
@@ -247,6 +249,7 @@ struct CircuitClientCoordinator::Impl {
     if (--it->second <= 0) {
       reserved_relays.erase(it);
       runtime->Links().ClearWarm(tunnel.relay_peer_key);
+      PostFinishCb(on_parked_changed);
     }
   }
 
@@ -604,6 +607,25 @@ bool CircuitClientCoordinator::IsTunnelActive(const CircuitTunnelId id) const {
 size_t CircuitClientCoordinator::ParkedRelayCount() const {
   std::lock_guard lock(impl_->mu);
   return impl_->reserved_relays.size();
+}
+
+void CircuitClientCoordinator::SetOnParkedChanged(std::function<void()> on_changed) {
+  std::lock_guard lock(impl_->mu);
+  impl_->on_parked_changed = std::move(on_changed);
+}
+
+std::vector<std::string> CircuitClientCoordinator::ParkedRelays() const {
+  std::vector<std::string> relays;
+  {
+    std::lock_guard lock(impl_->mu);
+    relays.reserve(impl_->reserved_relays.size());
+    for (const auto& [relay, count] : impl_->reserved_relays) {
+      (void)count;
+      relays.push_back(relay);
+    }
+  }
+  std::sort(relays.begin(), relays.end());
+  return relays;
 }
 
 size_t CircuitClientCoordinator::TunnelCount() const {

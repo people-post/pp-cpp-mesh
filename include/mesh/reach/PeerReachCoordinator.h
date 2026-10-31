@@ -64,6 +64,17 @@ struct PeerReachRequest {
   bool allow_punch = true;
   /** exclude_direct for a call's standby (K003): the relay may refuse it for load, lowest first. */
   CircuitStandbyPriority circuit_standby_priority = CircuitStandbyPriority::None;
+  /**
+   * Reach: the relays the peer says it holds reservations on (a call's CallAccept, H013), best
+   * first. The circuit tries them before its own ranking; only they earn a same-relay retry.
+   */
+  std::vector<std::string> advertised_relays;
+  /**
+   * Await: keep waiting for the peer's circuit at least this long from the start (a call's answerer
+   * waits for the caller, whose CallAccept may still be crossing a slow inbox — H013). The waiter
+   * ends it sooner by cancelling. 0: the usual dial-overlap budget.
+   */
+  int64_t await_hold_ms = 0;
 };
 
 struct PeerReachResult {
@@ -213,6 +224,8 @@ private:
   void ScheduleTick(const AttemptPtr& a, int delay_ms);
   void Finish(const AttemptPtr& a, ReachRoe result);
   bool TrySettleConnected(const AttemptPtr& a);
+  /** An await's hold (PeerReachRequest::await_hold_ms); 0 for a reach. */
+  static int64_t AwaitHoldMs(const Attempt& a);
   bool MaybeParkBeforePrivateDial(const AttemptPtr& a);
   bool MaybeDialOnOurLan(const AttemptPtr& a);
   void OnLanDialDone(const AttemptPtr& a, bool ok, bool connected_now, bool direct_now);

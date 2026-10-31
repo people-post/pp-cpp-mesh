@@ -31,6 +31,17 @@ TEST(CircuitHopAttemptBudgetTest, OrderWithoutStickyKeepsConnectedFirst) {
   EXPECT_EQ(out[2], "b");
 }
 
+TEST(CircuitHopAttemptBudgetTest, AdvertisedRelaysGoFirstInTheTargetsOrder) {
+  // H013: the target is parked on c and a (in that order); the dialer ranked a, b, c, d.
+  const std::vector<std::string> ranked{"a", "b", "c", "d"};
+  EXPECT_EQ(pp::mesh::PutAdvertisedRelaysFirst(ranked, {"c", "a"}), (std::vector<std::string>{"c", "a", "b", "d"}));
+  EXPECT_EQ(pp::mesh::PutAdvertisedRelaysFirst(ranked, {"x", "d"}), (std::vector<std::string>{"d", "a", "b", "c"}))
+      << "an advertised relay the dialer cannot dial is not added";
+  EXPECT_EQ(pp::mesh::PutAdvertisedRelaysFirst(ranked, {}), ranked);
+  EXPECT_TRUE(pp::mesh::IsAdvertisedRelay({"c", "a"}, "a"));
+  EXPECT_FALSE(pp::mesh::IsAdvertisedRelay({"c", "a"}, "b"));
+}
+
 TEST(CircuitHopAttemptBudgetTest, StartBridgeTimeoutClampsToEnvelope) {
   EXPECT_EQ(pp::mesh::CircuitStartBridgeTimeoutMs(10000, /*nested=*/false), pp::mesh::kCircuitStartBridgeBaseMs);
   EXPECT_EQ(pp::mesh::CircuitStartBridgeTimeoutMs(10000, /*nested=*/true), pp::mesh::kCircuitStartBridgeBaseMs);
@@ -60,12 +71,13 @@ TEST(CircuitHopAttemptBudgetTest, FastFailErrors) {
   EXPECT_FALSE(CircuitBridgeMissIsFastFail(CircuitTunnelErr::Aborted));
 }
 
-TEST(CircuitHopAttemptBudgetTest, NotRegRetriesSameRelayOnceThenAdvances) {
-  EXPECT_TRUE(pp::mesh::CircuitShouldRetrySameRelayOnNotReg(true, 1));
-  EXPECT_FALSE(pp::mesh::CircuitShouldRetrySameRelayOnNotReg(true, 2));
-  EXPECT_FALSE(pp::mesh::CircuitShouldRetrySameRelayOnNotReg(true, 3));
-  EXPECT_FALSE(pp::mesh::CircuitShouldRetrySameRelayOnNotReg(true, pp::mesh::kCircuitMaxStartBridgeAttempts));
-  EXPECT_FALSE(pp::mesh::CircuitShouldRetrySameRelayOnNotReg(false, 1));
+TEST(CircuitHopAttemptBudgetTest, NotRegRetriesOnlyAnAdvertisedRelayOnce) {
+  // H013: only a relay the target advertised is worth a second try, and only once.
+  EXPECT_TRUE(pp::mesh::CircuitShouldRetrySameRelayOnNotReg(true, /*advertised=*/true, /*retried=*/false));
+  EXPECT_FALSE(pp::mesh::CircuitShouldRetrySameRelayOnNotReg(true, true, /*retried=*/true));
+  EXPECT_FALSE(pp::mesh::CircuitShouldRetrySameRelayOnNotReg(true, /*advertised=*/false, false))
+      << "the target never said it was there: advance";
+  EXPECT_FALSE(pp::mesh::CircuitShouldRetrySameRelayOnNotReg(false, true, false));
 }
 
 TEST(CircuitHopAttemptBudgetTest, StickyRetryOnceOnFastFail) {
