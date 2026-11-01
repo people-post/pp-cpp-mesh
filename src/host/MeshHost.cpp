@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "amp/L1/Clock.h"
+#include "amp/L1/Endpoint.h"
 #include "amp/L1/OsUdpDatagramIo.h"
 #include "amp/L1/Types.h"
 #include "amp/L2/Types.h"
@@ -630,6 +631,7 @@ void MeshHost::OnLocalNetworkChanged(const LocalNetworkChange& change) {
   }
   if (reaction.probe_links) {
     amp_->Runtime().NotifyNetworkChanged();
+    EnsureUdpSocketAlive(UdpSocketCheckReason::NetworkChange);  // #416: iOS can kill the socket on a path change
   }
   if (reaction.reprobe_reachability) {
     MakeL4IoAfter()(kReachabilityReprobeAfterNetworkChange, [this, gen]() { ReprobeAfterNetworkChange(gen, 5); });
@@ -650,6 +652,104 @@ void MeshHost::ReprobeAfterNetworkChange(const uint64_t gen, const int attempts_
     return;
   }
   StartReachabilityProbe(false);
+}
+
+void MeshHost::ProbeUdpSocket(std::function<void(const UdpSocketProbeResult&)> done) {
+  if (!done) {
+    return;
+  }
+  if (!amp_) {
+    done(UdpSocketProbeResult{false, "no amp stack"});
+    return;
+  }
+  MakeL4IoPost()([this, done = std::move(done)]() mutable { SendUdpSocketProbe(false, std::move(done)); });
+}
+
+void MeshHost::SendUdpSocketProbe(const bool second, std::function<void(const UdpSocketProbeResult&)> done) {
+  if (!amp_) {
+    done(UdpSocketProbeResult{false, "no amp stack"});
+    return;
+  }
+  pp::adp::Endpoint& endpoint = amp_->GetEndpoint();
+  const uint64_t rx_before = endpoint.Stats().rx_datagrams;
+  const pp::adp::IpEndpoint target = UdpSocketProbeTarget(amp_->LocalEndpoint());
+  static constexpr uint8_t kProbe[1] = {0};
+  if (auto sent = endpoint.SendRaw(target, std::span<const uint8_t>(kProbe)); !sent) {
+    MeshHostLog().warning << "udp socket probe: send failed: " << sent.error().message;
+    done(UdpSocketProbeResult{false, sent.error().message});
+    return;
+  }
+  const auto wait = second ? kUdpSocketProbeSecondWait : kUdpSocketProbeFirstWait;
+  MakeL4IoAfter()(wait, [this, second, rx_before, done = std::move(done)]() mutable {
+    if (!amp_) {
+      done(UdpSocketProbeResult{false, "no amp stack"});
+      return;
+    }
+    if (amp_->GetEndpoint().Stats().rx_datagrams > rx_before) {
+      done(UdpSocketProbeResult{true, {}});
+      return;
+    }
+    if (!second) {
+      SendUdpSocketProbe(true, std::move(done));
+      return;
+    }
+    MeshHostLog().warning << "udp socket probe: nothing received in "
+                          << (kUdpSocketProbeFirstWait + kUdpSocketProbeSecondWait).count() << " ms";
+    done(UdpSocketProbeResult{false, "nothing received"});
+  });
+}
+
+void MeshHost::SetOnUdpSocketCheck(std::function<void(const UdpSocketCheck&)> on_check) {
+  on_udp_socket_check_ = std::move(on_check);
+}
+
+void MeshHost::ReportUdpSocketCheck(const UdpSocketCheck& check) const {
+  if (on_udp_socket_check_) {
+    on_udp_socket_check_(check);
+  }
+}
+
+void MeshHost::EnsureUdpSocketAlive(const UdpSocketCheckReason reason) {
+  ProbeUdpSocket([this, reason](const UdpSocketProbeResult& probe) {
+    UdpSocketCheck check;
+    check.reason = reason;
+    if (probe.ok) {
+      check.was_alive = check.alive = true;
+      ReportUdpSocketCheck(check);
+      return;
+    }
+    check.error = probe.error;
+    if (!amp_) {
+      ReportUdpSocketCheck(check);
+      return;
+    }
+    ReopenDeadUdpSocket(std::move(check));
+  });
+}
+
+void MeshHost::ReopenDeadUdpSocket(UdpSocketCheck check) {
+  // On the IO lane (the probe's answer): no send or receive runs beside the reopen.
+  auto reopened = amp_->GetEndpoint().Io().Reopen();
+  if (!reopened) {
+    check.error += "; reopen failed: " + reopened.error().message;
+    MeshHostLog().warning << "udp socket dead and not reopened: " << check.error;
+    ReportUdpSocketCheck(check);
+    return;
+  }
+  check.reopened = true;
+  MeshHostLog().warning << "udp socket was dead (" << check.error << "); reopened on port "
+                        << amp_->LocalEndpoint().port;
+  // What a network change does: probe every link (silent ones go fast), learn our addresses again.
+  amp_->Runtime().NotifyNetworkChanged();
+  const uint64_t gen = network_change_gen_.fetch_add(1, std::memory_order_acq_rel) + 1;
+  MakeL4IoAfter()(kReachabilityReprobeAfterNetworkChange, [this, gen]() { ReprobeAfterNetworkChange(gen, 5); });
+  ProbeUdpSocket([this, check = std::move(check)](const UdpSocketProbeResult& after) mutable {
+    check.alive = after.ok;
+    if (!after.ok) {
+      check.error += "; after reopen: " + after.error;
+    }
+    ReportUdpSocketCheck(check);
+  });
 }
 
 void MeshHost::RunReachabilityProbeBlocking(bool try_upnp_first) {

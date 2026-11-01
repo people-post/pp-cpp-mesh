@@ -7,6 +7,7 @@ pp_mesh_add_folder_library(host
     DisclosureGatedPeerLinks.cpp
     MeshPorts.cpp
     MeshPumpThread.cpp
+    UdpSocketProbe.cpp
   DEPS reachability dht discovery circuit media_relay shared)
 
 if(PP_MESH_BUILD_TESTS)

@@ -3,6 +3,7 @@
 #include "mesh/types/MeshConfigTypes.h"
 #include "amp/link/AmpStack.h"
 #include "mesh/host/LocalNetworkChange.h"
+#include "mesh/host/UdpSocketProbe.h"
 #include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "mesh/dht/AmpDhtProtocol.h"
 #include "mesh/discovery/AmpDirectoryProtocol.h"
@@ -189,6 +190,22 @@ public:
    */
   void OnLocalNetworkChanged(const LocalNetworkChange& change);
   void RunReachabilityProbeBlocking(bool try_upnp_first = false);
+  /**
+   * #416: is Amp's UDP socket alive (`UdpSocketProbe.h`)? Any thread. A send that fails answers at
+   * once; otherwise the answer comes when a datagram arrived, or after a second send also got none.
+   * `done` runs on the IO lane and must not block or wait on the mesh; with no Amp stack it runs
+   * inline with an error.
+   */
+  void ProbeUdpSocket(std::function<void(const UdpSocketProbeResult&)> done);
+  /**
+   * Probe, and reopen a dead socket on its port, then probe again; after a reopen links are probed
+   * and reachability re-learned as after a network change. Run on every online network change; the
+   * product adds what the mesh cannot see (the app coming back to the foreground). Any thread; the
+   * outcome goes to SetOnUdpSocketCheck's observer.
+   */
+  void EnsureUdpSocketAlive(UdpSocketCheckReason reason);
+  /** Told every EnsureUdpSocketAlive outcome, on the IO lane (must not block). Set before Start. */
+  void SetOnUdpSocketCheck(std::function<void(const UdpSocketCheck&)> on_check);
 
 private:
   Roe<void> StartAmpFromConfig(const MeshHostConfig& config);
@@ -228,6 +245,10 @@ private:
   /** k5: the latest network change; a delayed re-probe for an older one stands down. */
   std::atomic<uint64_t> network_change_gen_{0};
   void ReprobeAfterNetworkChange(uint64_t gen, int attempts_left);
+  void SendUdpSocketProbe(bool second, std::function<void(const UdpSocketProbeResult&)> done);
+  void ReopenDeadUdpSocket(UdpSocketCheck check);
+  void ReportUdpSocketCheck(const UdpSocketCheck& check) const;
+  std::function<void(const UdpSocketCheck&)> on_udp_socket_check_;
   std::unique_ptr<pp::amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
   std::unique_ptr<CircuitRelayServer> amp_circuit_server_;
