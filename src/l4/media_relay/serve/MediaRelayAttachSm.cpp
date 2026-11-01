@@ -87,8 +87,9 @@ bool MediaRelayAttachSm::Apply(const MediaRelayAttachEvent ev) {
     SetPhase(MediaRelayAttachPhase::Accepted, ev);
     return true;
   case MediaRelayAttachEvent::OpAttach:
-    if (phase != MediaRelayAttachPhase::Control && phase != MediaRelayAttachPhase::Quoted &&
-        phase != MediaRelayAttachPhase::Accepted) {
+    // PB-021: attach follows this channel's own accept (quote → accept → attach): its token is the
+    // one the accept issued here, never a session's token picked up elsewhere.
+    if (phase != MediaRelayAttachPhase::Accepted) {
       return false;
     }
     SetPhase(MediaRelayAttachPhase::Attaching, ev);

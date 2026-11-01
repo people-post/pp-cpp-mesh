@@ -5,6 +5,9 @@
 #include "mesh/l4/shared/ProductChannelPolicies.h"
 
 #include <gtest/gtest.h>
+#include <vector>
+#include <mutex>
+#include "common/ValueJson.h"
 
 #include <atomic>
 #include <future>
@@ -113,6 +116,79 @@ TEST_F(MediaRelayServerClientTest, AcceptAndAttachRoundTrip) {
   EXPECT_TRUE(health.attached);
   EXPECT_TRUE(health.link_available);
   EXPECT_GT(health.reliable_sent, 0u);
+}
+
+// PB-021: a raw control channel to the hop — what anyone who learned a call id could open. An attach
+// that skips this channel's accept, or carries a token other than the one its accept issued, is refused.
+TEST_F(MediaRelayServerClientTest, AnAttachNeedsTheTokenThisChannelsAcceptIssued) {
+  auto open_raw = [&](std::vector<std::string>& replies, std::mutex& mu) {
+    std::optional<uint32_t> channel;
+    harness_->mgr_a().OpenChannel("hop", kMediaRelayProtocolId, pp::amp::MediaRelayClientChannelPolicy(),
+                                  [&](const pp::amp::PeerLinkManager::ChannelRoe& ch) {
+                                    if (ch.isOk()) {
+                                      channel = ch.value();
+                                    }
+                                  });
+    harness_->PumpUntil([&] {
+      auto* link = harness_->mgr_a().FindLink("hop");
+      return channel.has_value() && link && link->Mux() && link->Mux()->State(*channel) == pp::amp::ChannelState::Open;
+    });
+    EXPECT_TRUE(channel.has_value());
+    return harness_->mgr_a().BindChannel("hop", channel.value_or(0), pp::amp::MediaRelayClientChannelPolicy(),
+                                         [&](Roe<std::vector<uint8_t>> body) {
+                                           if (body) {
+                                             std::lock_guard lock(mu);
+                                             replies.emplace_back(body->begin(), body->end());
+                                           }
+                                           return true;
+                                         });
+  };
+  auto send = [](const std::shared_ptr<pp::amp::ChannelSession>& session, const std::string& json) {
+    return session->EnqueueOutbound(std::vector<uint8_t>(json.begin(), json.end()));
+  };
+
+  {  // No quote, no accept: an attach naming a call and a guessed token.
+    std::mutex mu;
+    std::vector<std::string> replies;
+    auto session = open_raw(replies, mu);
+    ASSERT_NE(session, nullptr);
+    ASSERT_TRUE(send(session, R"({"v":1,"op":"attach","session_token":"s1","call_id":"call-x","auth":"call-x"})"));
+    harness_->PumpUntil([&] { std::lock_guard lock(mu); return !replies.empty(); });
+    std::lock_guard lock(mu);
+    ASSERT_FALSE(replies.empty());
+    EXPECT_EQ(replies.front().find(R"("ok":true)"), std::string::npos) << replies.front();
+  }
+  {  // Quote and accept, then attach with another token.
+    std::mutex mu;
+    std::vector<std::string> replies;
+    auto session = open_raw(replies, mu);
+    ASSERT_NE(session, nullptr);
+    ASSERT_TRUE(send(session, R"({"v":1,"op":"quote","call_id":"call-y","participants":2})"));
+    harness_->PumpUntil([&] { std::lock_guard lock(mu); return !replies.empty(); });
+    std::string quote_id;
+    {
+      std::lock_guard lock(mu);
+      ASSERT_FALSE(replies.empty());
+      auto quote = common::TryParseObject(replies.back());
+      ASSERT_TRUE(quote.has_value()) << replies.back();
+      quote_id = quote->getString("quote_id").value_or("");
+    }
+    ASSERT_FALSE(quote_id.empty());
+    ASSERT_TRUE(send(session, R"({"v":1,"op":"accept","quote_id":")" + quote_id + R"("})"));
+    harness_->PumpUntil([&] { std::lock_guard lock(mu); return replies.size() >= 2; });
+    {
+      std::lock_guard lock(mu);
+      ASSERT_GE(replies.size(), 2u);
+      auto accept = common::TryParseObject(replies.back());
+      ASSERT_TRUE(accept.has_value());
+      EXPECT_EQ(accept->getString("session_token").value_or("").rfind("s-", 0), 0u) << "an unguessable token";
+    }
+    ASSERT_TRUE(send(session, R"({"v":1,"op":"attach","session_token":"s-guess","call_id":"call-y","auth":"call-y"})"));
+    harness_->PumpUntil([&] { std::lock_guard lock(mu); return replies.size() >= 3; });
+    std::lock_guard lock(mu);
+    ASSERT_GE(replies.size(), 3u);
+    EXPECT_EQ(replies.back().find(R"("ok":true)"), std::string::npos) << replies.back();
+  }
 }
 
 TEST_F(MediaRelayServerClientTest, AdmitRefusesStrangerOnQuote) {
