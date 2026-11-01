@@ -201,7 +201,8 @@ public:
    * Probe, and reopen a dead socket on its port, then probe again; after a reopen links are probed
    * and reachability re-learned as after a network change. Run on every online network change; the
    * product adds what the mesh cannot see (the app coming back to the foreground). Any thread; the
-   * outcome goes to SetOnUdpSocketCheck's observer.
+   * outcome goes to SetOnUdpSocketCheck's observer. A request while a check runs joins it (one
+   * outcome): two at once would reopen twice, the second closing the socket the first just opened.
    */
   void EnsureUdpSocketAlive(UdpSocketCheckReason reason);
   /** Told every EnsureUdpSocketAlive outcome, on the IO lane (must not block). Set before Start. */
@@ -247,8 +248,9 @@ private:
   void ReprobeAfterNetworkChange(uint64_t gen, int attempts_left);
   void SendUdpSocketProbe(bool second, std::function<void(const UdpSocketProbeResult&)> done);
   void ReopenDeadUdpSocket(UdpSocketCheck check);
-  void ReportUdpSocketCheck(const UdpSocketCheck& check) const;
+  void ReportUdpSocketCheck(const UdpSocketCheck& check);
   std::function<void(const UdpSocketCheck&)> on_udp_socket_check_;
+  std::atomic<bool> udp_socket_check_running_{false};
   std::unique_ptr<pp::amp::AmpStack> amp_;
   std::unique_ptr<AmpCircuitHopRegistry> amp_circuit_hops_;
   std::unique_ptr<CircuitRelayServer> amp_circuit_server_;

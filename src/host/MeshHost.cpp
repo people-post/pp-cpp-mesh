@@ -703,13 +703,17 @@ void MeshHost::SetOnUdpSocketCheck(std::function<void(const UdpSocketCheck&)> on
   on_udp_socket_check_ = std::move(on_check);
 }
 
-void MeshHost::ReportUdpSocketCheck(const UdpSocketCheck& check) const {
+void MeshHost::ReportUdpSocketCheck(const UdpSocketCheck& check) {
+  udp_socket_check_running_.store(false, std::memory_order_release);
   if (on_udp_socket_check_) {
     on_udp_socket_check_(check);
   }
 }
 
 void MeshHost::EnsureUdpSocketAlive(const UdpSocketCheckReason reason) {
+  if (!amp_ || udp_socket_check_running_.exchange(true, std::memory_order_acq_rel)) {
+    return;  // no socket, or a check is running: its outcome covers this request
+  }
   ProbeUdpSocket([this, reason](const UdpSocketProbeResult& probe) {
     UdpSocketCheck check;
     check.reason = reason;

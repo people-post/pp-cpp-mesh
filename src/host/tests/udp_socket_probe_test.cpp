@@ -13,6 +13,7 @@
 #include <optional>
 #include <sodium.h>
 #include <thread>
+#include <vector>
 
 namespace pp::mesh {
 namespace {
@@ -169,6 +170,33 @@ TEST_F(UdpSocketProbeTest, ASocketThatCannotBeReopenedStaysDeadAndSaysWhy) {
   EXPECT_FALSE(check->reopened);
   EXPECT_FALSE(check->alive);
   EXPECT_NE(check->error.find("reopen failed"), std::string::npos) << check->error;
+}
+
+// iOS resume: the foreground and a path update arrive together — one check, one reopen.
+TEST_F(UdpSocketProbeTest, ChecksAskedTogetherReopenOnce) {
+  auto io = std::make_shared<DeafDatagramIo>(std::make_shared<pp::adp::MemoryDatagramIo>(hub_, addr_), true);
+  Attach(io);
+  std::vector<UdpSocketCheck> checks;
+  host_.SetOnUdpSocketCheck([&checks](const UdpSocketCheck& c) { checks.push_back(c); });
+  host_.EnsureUdpSocketAlive(UdpSocketCheckReason::Requested);
+  host_.EnsureUdpSocketAlive(UdpSocketCheckReason::NetworkChange);
+  for (int i = 0; i < 100; ++i) {
+    host_.Tick();
+    clock_->Advance(50);
+  }
+  ASSERT_EQ(checks.size(), 1u);
+  EXPECT_EQ(checks[0].reason, UdpSocketCheckReason::Requested);
+  EXPECT_TRUE(checks[0].alive) << checks[0].error;
+  EXPECT_EQ(io->reopens_, 1);
+
+  host_.EnsureUdpSocketAlive(UdpSocketCheckReason::Requested);  // done: the next one runs
+  for (int i = 0; i < 100 && checks.size() < 2; ++i) {
+    host_.Tick();
+    clock_->Advance(50);
+  }
+  ASSERT_EQ(checks.size(), 2u);
+  EXPECT_TRUE(checks[1].was_alive);
+  host_.SetOnUdpSocketCheck({});
 }
 
 TEST_F(UdpSocketProbeTest, ANetworkChangeChecksTheSocketAndReopensADeadOne) {
