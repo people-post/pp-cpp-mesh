@@ -27,8 +27,8 @@ its history; pp-browser and its headless node `pp-node` are its first consumers.
 
 | Folder (`include/mesh/`, `src/`) | Library | What |
 |----------------------------------|---------|------|
-| `types/` | `pp_mesh_types` | Vocabulary shared with app code: directory rows, hops, relay scope, address disclosure, public address, media channel, config. pp-cpp-common only — an app's lower layers can use it without Amp |
-| `shared/`, `l4/shared/` | `pp_mesh_shared` | Executors, protocol IDs, channel policies, frame bodies |
+| `types/` | `pp_mesh_types` | Vocabulary shared with app code: directory rows, hops, relay scope, address disclosure, public address, media channel, config, the executors a host gives a mesh (`MeshExecutors`). pp-cpp-common only — an app's lower layers can use it without Amp |
+| `shared/`, `l4/shared/` | `pp_mesh_shared` | Protocol IDs, channel policies, frame bodies |
 | `reachability/` | `pp_mesh_reachability` | Reachability engine, dial-back, punch, LAN mDNS, UPnP |
 | `dht/` | `pp_mesh_dht` | DHT records, store, server and client |
 | `discovery/` | `pp_mesh_discovery` | Directory protocol, name directory, directory cache |
