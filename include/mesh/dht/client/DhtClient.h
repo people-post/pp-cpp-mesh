@@ -71,6 +71,15 @@ public:
   static constexpr int kPublishRetrySeconds = 10;
   /** Query peers whose record we lack are looked up again this often. */
   static constexpr int kWarmSeconds = 15;
+  /**
+   * pp-browser#382: a query peer whose own record nobody has (a seed that serves the DHT without
+   * publishing itself) is asked about less and less often — each ask dials the query peers — from
+   * 1 min up to 30 min; a find resets it.
+   */
+  static constexpr int64_t kWarmMissFirstMs = 60 * 1000;
+  static constexpr int64_t kWarmMissMaxMs = 30 * 60 * 1000;
+  /** The wait after another miss: the first, then doubling, at most the max. */
+  static int64_t NextWarmMissDelayMs(int64_t previous_ms);
   /** How often stale buckets are looked for, a bucket's staleness, and the refresh budget (§ 4.6). */
   static constexpr int kRefreshCheckSeconds = 600;
   static constexpr int64_t kStaleBucketMs = 60 * 60 * 1000;
@@ -120,6 +129,8 @@ private:
   void Walk(const std::string& target_peer_id, DhtLookup::Limits limits, std::function<void(WalkOutcome)> done);
   std::vector<std::string> PublishableAddrs() const;
   void WarmQueryPeersIfDue(std::chrono::steady_clock::time_point now);
+  /** A warm-up lookup of `peer_key` answered: found clears its backoff, a miss doubles it. */
+  void NoteWarmResult(const std::string& peer_key, bool found);
   /** `reach_held_down` says so and no link is up: not dialled, not kept. */
   bool HeldDown(const std::string& peer_id) const;
   void Rpc(const std::string& peer_key, common::Object request, std::function<void(RpcRoe)> on_response);
@@ -172,6 +183,13 @@ private:
 
   std::mutex not_found_mutex_;
   std::unordered_map<std::string, int64_t> not_found_until_ms_;
+
+  struct WarmMiss {
+    int64_t next_ms = 0;
+    int64_t delay_ms = 0;
+  };
+  std::mutex warm_mutex_;
+  std::unordered_map<std::string, WarmMiss> warm_misses_;
 
   std::mutex ping_mutex_;
   std::unordered_set<std::string> pinging_;
