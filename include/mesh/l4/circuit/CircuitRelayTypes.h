@@ -3,6 +3,7 @@
 #include "mesh/types/RelayScope.h"
 #include "mesh/l4/shared/L4ProtocolIds.h"
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -34,6 +35,13 @@ enum class CircuitRefusal : int32_t {
   NotReady,
   BadRequest,
   Generic,
+};
+
+/** Every refusal a relay can send, Generic last (metrics label each; `CircuitRefusalWire` names them). */
+inline constexpr std::array<CircuitRefusal, 7> kCircuitRefusalReasons{
+    CircuitRefusal::TargetNotReserved, CircuitRefusal::TargetUnreachable, CircuitRefusal::Busy,
+    CircuitRefusal::Refused,           CircuitRefusal::NotReady,          CircuitRefusal::BadRequest,
+    CircuitRefusal::Generic,
 };
 
 inline const char* CircuitRefusalWire(const CircuitRefusal refusal) {

@@ -112,13 +112,27 @@ struct CircuitRelayMetrics {
   MetricCounter& tunnels_bridged;
   MetricCounter& tunnels_failed;
   MetricHistogram& setup_seconds;
+  /**
+   * pp_circuit_relay_bridge_failures_total{reason}: why an admitted bridge failed (the refusal the
+   * dialer hears — target_not_reserved is the "not registered" a callee not parked here causes).
+   */
+  std::array<MetricCounter*, kCircuitRefusalReasons.size()> bridge_failures{};
+
+  MetricCounter& BridgeFailure(const CircuitRefusal refusal) {
+    for (size_t i = 0; i < kCircuitRefusalReasons.size(); ++i) {
+      if (kCircuitRefusalReasons[i] == refusal) {
+        return *bridge_failures[i];
+      }
+    }
+    return *bridge_failures.back();  // generic
+  }
 
   /** Its series exist (at 0) from the start. */
   static CircuitRelayMetrics In(MetricsRegistry& r) {
     {
       const char* requests = "Circuit relay requests, by op and result.";
       const char* tunnels = "Circuit relay tunnels ended setup, by result.";
-      return CircuitRelayMetrics{
+      CircuitRelayMetrics m{
           r.Counter("pp_circuit_relay_requests_total", requests, {{"op", "bridge"}, {"result", "accepted"}}),
           r.Counter("pp_circuit_relay_requests_total", requests, {{"op", "bridge"}, {"result", "refused_admission"}}),
           r.Counter("pp_circuit_relay_requests_total", requests,
@@ -130,6 +144,13 @@ struct CircuitRelayMetrics {
           r.Histogram("pp_circuit_relay_setup_seconds", "Circuit relay request to bridged.",
                       {0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}),
       };
+      const char* failures = "Admitted circuit relay bridges that failed, by the refusal the dialer heard.";
+      for (size_t i = 0; i < kCircuitRefusalReasons.size(); ++i) {
+        const char* wire = CircuitRefusalWire(kCircuitRefusalReasons[i]);
+        m.bridge_failures[i] =
+            &r.Counter("pp_circuit_relay_bridge_failures_total", failures, {{"reason", *wire ? wire : "generic"}});
+      }
+      return m;
     }
   }
 };
@@ -346,6 +367,9 @@ struct CircuitRelayServer::Impl {
 
   /** Requires `mu`. The dialer hears why (never an opaque timeout), then the tunnel goes. */
   void FailNear(Tunnel& tunnel, const CircuitRefusal refusal, const std::string& message) {
+    if (!tunnel.finished && !tunnel.bridged) {
+      metrics.BridgeFailure(refusal).Inc();
+    }
     if (tunnel.near_session) {
       tunnel.near_session->EnqueueOutbound(ErrorBody(refusal, message));
     }
