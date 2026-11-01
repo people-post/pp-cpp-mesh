@@ -1,6 +1,21 @@
 #include "mesh/l4/circuit/CircuitBundleLogic.h"
 
+#include "amp/link/Types.h"
+#include "mesh/l4/shared/L4ProtocolIds.h"
+
+#include <algorithm>
+
 namespace pp::mesh {
+
+int64_t CircuitRequestTimeoutMs(const std::optional<int64_t> requested, const int64_t fallback, const int64_t max) {
+  const int64_t wanted = requested.value_or(0) > 0 ? *requested : fallback;
+  return std::min(wanted, max);
+}
+
+bool CircuitTargetProtocolAllowed(const std::string_view protocol) {
+  return protocol == pp::amp::kAmpCircuitCarrierProtocolId || protocol == kCircuitRelayProtocolId ||
+         protocol == kMediaRelayProtocolId || protocol.starts_with("/test/");
+}
 
 CircuitAdmitDecision DecideCircuitAdmit(const CircuitAdmitContext& ctx) {
   if (!ctx.service_started || ctx.stopping) {

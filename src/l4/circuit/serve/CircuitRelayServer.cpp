@@ -212,8 +212,48 @@ struct CircuitRelayServer::Impl {
   size_t max_standby_per_dialer = kCircuitDefaultMaxStandbyPerDialer;
   /** PeerId → parked inbound circuit channel from an answerer (op=reserve). */
   std::unordered_map<std::string, Reservation> reservations;
+  /** Dialer PeerId → when it last had this relay dial new target addresses (PB-023), this minute. */
+  struct TargetWindow {
+    Clock::time_point start{};
+    size_t count = 0;
+  };
+  std::unordered_map<std::string, TargetWindow> new_targets_by_dialer;
   /** PeerId → ServeDial tunnels waiting for Connected / reserve (H010 event wait). */
   std::unordered_map<std::string, std::vector<CircuitTunnelId>> far_leg_waiters_;
+
+  /** Live bridges, relay-wide and from `dialer` (PB-022). Under `mu`. */
+  std::pair<size_t, size_t> CountLiveTunnelsLocked(const std::string& dialer) const {
+    size_t total = 0;
+    size_t from_dialer = 0;
+    for (const auto& [_, tunnel] : tunnels) {
+      if (!tunnel || tunnel->finished) {
+        continue;
+      }
+      ++total;
+      if (tunnel->dialer_peer_id == dialer) {
+        ++from_dialer;
+      }
+    }
+    return {total, from_dialer};
+  }
+
+  /** One more new target address from `dialer` this minute, or false when it had its share (PB-023). */
+  bool TakeNewTargetLocked(const std::string& dialer) {
+    const auto now = Clock::now();
+    if (new_targets_by_dialer.size() > kCircuitMaxTunnels) {
+      std::erase_if(new_targets_by_dialer,
+                    [&](const auto& entry) { return now - entry.second.start >= std::chrono::minutes(1); });
+    }
+    TargetWindow& window = new_targets_by_dialer[dialer];
+    if (now - window.start >= std::chrono::minutes(1)) {
+      window = TargetWindow{now, 0};
+    }
+    if (window.count >= kCircuitMaxNewTargetsPerDialerPerMinute) {
+      return false;
+    }
+    ++window.count;
+    return true;
+  }
 
   /** Live standby circuits this relay serves (K003), relay-wide and from `dialer`. Under `mu`. */
   void CountStandbyLocked(const std::string& dialer, CircuitAdmitContext& admit) const {
@@ -751,6 +791,30 @@ struct CircuitRelayServer::Impl {
       HandleReserve(near_session, remote, root, refuse);
       return;
     }
+    const std::string target_protocol = root.getString("target_protocol").value_or(kCircuitRelayProtocolId);
+    if (!CircuitTargetProtocolAllowed(target_protocol)) {
+      metrics.bridge_refused_admission.Inc();
+      CircuitTunnelLog().warning << "circuit bridge refused dialer=" << remote << " protocol=" << target_protocol;
+      refuse(CircuitRefusal::BadRequest, "circuit bridge: target protocol not relayed");
+      return;
+    }
+    {
+      std::lock_guard lock(mu);
+      const auto [total, from_dialer] = CountLiveTunnelsLocked(remote);
+      if (total >= kCircuitMaxTunnels || from_dialer >= kCircuitMaxTunnelsPerDialer) {
+        metrics.bridge_refused_admission.Inc();
+        CircuitTunnelLog().warning << "circuit bridge refused dialer=" << remote << " tunnels=" << total
+                                   << " from_dialer=" << from_dialer;
+        refuse(CircuitRefusal::Busy, "relay busy: too many bridges");
+        return;
+      }
+      if (!root.getString("target_multiaddr").value_or("").empty() && !TakeNewTargetLocked(remote)) {
+        metrics.bridge_refused_admission.Inc();
+        CircuitTunnelLog().warning << "circuit bridge refused dialer=" << remote << " reason=target-rate";
+        refuse(CircuitRefusal::Busy, "relay busy: too many new targets");
+        return;
+      }
+    }
     metrics.bridge_accepted.Inc();
     CircuitTunnelId id{};
     {
@@ -775,8 +839,9 @@ struct CircuitRelayServer::Impl {
         (void)mux->ApplyChannelPolicy(near_session->ChannelId(),
                                       CircuitTargetChannelPolicy(tunnel->target.target_protocol));
       }
-      const int timeout_ms = static_cast<int>(root.getNonNegInt("timeout_ms").value_or(8000));
-      tunnel->deadline = Clock::now() + std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 8000);
+      const int64_t timeout_ms = CircuitRequestTimeoutMs(root.getNonNegInt("timeout_ms"), kCircuitDefaultBridgeTimeoutMs,
+                                                         kCircuitMaxBridgeTimeoutMs);
+      tunnel->deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
       id = tunnel->id;
       tunnels[tunnel->id.value] = std::move(tunnel);
     }
@@ -794,12 +859,19 @@ struct CircuitRelayServer::Impl {
       refuse(CircuitRefusal::Refused, "circuit reserve: remote peer id unknown");
       return;
     }
-    const int timeout_ms = static_cast<int>(root.getNonNegInt("timeout_ms").value_or(30000));
+    const int64_t timeout_ms = CircuitRequestTimeoutMs(root.getNonNegInt("timeout_ms"), kCircuitDefaultReserveTimeoutMs,
+                                                       kCircuitMaxReserveTimeoutMs);
     {
       std::lock_guard lock(mu);
+      if (!reservations.contains(remote) && reservations.size() >= kCircuitMaxReservations) {
+        metrics.reserve_refused.Inc();
+        CircuitTunnelLog().warning << "circuit reserve refused: relay holds " << reservations.size();
+        refuse(CircuitRefusal::Busy, "relay busy: too many reservations");
+        return;
+      }
       Reservation res;
       res.session = near_session;
-      res.deadline = Clock::now() + std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 30000);
+      res.deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
       reservations[remote] = std::move(res);
     }
     metrics.reserve_accepted.Inc();
