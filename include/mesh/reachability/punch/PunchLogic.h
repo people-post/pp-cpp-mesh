@@ -20,6 +20,11 @@ std::string EncodePunchResult(const PunchResult& msg);
 
 std::optional<std::string> PunchOp(const common::Object& root);
 
+/** The longest burst window a peer may ask for (PB-019); the product asks for 2 s. */
+inline constexpr uint64_t kPunchMaxWindowMs = 10'000;
+/** A message's window_ms, 2000 when absent, at most kPunchMaxWindowMs. */
+int PunchWindowMs(const common::Object& root);
+
 std::optional<PunchConnectRequest> DecodePunchConnect(const common::Object& root);
 std::optional<PunchOffer> DecodePunchOffer(const common::Object& root);
 std::optional<PunchCandidates> DecodePunchCandidates(const common::Object& root);

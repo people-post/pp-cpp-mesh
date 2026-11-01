@@ -2,6 +2,7 @@
 
 #include "amp/link/AdpMultiaddr.h"
 #include "mesh/reachability/AmpObservedAddrs.h"
+#include <algorithm>
 #include <unordered_set>
 
 namespace pp::mesh {
@@ -88,6 +89,11 @@ std::string EncodePunchResult(const PunchResult& msg) {
 
 std::optional<std::string> PunchOp(const common::Object& root) { return root.getString("op"); }
 
+int PunchWindowMs(const common::Object& root) {
+  // PB-019: the burst runs for the window the peer names; a peer cannot make it run for hours.
+  return static_cast<int>(std::min<uint64_t>(root.getNonNegInt("window_ms").value_or(2000), kPunchMaxWindowMs));
+}
+
 std::optional<PunchConnectRequest> DecodePunchConnect(const common::Object& root) {
   if (root.getString("op").value_or("") != "connect") {
     return std::nullopt;
@@ -95,7 +101,7 @@ std::optional<PunchConnectRequest> DecodePunchConnect(const common::Object& root
   PunchConnectRequest req;
   req.target_peer_id = root.getString("target_peer_id").value_or("");
   req.addrs = SanitizePunchAddrs(ReadAddrs(root, "addrs"));
-  req.window_ms = static_cast<int>(root.getNonNegInt("window_ms").value_or(2000));
+  req.window_ms = PunchWindowMs(root);
   req.reason = root.getString("reason").value_or("cold");
   if (req.target_peer_id.empty()) {
     return std::nullopt;
@@ -111,7 +117,7 @@ std::optional<PunchOffer> DecodePunchOffer(const common::Object& root) {
   msg.initiator_peer_id = root.getString("initiator_peer_id").value_or("");
   msg.addrs = SanitizePunchAddrs(ReadAddrs(root, "addrs"));
   msg.epoch_id = root.getString("epoch_id").value_or("");
-  msg.window_ms = static_cast<int>(root.getNonNegInt("window_ms").value_or(2000));
+  msg.window_ms = PunchWindowMs(root);
   if (msg.initiator_peer_id.empty() || msg.epoch_id.empty()) {
     return std::nullopt;
   }
@@ -136,7 +142,7 @@ std::optional<PunchSync> DecodePunchSync(const common::Object& root) {
   PunchSync msg;
   msg.epoch_id = root.getString("epoch_id").value_or("");
   msg.peer_addrs = DialablePunchAddrs(ReadAddrs(root, "peer_addrs"));  // burst + registered as endpoints
-  msg.window_ms = static_cast<int>(root.getNonNegInt("window_ms").value_or(2000));
+  msg.window_ms = PunchWindowMs(root);
   if (msg.epoch_id.empty()) {
     return std::nullopt;
   }
