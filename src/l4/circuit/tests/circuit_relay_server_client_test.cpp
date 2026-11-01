@@ -245,6 +245,11 @@ TEST_F(CircuitRelayServerClientTest, StrangerRefusedWhenContactsOnly) {
 // A peer-id-only bridge to a peer not parked on the relay: the relay says so by its code — the
 // dialer retries that relay once (the answerer may still be parking), never by reading text.
 TEST_F(CircuitRelayServerClientTest, ABridgeToAPeerNotParkedSaysSoByItsCode) {
+  // pp-browser#416: the operator sees this refusal by name, not hidden in the admitted count.
+  auto& not_reserved = pp::MetricsRegistry::Global().Counter(
+      "pp_circuit_relay_bridge_failures_total",
+      "Admitted circuit relay bridges that failed, by the refusal the dialer heard.", {{"reason", "target_not_reserved"}});
+  const uint64_t not_reserved_before = not_reserved.Value();
   CircuitBridgeTarget target;
   target.target_peer_id = "12D3KooWNobodyParkedHere";
   target.target_protocol = kAmpBridgeTargetProtocol;
@@ -259,6 +264,7 @@ TEST_F(CircuitRelayServerClientTest, ABridgeToAPeerNotParkedSaysSoByItsCode) {
   ASSERT_TRUE(wait.done.load(std::memory_order_acquire));
   ASSERT_FALSE(wait.result);
   EXPECT_EQ(wait.result.error().GetCode(), CircuitTunnelErr::TargetNotReserved) << wait.result.error().message;
+  EXPECT_EQ(not_reserved.Value(), not_reserved_before + 1);
 }
 
 TEST_F(CircuitRelayServerClientTest, ReserveThenBridge) {
