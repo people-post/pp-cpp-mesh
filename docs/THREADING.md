@@ -10,7 +10,7 @@ A mesh runs on two kinds of thread:
 | Lane | Runs | Given by |
 |------|------|----------|
 | **I/O** — one serial lane, Amp's driver | Amp, the L4 engines, **and mesh control**: connectivity, reach, rendezvous, reachability steps, media-relay attach orchestration. Timers are Amp timers (`PostAfter`, Amp's clock). | The mesh's runtime, as a `pp::SerialExecutor` (`MeshRuntime::IoExecutor()`): post = `PostToIo`, timers = `PostAfter`, on-lane = `OnDriverThread`; tests pass a `pp::ManualExecutor` |
-| **Work** — `work` and `blocking` executors | Off-lane work the mesh hands out: `work` is short and bounded (signature checks, disk, a lock-order hop such as relay quote / attach); `blocking` waits on the outside world (HTTP directory refresh, UPnP discovery) | The host, per mesh instance (`MeshExecutors`, two `pp::Executor`s); empty executors run inline (manual-drive harnesses) |
+| **Work** — `work` and `blocking` executors | Off-lane work the mesh hands out: `work` is short and bounded (signature checks, disk, a lock-order hop such as relay quote / attach); `blocking` waits on the outside world (HTTP directory refresh, UPnP discovery) | The host, per mesh instance (`MeshExecutors` in `mesh/types/`, two `pp::Executor`s — an app's lower layers can name them); empty executors run inline (manual-drive harnesses) |
 
 | Amp / mesh dispatch | Through | Examples |
 |---------------------|---------|----------|
