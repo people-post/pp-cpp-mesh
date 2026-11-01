@@ -26,10 +26,15 @@ TEST(MediaRelayAttachSmTest, QuoteAcceptAttachHappyPath) {
   EXPECT_EQ(sm.phase, MediaRelayAttachPhase::Attached);
 }
 
-TEST(MediaRelayAttachSmTest, AttachFromControlWithoutQuote) {
-  // Golden #2: attach may join an existing session without a prior quote on this stream.
+TEST(MediaRelayAttachSmTest, AttachOnlyAfterThisChannelsAccept) {
+  // PB-021: attach follows this channel's own accept — its token is the one issued here. Joining an
+  // existing session (a call-scoped guest, a reattach) quotes and accepts on its channel first.
   MediaRelayAttachSm sm;
   ASSERT_TRUE(sm.Apply(MediaRelayAttachEvent::StreamOpened));
+  EXPECT_FALSE(sm.Apply(MediaRelayAttachEvent::OpAttach)) << "no attach straight from Control";
+  ASSERT_TRUE(sm.Apply(MediaRelayAttachEvent::OpQuote));
+  EXPECT_FALSE(sm.Apply(MediaRelayAttachEvent::OpAttach)) << "nor after a quote alone";
+  ASSERT_TRUE(sm.Apply(MediaRelayAttachEvent::OpAccept));
   ASSERT_TRUE(sm.Apply(MediaRelayAttachEvent::OpAttach));
   EXPECT_EQ(sm.phase, MediaRelayAttachPhase::Attaching);
   ASSERT_TRUE(sm.Apply(MediaRelayAttachEvent::AttachOk));
@@ -46,6 +51,7 @@ TEST(MediaRelayAttachSmTest, AdmitFailCloses) {
 TEST(MediaRelayAttachSmTest, RejectsAttachAfterAttached) {
   MediaRelayAttachSm sm;
   ASSERT_TRUE(sm.Apply(MediaRelayAttachEvent::StreamOpened));
+  ASSERT_TRUE(sm.Apply(MediaRelayAttachEvent::OpAccept));
   ASSERT_TRUE(sm.Apply(MediaRelayAttachEvent::OpAttach));
   ASSERT_TRUE(sm.Apply(MediaRelayAttachEvent::AttachOk));
   EXPECT_FALSE(sm.Apply(MediaRelayAttachEvent::OpAttach));

@@ -267,6 +267,51 @@ TEST_F(CircuitRelayServerClientTest, ABridgeToAPeerNotParkedSaysSoByItsCode) {
   EXPECT_EQ(not_reserved.Value(), not_reserved_before + 1);
 }
 
+// PB-020: the far leg opens with the relay's identity, so a bridge reaches only what circuits are for.
+TEST_F(CircuitRelayServerClientTest, ABridgeToAProtocolCircuitsAreNotForIsRefused) {
+  CircuitBridgeTarget target;
+  target.target_multiaddr = harness_->ma_b;
+  target.target_peer_id = harness_->peer_id_b;
+  target.target_protocol = "/pp-mesh/dht/1.0.0";
+  BridgeWait wait;
+  ASSERT_TRUE(client_->StartBridge("relay", target, {}, {}, wait.Fn(), 5000));
+  wait.PumpUntilDone(*harness_);
+  ASSERT_FALSE(wait.result);
+  EXPECT_EQ(wait.result.error().GetCode(), CircuitTunnelErr::RelayRefused) << wait.result.error().message;
+}
+
+// PB-023: one dialer cannot make the relay dial address after address.
+TEST_F(CircuitRelayServerClientTest, NewTargetAddressesFromOneDialerAreRateLimited) {
+  size_t refused_busy = 0;
+  for (size_t i = 0; i < kCircuitMaxNewTargetsPerDialerPerMinute + 2; ++i) {
+    CircuitBridgeTarget target;
+    target.target_multiaddr = harness_->ma_b;
+    target.target_peer_id = harness_->peer_id_b;
+    target.target_protocol = kAmpBridgeTargetProtocol;
+    BridgeWait wait;
+    ASSERT_TRUE(client_->StartBridge("relay", target, {}, {}, wait.Fn(), 5000));
+    wait.PumpUntilDone(*harness_);
+    if (!wait.result && wait.result.error().GetCode() == CircuitTunnelErr::RelayBusy) {
+      ++refused_busy;
+    }
+  }
+  EXPECT_EQ(refused_busy, 2u) << "the ones past the minute's share";
+}
+
+// PB-022: a dialer's timeout is a wish, bounded; and the allowlist / bounds are pure.
+TEST(CircuitBundleLogicLimitsTest, TimeoutsAreBoundedAndProtocolsAllowListed) {
+  EXPECT_EQ(CircuitRequestTimeoutMs(std::nullopt, 8000, 30000), 8000);
+  EXPECT_EQ(CircuitRequestTimeoutMs(0, 8000, 30000), 8000);
+  EXPECT_EQ(CircuitRequestTimeoutMs(12000, 8000, 30000), 12000);
+  EXPECT_EQ(CircuitRequestTimeoutMs(2'000'000'000, 8000, 30000), 30000);
+  EXPECT_TRUE(CircuitTargetProtocolAllowed(pp::amp::kAmpCircuitCarrierProtocolId));
+  EXPECT_TRUE(CircuitTargetProtocolAllowed(kMediaRelayProtocolId));
+  EXPECT_TRUE(CircuitTargetProtocolAllowed(kCircuitRelayProtocolId));
+  EXPECT_TRUE(CircuitTargetProtocolAllowed("/test/node-probe-bridge/1.0.0"));
+  EXPECT_FALSE(CircuitTargetProtocolAllowed("/pp-mesh/dht/1.0.0"));
+  EXPECT_FALSE(CircuitTargetProtocolAllowed(""));
+}
+
 TEST_F(CircuitRelayServerClientTest, ReserveThenBridge) {
   ArmTargetReader();
 

@@ -1,5 +1,7 @@
 #include "mesh/l4/media_relay/serve/MediaRelayServer.h"
 
+#include "common/Utilities.h"
+
 #include "mesh/l4/media_relay/MediaRelayErr.h"
 
 #include "mesh/l4/shared/ChannelSessionSlot.h"
@@ -40,11 +42,9 @@ std::string BodyToJson(const std::vector<uint8_t>& body) {
   return std::string(body.begin(), body.end());
 }
 
+/** Unguessable (a counter was "s1", "s2", …): it is what lets an accepted channel attach (PB-021). */
 std::string MakeSessionToken() {
-  static std::atomic<uint64_t> seq{1};
-  std::ostringstream oss;
-  oss << "s" << seq.fetch_add(1, std::memory_order_relaxed);
-  return oss.str();
+  return "s-" + util::GenerateUuid();
 }
 
 } // namespace
@@ -306,6 +306,10 @@ struct MediaRelayServer::Impl {
     const uint32_t stream_id = static_cast<uint32_t>(root.getNonNegInt("stream_id").value_or(0));
     const uint16_t channel_id = static_cast<uint16_t>(root.getNonNegInt("channel_id").value_or(0));
     if (op == "subscribe") {
+      if (part->subscriptions.size() >= kMediaRelayMaxSubscriptionsPerParticipant &&
+          !part->subscriptions.contains(MediaRelaySubKey(stream_id, channel_id))) {
+        return true;  // full (PB-053): ignored, no ack
+      }
       part->subscriptions.insert(MediaRelaySubKey(stream_id, channel_id));
       if (part->channel) {
         SendAck(*part->channel, "subscribe");
@@ -572,13 +576,19 @@ struct MediaRelayServer::Impl {
       Reject(*channel, sm, MediaRelayRefusal::BadRequest, "attach not allowed in phase", MediaRelayAttachEvent::OpAttach);
       return false;
     }
-    const std::string token = root.getString("session_token").value_or(sm.session_token);
+    const std::string token = root.getString("session_token").value_or("");
     const std::string call_id = root.getString("call_id").value_or("");
     const std::string auth = root.getString("auth").value_or("");
     sm.call_id = call_id;
     if (token.empty() || call_id.empty()) {
       metrics.attaches_refused.Inc();
       Reject(*channel, sm, MediaRelayRefusal::BadRequest, "missing session_token or call_id",
+             MediaRelayAttachEvent::AttachFail);
+      return false;
+    }
+    if (sm.session_token.empty() || token != sm.session_token) {
+      metrics.attaches_refused.Inc();
+      Reject(*channel, sm, MediaRelayRefusal::AuthFailed, "session_token is not this channel's",
              MediaRelayAttachEvent::AttachFail);
       return false;
     }
@@ -595,7 +605,18 @@ struct MediaRelayServer::Impl {
              MediaRelayAttachEvent::AdmitFail);
       return false;
     }
-    std::shared_ptr<HostSession> host = hosts_by_call[call_id];
+    std::shared_ptr<HostSession> host = hosts_by_call.contains(call_id) ? hosts_by_call[call_id] : nullptr;
+    if (!host && !MediaRelayCanOpenHostSession(hosts_by_call.size(), kMediaRelayServeMaxSessions)) {
+      metrics.attaches_refused.Inc();
+      Reject(*channel, sm, MediaRelayRefusal::Busy, "relay busy: too many sessions",
+             MediaRelayAttachEvent::AttachFail);
+      return false;
+    }
+    if (host && !MediaRelayCanAddParticipant(host->participants.size(), kMediaRelayServeMaxParticipants)) {
+      metrics.attaches_refused.Inc();
+      Reject(*channel, sm, MediaRelayRefusal::Busy, "relay busy: session full", MediaRelayAttachEvent::AttachFail);
+      return false;
+    }
     if (!host) {
       host = std::make_shared<HostSession>();
       host->call_id = call_id;

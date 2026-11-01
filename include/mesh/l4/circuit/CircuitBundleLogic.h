@@ -4,6 +4,8 @@
 #include "mesh/types/RelayScope.h"
 
 #include <cstdint>
+#include <optional>
+#include <string_view>
 #include <string>
 #include <unordered_set>
 
@@ -39,6 +41,32 @@ enum class CircuitTunnelRole {
 /** Relay-wide standby circuits, and per dialer PeerId (K009 per-account cap, device-scoped). */
 inline constexpr size_t kCircuitDefaultMaxStandby = 64;
 inline constexpr size_t kCircuitDefaultMaxStandbyPerDialer = 4;
+
+/**
+ * What one relay holds for others (PB-022): live bridges relay-wide and from one dialer PeerId, and
+ * parked reservations (one per PeerId — PeerIds cost nothing to make). Far above a device's need
+ * (a call's bridge or two, a standby, a probe); past them a request is refused Busy.
+ */
+inline constexpr size_t kCircuitMaxTunnels = 4096;
+inline constexpr size_t kCircuitMaxTunnelsPerDialer = 32;
+inline constexpr size_t kCircuitMaxReservations = 8192;
+/** A dialer's timeout_ms is its wish, bounded: bridge setup, and how long a reservation is held. */
+inline constexpr int64_t kCircuitDefaultBridgeTimeoutMs = 8'000;
+inline constexpr int64_t kCircuitMaxBridgeTimeoutMs = 30'000;
+inline constexpr int64_t kCircuitDefaultReserveTimeoutMs = 30'000;
+inline constexpr int64_t kCircuitMaxReserveTimeoutMs = 60'000;
+/** New target addresses one dialer may make this relay dial, per minute (PB-023). */
+inline constexpr size_t kCircuitMaxNewTargetsPerDialerPerMinute = 16;
+
+/** The requested timeout: the default when absent or 0, at most `max`. */
+int64_t CircuitRequestTimeoutMs(std::optional<int64_t> requested, int64_t fallback, int64_t max);
+
+/**
+ * Protocols a bridge may open on its target (PB-020): the far leg opens with the relay's identity,
+ * so a dialer may reach only what a circuit is for — the call-media carrier, a media relay behind a
+ * circuit, a nested circuit — and lab probes' `/test/…` protocols (no product handler serves one).
+ */
+bool CircuitTargetProtocolAllowed(std::string_view protocol);
 
 enum class CircuitAdmitDecision {
   Allow = 0,

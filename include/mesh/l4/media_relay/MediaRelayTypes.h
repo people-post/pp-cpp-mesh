@@ -17,6 +17,13 @@ namespace pp::mesh {
 /** V032 host load limits (also documented in HOST_RECEIVE_POLICY). */
 inline constexpr size_t kMediaRelayMaxHostSessions = 4;
 inline constexpr size_t kMediaRelayMaxParticipantsPerSession = 8;
+/**
+ * What any media relay serves at most (PB-021 / PB-053) — a seed relays many people's calls, so far
+ * above V032's desktop budget; they stop a dialer from growing the relay without bound.
+ */
+inline constexpr size_t kMediaRelayServeMaxSessions = 512;
+inline constexpr size_t kMediaRelayServeMaxParticipants = 32;
+inline constexpr size_t kMediaRelayMaxSubscriptionsPerParticipant = 64;
 
 /** Per-inbound-stream control/attach phases (N026 / MEDIA_RELAY_ATTACH.md). */
 enum class MediaRelayAttachPhase {

@@ -181,3 +181,21 @@ TEST(PunchLogicTest, ObservedEndpointLeadsTheCandidates) {
 
 } // namespace
 } // namespace pp::mesh
+
+namespace pp::mesh {
+namespace {
+
+// PB-019: a peer names the burst window; it stays bounded whatever it names.
+TEST(PunchLogicWindowTest, TheBurstWindowIsBounded) {
+  common::Object root;
+  root.set("op", "sync");
+  root.set("epoch_id", "e1");
+  EXPECT_EQ(DecodePunchSync(root)->window_ms, 2000) << "absent: the default";
+  root.set("window_ms", int64_t{3000});
+  EXPECT_EQ(DecodePunchSync(root)->window_ms, 3000);
+  root.set("window_ms", int64_t{86'400'000});
+  EXPECT_EQ(DecodePunchSync(root)->window_ms, static_cast<int>(kPunchMaxWindowMs));
+}
+
+} // namespace
+} // namespace pp::mesh
