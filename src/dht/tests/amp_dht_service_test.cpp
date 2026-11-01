@@ -416,6 +416,19 @@ TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
   node_b.Stop();
 }
 
+// pp-browser#382: a participant's warm-up looked up each query peer's own record until found. A seed
+// that serves the DHT without publishing itself never has one, so every minute the client dialed the
+// seed again (and the idle link died 20 s later). After each miss it now waits longer: 1, 2, 4 … 30 min.
+TEST(AmpDhtProtocolTest, AWarmUpMissWaitsLongerEachTime) {
+  EXPECT_EQ(DhtClient::NextWarmMissDelayMs(0), DhtClient::kWarmMissFirstMs);
+  EXPECT_EQ(DhtClient::NextWarmMissDelayMs(DhtClient::kWarmMissFirstMs), 2 * DhtClient::kWarmMissFirstMs);
+  int64_t delay = 0;
+  for (int miss = 0; miss < 20; ++miss) {
+    delay = DhtClient::NextWarmMissDelayMs(delay);
+  }
+  EXPECT_EQ(delay, DhtClient::kWarmMissMaxMs);
+}
+
 TEST(AmpDhtProtocolTest, WrapLinkFailureMapsCodes) {
   using Mgr = pp::amp::PeerLinkManager;
   EXPECT_EQ(AmpDhtProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::DialTimeout, "slow")).GetCode(),

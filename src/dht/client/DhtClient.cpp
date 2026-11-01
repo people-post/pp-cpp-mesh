@@ -376,6 +376,7 @@ void DhtClient::WarmQueryPeersIfDue(const std::chrono::steady_clock::time_point 
   // The query peers' own records in the local store: their addresses for the table, dial
   // warm-up. Looked for again until found — a startup miss must not wait for the next publish.
   const int64_t now_sec = static_cast<int64_t>(std::time(nullptr));
+  const int64_t now_ms = NowMs();
   for (const std::string& peer_key : FilteredQueryPeerKeys()) {
     if (peer_key.empty() || peer_key == config_.local_peer_id || HeldDown(peer_key)) {
       continue;
@@ -383,8 +384,32 @@ void DhtClient::WarmQueryPeersIfDue(const std::chrono::steady_clock::time_point 
     if (auto hit = store_.Get(peer_key); hit && !PeerRoutingRecordExpired(*hit, now_sec)) {
       continue;
     }
-    FindPeer(peer_key, [](FindPeerRoe) {});
+    // pp-browser#382: each ask dials the query peers. One whose own record nobody has (a seed that
+    // serves without publishing itself) was asked about every minute — and its idle link died 20 s
+    // later, every time: back off after each miss.
+    {
+      std::lock_guard lock(warm_mutex_);
+      if (auto it = warm_misses_.find(peer_key); it != warm_misses_.end() && now_ms < it->second.next_ms) {
+        continue;
+      }
+    }
+    FindPeer(peer_key, [this, peer_key](FindPeerRoe found) { NoteWarmResult(peer_key, static_cast<bool>(found)); });
   }
+}
+
+int64_t DhtClient::NextWarmMissDelayMs(const int64_t previous_ms) {
+  return previous_ms <= 0 ? kWarmMissFirstMs : std::min(previous_ms * 2, kWarmMissMaxMs);
+}
+
+void DhtClient::NoteWarmResult(const std::string& peer_key, const bool found) {
+  std::lock_guard lock(warm_mutex_);
+  if (found) {
+    warm_misses_.erase(peer_key);
+    return;
+  }
+  WarmMiss& miss = warm_misses_[peer_key];
+  miss.delay_ms = NextWarmMissDelayMs(miss.delay_ms);
+  miss.next_ms = NowMs() + miss.delay_ms;
 }
 
 bool DhtClient::HeldDown(const std::string& peer_id) const {
