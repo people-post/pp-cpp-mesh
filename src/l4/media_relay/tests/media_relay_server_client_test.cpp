@@ -352,6 +352,53 @@ TEST_F(MediaRelayServerClientTest, MediaTakesTheDataLaneBothWays) {
   EXPECT_EQ(hop_->RuntimeStats().data_lane_participants, 0u);
 }
 
+// The leave path detaches on its own thread while the mesh pump runs: the data lane closes under the io lock like
+// the control channel. Closed under `mu` alone, its Close went through the mux the pump was using at that moment, and
+// a leaving member hung (lab group_call_placed_by_stranger, 2026-11-03). ThreadSanitizer flags it here.
+TEST_F(MediaRelayServerClientTest, ADetachOnAnotherThreadClosesTheDataLaneUnderTheIoLock) {
+  const std::string call_id = "call-detach-race";
+  MediaRelayQuoteRequest req;
+  req.session_id = call_id;
+  req.participants = 2;
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result);
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach(
+      "hop", quote_wait.result->quote_id, call_id, call_id, [](MediaDataFrame) {}, attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result);
+  client_->StartClientFrameReader();
+  harness_->PumpUntil([&] { return hop_->RuntimeStats().data_lane_participants == 1; }, 800);
+  ASSERT_EQ(hop_->RuntimeStats().data_lane_participants, 1u);
+  ASSERT_TRUE(hop_client_->AttachAsLocalHop(call_id, [](MediaDataFrame) {}));
+  ASSERT_TRUE(client_->Subscribe(7, 0));
+  for (int i = 0; i < 20; ++i) {
+    harness_->PumpBoth();
+  }
+
+  // The hop keeps sending on the lane, so the client's pump works its mux while the leave closes it.
+  std::atomic<bool> detached{false};
+  std::thread leaver([&] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    client_->Detach();
+    detached.store(true);
+  });
+  MediaDataFrame to_guest;
+  to_guest.stream_id = 7;
+  to_guest.payload = {1, 2, 3};
+  for (int i = 0; i < 2000 && !detached.load(); ++i) {
+    (void)hop_client_->SendFrame(to_guest);
+    harness_->PumpBoth();
+  }
+  leaver.join();
+  ASSERT_TRUE(detached.load()) << "Detach never returned";
+  EXPECT_FALSE(client_->HealthSnapshot().data_lane);
+  harness_->PumpUntil([&] { return hop_->RuntimeStats().data_lane_participants == 0; }, 800);
+  EXPECT_EQ(hop_->RuntimeStats().data_lane_participants, 0u) << "the hop saw the lane close";
+}
+
 // B009: the relay answers the publisher's offer with the levels it carries, and drops that
 // publisher's video of any other level — and any reserved channel — at ingest.
 TEST_F(MediaRelayServerClientTest, RelayCarriesOnlyTheVideoLevelsItAnswered) {

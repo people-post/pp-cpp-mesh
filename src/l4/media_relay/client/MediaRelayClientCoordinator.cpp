@@ -305,7 +305,11 @@ struct MediaRelayClientCoordinator::Impl {
     sessions.erase(session.id.value);
   }
 
-  /** Requires `mu`. Drops the attached session (remote channel or local hop). Lock order: us → server. */
+  /**
+   * Requires `mu`. Drops the attached session (remote channel or local hop). Lock order: us → server. A channel
+   * still set here is closed here, which resolves the hop's link under the io lock: a caller off the io thread holds
+   * that lock first (io → mu), or takes the channels out and closes them after `mu` (Detach).
+   */
   void DetachClientLocked() {
     if (client_.data_channel) {
       CloseQuietSlot(client_.data_channel, ResolveLink(client_.hop_peer_key));
@@ -912,11 +916,14 @@ MediaRelayRoe<MediaRelayAttachResult> MediaRelayClientCoordinator::AttachAsLocal
   if (local_peer.empty()) {
     return Failure::Of(Err::NotStarted, "amp media-relay: missing local peer id");
   }
-  std::lock_guard lock(impl_->mu);
-  if (!impl_->local_server->LocalAttachedTo(call_id, local_peer)) {
-    impl_->DetachClientLocked();
-  }
-  return impl_->local_server->AttachLocal(call_id, local_peer, std::move(on_frame));
+  // io → mu, as the io tick: replacing a remote attach closes its channels, which resolves the link under the io lock.
+  return runtime_.WithIoLock([&]() -> MediaRelayRoe<MediaRelayAttachResult> {
+    std::lock_guard lock(impl_->mu);
+    if (!impl_->local_server->LocalAttachedTo(call_id, local_peer)) {
+      impl_->DetachClientLocked();
+    }
+    return impl_->local_server->AttachLocal(call_id, local_peer, std::move(on_frame));
+  });
 }
 
 MediaRelayRoe<void> MediaRelayClientCoordinator::Subscribe(const uint32_t stream_id, const uint16_t channel_id) {
@@ -979,23 +986,30 @@ MediaRelayRoe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame&
 }
 
 void MediaRelayClientCoordinator::Detach() {
-  // Client state is cleared synchronously under `mu` (no deferred raw-this PostIo), but the channel
-  // closes after `mu` is released: closing takes the mesh runtime lock, and the io tick
-  // (TickDeadlines) holds that lock while it takes `mu` — closing under `mu` was a lock-order
-  // inversion (UI Detach racing a pump tick could deadlock; TSan).
+  // Client state is cleared synchronously under `mu` (no deferred raw-this PostIo), but the channels
+  // — the control channel and the data lane — close after `mu` is released: closing resolves the hop's
+  // link under the mesh runtime lock, and the io tick (TickDeadlines) holds that lock while it takes
+  // `mu` — closing under `mu` was a lock-order inversion. The data lane once closed under `mu` and a
+  // leaving member hung (lab, 2026-11-03; ADetachOnAnotherThreadClosesTheDataLaneUnderTheIoLock).
   std::shared_ptr<pp::amp::ChannelSession> closing;
+  std::shared_ptr<pp::amp::ChannelSession> closing_lane;
   std::string hop;
   {
     std::lock_guard lock(impl_->mu);
     closing = std::move(impl_->client_.channel);
+    closing_lane = std::move(impl_->client_.data_channel);
     hop = impl_->client_.hop_peer_key;
     impl_->DetachClientLocked();
     if (closing) {
       impl_->NotifyClientObserversLocked(MediaRelayClientLoss::Detached);
     }
   }
-  if (closing) {
-    runtime_.WithIoLock([&]() { CloseQuietSlot(closing, impl_->ResolveLink(hop)); });
+  if (closing || closing_lane) {
+    runtime_.WithIoLock([&]() {
+      auto* link = impl_->ResolveLink(hop);
+      CloseQuietSlot(closing_lane, link);
+      CloseQuietSlot(closing, link);
+    });
   }
 }
 
