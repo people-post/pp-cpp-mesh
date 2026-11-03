@@ -10,6 +10,7 @@
 #include "common/ValueJson.h"
 #include "mesh/shared/AmpChannelOpen.h"
 #include "common/Lifetime.h"
+#include "common/Logger.h"
 
 #include <atomic>
 #include <chrono>
@@ -74,6 +75,14 @@ MediaRelayClientCoordinator::Failure MediaRelayClientCoordinator::WrapLinkFailur
                                                                     : Err::LinkFailed;
   return Failure::Of(code, detail::AppendFrom("media-relay: hop link failed", "link", link.message));
 }
+
+namespace {
+
+auto LaneLog() {
+  return logging::getLogger("MediaRelayClient");
+}
+
+} // namespace
 
 struct MediaRelayClientCoordinator::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
@@ -402,6 +411,9 @@ struct MediaRelayClientCoordinator::Impl {
     if (!circuit_backed && runtime) {
       // Opened on the io tick, without `mu` (as MarkHot above).
       pending_client_notices_.push_back([this, hop, call_id]() { OpenDataLane(hop, call_id); });
+    } else {
+      LaneLog().info << "media_relay data lane: none (" << (circuit_backed ? "hop behind a circuit" : "no runtime")
+                     << "): media on the control channel call_id=" << call_id;
     }
   }
 
@@ -420,12 +432,15 @@ struct MediaRelayClientCoordinator::Impl {
     {
       std::lock_guard lock(mu);
       if (!still_ours()) {
+        LaneLog().info << "media_relay data lane: not opened (the attach moved on) call_id=" << call_id;
         return;
       }
     }
     runtime->Links().OpenChannel(hop, kMediaRelayDataProtocolId, pp::amp::MediaRelayDataChannelPolicy(),
                                  [this, hop, still_ours](pp::amp::PeerLinkManager::ChannelRoe opened) {
                                    if (!opened) {
+                                     LaneLog().info << "media_relay data lane: open refused (" << opened.error().message
+                                                    << "): media on the control channel";
                                      return; // the control channel carries the media
                                    }
                                    const uint32_t channel_id = *opened;
@@ -433,9 +448,14 @@ struct MediaRelayClientCoordinator::Impl {
                                                            [this, hop, channel_id, still_ours](const bool open) {
                                                              std::lock_guard lock(mu);
                                                              if (!open || !still_ours()) {
+                                                               LaneLog().info
+                                                                   << "media_relay data lane: "
+                                                                   << (open ? "attach moved on" : "open timed out")
+                                                                   << ": media on the control channel";
                                                                return;
                                                              }
                                                              BindDataLaneLocked(hop, channel_id);
+                                                             LaneLog().info << "media_relay data lane: open";
                                                            });
                                  });
   }
