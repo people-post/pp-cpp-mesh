@@ -59,6 +59,10 @@ struct MediaRelayMetrics {
   MetricCounter& bytes_forwarded;
   MetricCounter& dropped_stale;
   MetricCounter& dropped_not_carried;
+  MetricCounter& dropped_not_attached;
+  /** Frames that came on a participant's data lane (the rest came on its
+   * control channel). */
+  MetricCounter& frames_data_lane;
   MetricCounter& quotes_issued;
   MetricCounter& quotes_refused_admission;
   MetricCounter& quotes_refused_video_level;
@@ -81,6 +85,9 @@ struct MediaRelayMetrics {
           r.Counter("pp_media_relay_bytes_total", bytes, {{"direction", "forwarded"}}),
           r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "stale"}}),
           r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "not_carried"}}),
+          r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "not_attached"}}),
+          r.Counter("pp_media_relay_lane_frames_total", "Media relay data frames received, by lane.",
+                    {{"lane", "data"}}),
           r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "issued"}}),
           r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "refused_admission"}}),
           r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "refused_video_level"}}),
@@ -115,6 +122,12 @@ struct MediaRelayServer::Impl {
   struct HostParticipant {
     std::string peer_id;
     std::shared_ptr<pp::amp::ChannelSession> channel;
+    /**
+     * Its data lane (kMediaRelayDataProtocolId) once it opened one: media to
+     * and from it goes there. Until then — and for a participant behind a
+     * circuit — `channel` carries the media too.
+     */
+    std::shared_ptr<pp::amp::ChannelSession> data_channel;
     /** Set for the local participant (this node's client): frames go here, not to a channel. */
     FrameHandler local_on_frame;
     std::unordered_set<uint64_t> subscriptions;
@@ -192,6 +205,13 @@ struct MediaRelayServer::Impl {
    * grace (DropEmptySessionsLocked) — not the local hop's own session while it is attached.
    */
   void EraseParticipantLocked(const std::shared_ptr<HostSession>& session, const HostParticipant* part) {
+    if (part && part->data_channel) {
+      // Closed on the io lane, not under `mu`: its closed callback comes back
+      // here.
+      PostIo([this, channel = part->data_channel, peer = part->peer_id]() mutable {
+        CloseQuietSlot(channel, ResolveLink(peer));
+      });
+    }
     EraseParticipant(*session, part);
     if (session->participants.empty() && session != local_session_ && !session->empty_since) {
       session->empty_since = Clock::now();
@@ -273,7 +293,7 @@ struct MediaRelayServer::Impl {
         if (part->local_on_frame) {
           on_frame = part->local_on_frame;
         } else {
-          channel = part->channel;
+          channel = part->data_channel ? part->data_channel : part->channel;
         }
       }
       metrics.frames_forwarded.Inc();
@@ -413,6 +433,93 @@ struct MediaRelayServer::Impl {
   }
 
   /** Requires `mu`: the participant bound to `channel`, searching every hosted session. */
+  /** Requires `mu`. The remote participant `peer_id` attached here: its latest
+   * attach. */
+  bool FindParticipantByPeer(const std::string& peer_id, std::shared_ptr<HostSession>& host,
+                             std::shared_ptr<HostParticipant>& part) {
+    bool found = false;
+    for (auto& [call_id_key, host_session] : hosts_by_call) {
+      (void)call_id_key;
+      for (const auto& candidate : host_session->participants) {
+        if (candidate && !candidate->local_on_frame && candidate->peer_id == peer_id) {
+          host = host_session;
+          part = candidate;
+          found = true;
+        }
+      }
+    }
+    return found;
+  }
+
+  /** A data lane ended: its participant's media goes back to the control
+   * channel. Posted (it can end under `mu`). */
+  void ForgetDataChannel(std::shared_ptr<pp::amp::ChannelSession> channel) {
+    if (!runtime || !channel) {
+      return;
+    }
+    lifetime.Post([rt = runtime](std::function<void()> t) { rt->PostToIo(std::move(t)); },
+                  [this, channel = std::move(channel)] {
+                    std::lock_guard lock(mu);
+                    for (auto& [call_id_key, host_session] : hosts_by_call) {
+                      (void)call_id_key;
+                      for (const auto& part : host_session->participants) {
+                        if (part && part->data_channel == channel) {
+                          part->data_channel.reset();
+                        }
+                      }
+                    }
+                  });
+  }
+
+  /**
+   * A participant opened its data lane: bound to it at once (a viewer only
+   * receives, so it may never send on it), and again on each frame (it may open
+   * the lane before its attach is recorded). Media only: control stays on the
+   * participant's control channel.
+   */
+  void HandleInboundDataChannel(pp::amp::LinkHandle handle, const std::string& remote_peer_id,
+                                const uint32_t channel_id) {
+    if (stopped.load(std::memory_order_acquire) || remote_peer_id.empty()) {
+      return;
+    }
+    auto channel_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
+    *channel_holder = runtime->Links().BindChannelOnLink(
+        handle, channel_id, pp::amp::MediaRelayDataChannelPolicy(),
+        [this, channel_holder, remote_peer_id](Roe<std::vector<uint8_t>> frame) {
+          auto channel = *channel_holder;
+          if (!channel || !frame || stopped.load(std::memory_order_acquire)) {
+            return false;
+          }
+          if (frame->empty() || frame->front() == '{') {
+            return true;
+          }
+          std::shared_ptr<HostSession> host;
+          std::shared_ptr<HostParticipant> part;
+          {
+            std::lock_guard lock(mu);
+            if (!FindParticipantByPeer(remote_peer_id, host, part)) {
+              metrics.dropped_not_attached.Inc();
+              return true;
+            }
+            part->data_channel = channel;
+          }
+          metrics.frames_data_lane.Inc();
+          return HandleParticipantFrame(host, part, *frame);
+        },
+        [forget = lifetime.Bind(
+             [this](std::shared_ptr<pp::amp::ChannelSession> channel) { ForgetDataChannel(std::move(channel)); }),
+         channel_holder](const char* /*reason*/) {
+          forget(*channel_holder);
+          channel_holder->reset();
+        });
+    std::lock_guard lock(mu);
+    std::shared_ptr<HostSession> host;
+    std::shared_ptr<HostParticipant> part;
+    if (*channel_holder && FindParticipantByPeer(remote_peer_id, host, part)) {
+      part->data_channel = *channel_holder;
+    }
+  }
+
   bool FindParticipantByChannel(const pp::amp::ChannelSession* channel, std::shared_ptr<HostSession>& host,
                                 std::shared_ptr<HostParticipant>& part) {
     for (auto& [call_id_key, host_session] : hosts_by_call) {
@@ -740,6 +847,12 @@ void MediaRelayServer::Start() {
       kMediaRelayProtocolId,
       impl_->lifetime.Bind([impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id,
                                                 const uint32_t ch) { impl->HandleInboundChannel(handle, remote_peer_id, ch); }));
+  runtime_.Links().SetProtocolHandler(
+      kMediaRelayDataProtocolId,
+      impl_->lifetime.Bind(
+          [impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id, const uint32_t ch) {
+            impl->HandleInboundDataChannel(handle, remote_peer_id, ch);
+          }));
 }
 
 void MediaRelayServer::Stop() {
@@ -751,6 +864,7 @@ void MediaRelayServer::Stop() {
   runtime_.RemoveIoTick(impl_->io_tick_id);
   impl_->io_tick_id = 0;
   runtime_.Links().RemoveProtocolHandler(kMediaRelayProtocolId);
+  runtime_.Links().RemoveProtocolHandler(kMediaRelayDataProtocolId);
   AbortInflight();
   impl_->lifetime.Invalidate();
 }
@@ -775,6 +889,9 @@ MediaRelayRuntimeStats MediaRelayServer::RuntimeStats() const {
     if (host && !host->participants.empty()) {
       ++stats.active_sessions;
       stats.active_participants += host->participants.size();
+      for (const auto& part : host->participants) {
+        stats.data_lane_participants += part && part->data_channel ? 1 : 0;
+      }
     }
   }
   return stats;

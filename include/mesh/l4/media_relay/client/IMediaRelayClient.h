@@ -31,6 +31,9 @@ enum class MediaRelayClientLoss : uint8_t {
 /** The client's view of its relay session, in the relay's own terms (the app maps it for its chrome). */
 struct MediaRelayClientHealth {
   bool attached = false;
+  /** Media goes on its own best-effort lane to the hop
+   * (kMediaRelayDataProtocolId), not the control channel. */
+  bool data_lane = false;
   /** The association to the relay; none when attached to this device's own hop. */
   bool link_available = false;
   /**

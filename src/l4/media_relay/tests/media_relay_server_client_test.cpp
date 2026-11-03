@@ -296,6 +296,62 @@ TEST_F(MediaRelayServerClientTest, LocalHopFanoutRoundTrip) {
   hop_client_->Detach();
 }
 
+// A participant's media takes its own best-effort data lane to the hop, both
+// ways; the control channel keeps the control (a reliable lane filled a phone's
+// thin uplink with acks and resends, and stalled every stream on a loss).
+TEST_F(MediaRelayServerClientTest, MediaTakesTheDataLaneBothWays) {
+  const std::string call_id = "call-data-lane";
+  MediaRelayQuoteRequest req;
+  req.session_id = call_id;
+  req.participants = 2;
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result);
+
+  std::atomic<int> guest_frames{0};
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach(
+      "hop", quote_wait.result->quote_id, call_id, call_id,
+      [&guest_frames](MediaDataFrame) { guest_frames.fetch_add(1); }, attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result);
+  client_->StartClientFrameReader();
+
+  harness_->PumpUntil([&] { return client_->HealthSnapshot().data_lane; }, 800);
+  ASSERT_TRUE(client_->HealthSnapshot().data_lane) << "the client never opened its data lane";
+  harness_->PumpUntil([&] { return hop_->RuntimeStats().data_lane_participants == 1; }, 800);
+  EXPECT_EQ(hop_->RuntimeStats().data_lane_participants, 1u) << "the hop never bound it to the participant";
+
+  std::atomic<int> local_frames{0};
+  ASSERT_TRUE(hop_client_->AttachAsLocalHop(call_id, [&local_frames](MediaDataFrame) { local_frames.fetch_add(1); }));
+  ASSERT_TRUE(client_->Subscribe(7, 0));
+  ASSERT_TRUE(hop_client_->Subscribe(8, 0));
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
+
+  MediaDataFrame from_guest;
+  from_guest.stream_id = 8;
+  from_guest.payload = {4, 5, 6};
+  ASSERT_TRUE(client_->SendFrame(from_guest));
+  harness_->PumpUntil([&] { return local_frames.load() >= 1; }, 800);
+  EXPECT_GE(local_frames.load(), 1) << "the guest's media on its data lane did "
+                                       "not reach the hop's participant";
+
+  MediaDataFrame to_guest;
+  to_guest.stream_id = 7;
+  to_guest.payload = {1, 2, 3};
+  ASSERT_TRUE(hop_client_->SendFrame(to_guest));
+  harness_->PumpUntil([&] { return guest_frames.load() >= 1; }, 800);
+  EXPECT_GE(guest_frames.load(), 1) << "the hop's fan-out on the guest's data lane did not reach it";
+
+  client_->Detach();
+  hop_client_->Detach();
+  harness_->PumpUntil([&] { return hop_->RuntimeStats().data_lane_participants == 0; }, 800);
+  EXPECT_EQ(hop_->RuntimeStats().data_lane_participants, 0u);
+}
+
 // B009: the relay answers the publisher's offer with the levels it carries, and drops that
 // publisher's video of any other level — and any reserved channel — at ingest.
 TEST_F(MediaRelayServerClientTest, RelayCarriesOnlyTheVideoLevelsItAnswered) {
