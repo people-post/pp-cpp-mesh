@@ -13,8 +13,9 @@ namespace pp::amp {
 /**
  * Reliable hello/heartbeat/teardown leg for `/pp/realtime/1.0.0` (AMP-CHANNEL).
  * Lives for the call; no read timeout: CallMediaLegCoordinator owns liveness (connect deadline,
- * active-path silence failover, standby staleness), and a standby path's heartbeat is slower
- * than any short channel timeout.
+  * active-path silence failover, standby staleness), and a standby path's heartbeat is slower
+ * than any short channel timeout. Keeps its link hot while open (call-path-resilience K008): a standby
+ * path carries nothing until a failover, and a cold link dies after 5 s of silence.
  */
 inline ChannelPolicy CallMediaControlChannelPolicy() {
   ChannelPolicy policy;
@@ -23,6 +24,7 @@ inline ChannelPolicy CallMediaControlChannelPolicy() {
   policy.max_outbound_frames = AmpChannelLimits::kMaxControlOutboundFrames;
   policy.read_once = false;
   policy.max_message_bytes = AmpChannelLimits::kMaxChatStreamJsonBytes;
+  policy.keepalive = KeepaliveTier::Hot;
   return policy;
 }
 
