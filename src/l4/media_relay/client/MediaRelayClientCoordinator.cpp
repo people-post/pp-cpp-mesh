@@ -90,6 +90,12 @@ struct MediaRelayClientCoordinator::Impl {
 
   struct ClientState {
     std::shared_ptr<pp::amp::ChannelSession> channel;
+    /**
+     * The data lane to the hop (kMediaRelayDataProtocolId) once it opened:
+     * media goes and comes there. Until then, on a hop behind a circuit, or one
+     * that does not serve the lane, `channel` carries the media too.
+     */
+    std::shared_ptr<pp::amp::ChannelSession> data_channel;
     std::string hop_peer_key;
     std::string call_id;
     FrameHandler on_frame;
@@ -292,6 +298,9 @@ struct MediaRelayClientCoordinator::Impl {
 
   /** Requires `mu`. Drops the attached session (remote channel or local hop). Lock order: us → server. */
   void DetachClientLocked() {
+    if (client_.data_channel) {
+      CloseQuietSlot(client_.data_channel, ResolveLink(client_.hop_peer_key));
+    }
     if (client_.channel) {
       CloseQuietSlot(client_.channel, ResolveLink(client_.hop_peer_key));
     }
@@ -349,6 +358,10 @@ struct MediaRelayClientCoordinator::Impl {
     if (!client_.channel) {
       return;
     }
+    if (client_.data_channel) {
+      CloseQuietSlot(client_.data_channel, ResolveLink(client_.hop_peer_key));
+      client_.data_channel.reset();
+    }
     CloseQuietSlot(client_.channel, ResolveLink(client_.hop_peer_key));
     client_.subscriptions.clear();
     client_.reader_started = false;
@@ -386,6 +399,67 @@ struct MediaRelayClientCoordinator::Impl {
     client_.reader_started = false;
     client_.subscriptions.clear();
     RebindClientMediaHandlers();
+    if (!circuit_backed && runtime) {
+      // Opened on the io tick, without `mu` (as MarkHot above).
+      pending_client_notices_.push_back([this, hop, call_id]() { OpenDataLane(hop, call_id); });
+    }
+  }
+
+  /**
+   * The data lane to `hop` for the attach to `call_id`: its media off the
+   * control channel, best effort. Not opened (an old hop, a lost race) leaves
+   * the media on the control channel; ended, the media goes back there.
+   */
+  void OpenDataLane(const std::string& hop, const std::string& call_id) {
+    if (!runtime) {
+      return;
+    }
+    const auto still_ours = [this, hop, call_id]() {
+      return client_.channel && client_.hop_peer_key == hop && client_.call_id == call_id && !client_.data_channel;
+    };
+    {
+      std::lock_guard lock(mu);
+      if (!still_ours()) {
+        return;
+      }
+    }
+    runtime->Links().OpenChannel(hop, kMediaRelayDataProtocolId, pp::amp::MediaRelayDataChannelPolicy(),
+                                 [this, hop, still_ours](pp::amp::PeerLinkManager::ChannelRoe opened) {
+                                   if (!opened) {
+                                     return; // the control channel carries the media
+                                   }
+                                   const uint32_t channel_id = *opened;
+                                   ScheduleWhenChannelOpen(hop, channel_id, Clock::now() + std::chrono::seconds(5),
+                                                           [this, hop, channel_id, still_ours](const bool open) {
+                                                             std::lock_guard lock(mu);
+                                                             if (!open || !still_ours()) {
+                                                               return;
+                                                             }
+                                                             BindDataLaneLocked(hop, channel_id);
+                                                           });
+                                 });
+  }
+
+  /** Requires `mu`. */
+  void BindDataLaneLocked(const std::string& hop, const uint32_t channel_id) {
+    client_.data_channel = runtime->Links().BindChannel(
+        hop, channel_id, pp::amp::MediaRelayDataChannelPolicy(),
+        [this](Roe<std::vector<uint8_t>> frame) {
+          if (!frame) {
+            return false;
+          }
+          return HandleClientMediaFrame(*frame);
+        },
+        // Posted, and bound to `lifetime` (as BindClientChannel's): the lane
+        // can end under `mu`, or after we are gone.
+        lifetime.Bind([this](const char*) {
+          PostIo([this] {
+            std::lock_guard lock(mu);
+            if (client_.data_channel && client_.data_channel->IsClosed()) {
+              client_.data_channel.reset();
+            }
+          });
+        }));
   }
 
   /** Requires `mu`. Quote reply, or accept → attach replies, on a bundle's channel. */
@@ -861,7 +935,9 @@ MediaRelayRoe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame&
   std::shared_ptr<pp::amp::ChannelSession> channel;
   {
     std::lock_guard lock(impl_->mu);
-    channel = impl_->client_.channel;
+    // The data lane when it is open (best effort: a lost packet costs this
+    // frame only), else the control channel.
+    channel = impl_->client_.data_channel ? impl_->client_.data_channel : impl_->client_.channel;
   }
   if (!channel) {
     // Local hop: the server fans out from our participant (outside `mu`; Fanout locks internally).
@@ -921,6 +997,7 @@ MediaRelayClientHealth MediaRelayClientCoordinator::HealthSnapshot() const {
   {
     std::lock_guard lock(impl_->mu);
     health.attached = impl_->client_.channel != nullptr || (impl_->local_server && impl_->local_server->IsLocalAttached());
+    health.data_lane = impl_->client_.data_channel != nullptr;
     if (impl_->client_.channel) {
       relay_key = impl_->client_.hop_peer_key;
     }

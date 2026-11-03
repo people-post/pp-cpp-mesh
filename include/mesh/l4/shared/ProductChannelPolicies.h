@@ -75,6 +75,20 @@ inline ChannelPolicy MediaRelayHopChannelPolicy() {
  * No read timeout by default: a publisher receives nothing back (fan-out skips the sender) and
  * a subscriber's hop may be silent; the media-relay coordinators bound quote/attach themselves.
  */
+/**
+ * A media-relay data lane (kMediaRelayDataProtocolId): media frames only, best
+ * effort, the oldest dropped under a burst. A lost packet costs its frame — no
+ * retransmit, no acknowledgements, no head-of-line wait for the frames behind
+ * it (audio and video shared one reliable channel with the control: a phone's
+ * thin uplink filled with the acks and resends, and a loss stalled every
+ * stream).
+ */
+inline ChannelPolicy MediaRelayDataChannelPolicy() {
+  ChannelPolicy policy = CallMediaChannelPolicy();
+  policy.max_message_bytes = AmpChannelLimits::kMaxMediaDataFrameBytes;
+  return policy;
+}
+
 inline ChannelPolicy MediaRelayClientChannelPolicy(
     std::chrono::milliseconds read_timeout = std::chrono::milliseconds{0}) {
   ChannelPolicy policy;

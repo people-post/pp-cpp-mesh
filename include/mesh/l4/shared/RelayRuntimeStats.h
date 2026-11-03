@@ -22,6 +22,9 @@ struct MediaRelayRuntimeStats {
   size_t active_sessions = 0;
   /** Sum of participants across those sessions (aggregates only — no PeerIds). */
   size_t active_participants = 0;
+  /** Of those, how many send and receive their media on their own data lane
+   * (kMediaRelayDataProtocolId). */
+  size_t data_lane_participants = 0;
   /**
    * Frame bytes this server relayed for others since start: from a remote participant to a remote
    * participant (not this node's own media in or out; the `pp_media_relay_*` counters count all).
