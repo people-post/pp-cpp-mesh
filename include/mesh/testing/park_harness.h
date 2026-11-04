@@ -19,14 +19,16 @@ namespace pp::mesh::test {
  * and relays, on one MemoryDatagramHub and one VirtualClock, driven by hand (no threads). The coordinator is the
  * product's; only its deps (the surface, the seeds) are the bench's.
  *
- * A relay either answers (a MeshHost whose circuit relay server takes reservations) or is unreachable (an address
- * nothing reads: every datagram to it is lost, as to a relay behind a firewall that drops them). Time moves only in
- * RunUntil, so a test can say how long the park took, in virtual milliseconds.
+ * A relay answers (a MeshHost whose circuit relay server takes reservations), answers slowly (the same, behind a
+ * DelayedDatagramIo: every exchange with it takes `rtt_ms` longer — a relay an ocean away) or is unreachable (an
+ * address nothing reads: every datagram to it is lost, as to a relay behind a firewall that drops them). Time moves
+ * only in RunUntil, so a test can say how long the park took, in virtual milliseconds.
  */
 class ParkHarness {
 public:
   enum class RelayKind {
     Answers,
+    Slow,
     Unreachable,
   };
 
@@ -36,10 +38,10 @@ public:
   ParkHarness& operator=(const ParkHarness&) = delete;
 
   /**
-   * A relay on the phone's rendezvous surface (in the order added), and one of its bootstrap seeds when `seed`.
-   * Returns its PeerId.
+   * A relay on the phone's rendezvous surface (in the order added), and one of its bootstrap seeds when `seed`;
+   * a Slow one takes `rtt_ms` longer for every exchange. Returns its PeerId.
    */
-  pp::Roe<std::string> AddRelay(RelayKind kind, bool seed = true);
+  pp::Roe<std::string> AddRelay(RelayKind kind, bool seed = true, int64_t rtt_ms = 500);
 
   CircuitRendezvousCoordinator& Park() { return park_; }
   MeshHost& Phone() { return *phone_; }
@@ -62,8 +64,9 @@ private:
     bool seed = false;
     std::unique_ptr<MeshHost> host;  // null: unreachable
   };
+  /** delay_ms > 0: the host's received datagrams arrive that much later (DelayedDatagramIo). */
   pp::Roe<std::unique_ptr<MeshHost>> MakeHost(const pp::adp::IpEndpoint& addr, std::string* peer_id,
-                                              std::string* multiaddr);
+                                              std::string* multiaddr, int64_t delay_ms = 0);
   std::vector<MeshHopCandidate> Candidates(bool seeds_only) const;
   void TickAll();
 

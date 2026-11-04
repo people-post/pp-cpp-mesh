@@ -7,6 +7,7 @@
 #include "crypto/PeerId.h"
 #include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
 #include "mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "mesh/testing/delayed_datagram_io.h"
 #include "mesh/testing/mesh_harness_support.h"
 
 #include <algorithm>
@@ -62,7 +63,7 @@ ParkHarness::~ParkHarness() {
 }
 
 pp::Roe<std::unique_ptr<MeshHost>> ParkHarness::MakeHost(const pp::adp::IpEndpoint& addr, std::string* peer_id,
-                                                         std::string* multiaddr) {
+                                                         std::string* multiaddr, const int64_t delay_ms) {
   auto keys = pp::MlDsa::GenerateKeyPair();
   if (!keys) {
     return keys.error();
@@ -78,7 +79,10 @@ pp::Roe<std::unique_ptr<MeshHost>> ParkHarness::MakeHost(const pp::adp::IpEndpoi
   cfg.identity = std::move(identity);
   cfg.local_peer_id = *id;
   cfg.link_config = AmpMeshTestLinkConfig();
-  auto io = std::make_shared<pp::adp::MemoryDatagramIo>(hub_, addr);
+  std::shared_ptr<pp::adp::DatagramIo> io = std::make_shared<pp::adp::MemoryDatagramIo>(hub_, addr);
+  if (delay_ms > 0) {
+    io = std::make_shared<DelayedDatagramIo>(std::move(io), clock_, delay_ms);
+  }
   auto stack = pp::amp::AmpStack::Create(io, clock_, cfg);
   if (!stack) {
     return stack.error();
@@ -97,12 +101,13 @@ pp::Roe<std::unique_ptr<MeshHost>> ParkHarness::MakeHost(const pp::adp::IpEndpoi
   return host;
 }
 
-pp::Roe<std::string> ParkHarness::AddRelay(const RelayKind kind, const bool seed) {
+pp::Roe<std::string> ParkHarness::AddRelay(const RelayKind kind, const bool seed, const int64_t rtt_ms) {
   const int index = static_cast<int>(relays_.size()) + 1;
   Relay relay;
   relay.seed = seed;
-  if (kind == RelayKind::Answers) {
-    auto host = MakeHost(BenchAddress(index), &relay.peer_id, &relay.multiaddr);
+  if (kind == RelayKind::Answers || kind == RelayKind::Slow) {
+    auto host = MakeHost(BenchAddress(index), &relay.peer_id, &relay.multiaddr,
+                         kind == RelayKind::Slow ? rtt_ms : 0);
     if (!host) {
       return host.error();
     }

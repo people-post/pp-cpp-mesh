@@ -116,6 +116,37 @@ TEST(ParkTest, TheChosenRelayIsParkedOnEvenWithTwoLiveAlready) {
   EXPECT_GE(bench->Parked().size(), 2u);
 }
 
+// A slow first seed (an ocean away) does not hold up a near one: the near one is parked on at once, and the slow
+// one too once it answers (two live is the target).
+TEST(ParkTest, ASlowFirstSeedDoesNotHoldUpANearOne) {
+  auto bench = MakeBench();
+  ASSERT_NE(bench, nullptr);
+  auto slow = bench->AddRelay(RelayKind::Slow, /*seed=*/true, /*rtt_ms=*/1500);
+  auto near = bench->AddRelay(RelayKind::Answers);
+  ASSERT_TRUE(slow && near);
+
+  bench->Park().ReserveOnBootstrapSeeds();
+  ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*near); }, 10'000));
+  EXPECT_LT(bench->ElapsedMs(), 2000) << "near parked " << bench->ElapsedMs() << " ms in";
+  ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*slow); }, 20'000)) << "the slow seed was given up";
+}
+
+// Seeds that are only slow are no reason to give up: a park over two 500 ms seeds answers parked, on both.
+TEST(ParkTest, SlowSeedsAreStillParkedOn) {
+  auto bench = MakeBench();
+  ASSERT_NE(bench, nullptr);
+  auto first = bench->AddRelay(RelayKind::Slow, /*seed=*/true, /*rtt_ms=*/500);
+  auto second = bench->AddRelay(RelayKind::Slow, /*seed=*/true, /*rtt_ms=*/500);
+  ASSERT_TRUE(first && second);
+
+  std::optional<bool> parked;
+  bench->Park().EnsureBootstrapSeedParkedAsync([&](bool ok) { parked = ok; }, 12'000);
+  ASSERT_TRUE(bench->RunUntil([&] { return parked.has_value(); }, 15'000));
+  EXPECT_TRUE(*parked);
+  EXPECT_GE(bench->ElapsedMs(), 500) << "the bench's delay held nothing back";
+  ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*first) && bench->ParkedOn(*second); }, 10'000));
+}
+
 }  // namespace
 }  // namespace pp::mesh
 

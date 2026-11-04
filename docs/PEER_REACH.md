@@ -191,10 +191,12 @@ Rules built on it:
   may be the very peer being reached (a contact that relays), and dialing it is the dual-NAT dial
   the park exists to prevent (hard lab `B-HARD-CALL-NAT-COLD-DIRTY` caught a surface-wide park).
   The park runs on a bench too: `mesh::test::ParkHarness` (`mesh/testing/park_harness.h`) puts a
-  phone's MeshHost and the product's `CircuitRendezvousCoordinator` with relays that answer or never
-  do on one in-memory hub and one virtual clock; `src/reach/tests/park_test.cpp` checks the stagger
-  (an unreachable first seed, parked in under 2 s — 8 s serially), the walk's stop at two live
-  relays, seeds first, the chosen R1 and the deadline. A park rule changes there first; the app lab
+  phone's MeshHost and the product's `CircuitRendezvousCoordinator` with relays that answer, answer
+  slowly (`DelayedDatagramIo`: every exchange `rtt_ms` longer) or never do, on one in-memory hub and
+  one virtual clock; `src/reach/tests/park_test.cpp` checks the stagger (an unreachable first seed,
+  parked in under 2 s — 8 s serially; a near seed behind a 1.5 s one, under 2 s — 4.6 s serially),
+  that slow seeds are still parked on, the walk's stop at two live relays, seeds first, the chosen
+  R1 and the deadline. A park rule changes there first; the app lab
   (pp-browser `call_path_*_two_hops`) is the end-to-end check.
 - **Circuit dial:** the relays circuit reach may bridge through leave out those held down
   (unless Connected) — a StartBridge through one would only time out. Relays the target
