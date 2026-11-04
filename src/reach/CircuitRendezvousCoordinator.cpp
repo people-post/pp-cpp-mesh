@@ -45,6 +45,9 @@ constexpr std::chrono::milliseconds kSeedParkGrace{2000};
  */
 constexpr std::chrono::milliseconds kSeedHeardWithin{5000};
 
+/** A park's cold relay that has not answered this long gives way to the next (ReserveColdSurface). */
+constexpr std::chrono::milliseconds kColdParkStagger{750};
+
 } // namespace
 
 /** One EnsureBootstrapSeedParkedAsync wait: settles once (listener, deadline or immediate check). */
@@ -66,9 +69,11 @@ struct CircuitRendezvousCoordinator::SeedPark {
   bool verify_started = false;
 };
 
-/** Serial cold dial + reserve over the selected cold relays, until enough are live. */
+/** Cold dial + reserve over the selected cold relays, staggered, until enough are live. */
 struct CircuitRendezvousCoordinator::ColdPark {
   std::vector<MeshHopCandidate> hops;
+  /** The next hop to dial (io lane only). */
+  size_t next = 0;
   /** Relays reserved on so far (Connected at the start, then each cold one that associated). */
   size_t live = 0;
   /** Dialed whatever `live` says (the sticky R1). */
@@ -357,17 +362,17 @@ void CircuitRendezvousCoordinator::ReserveOnBootstrapSeedsOnIo() {
     auto it = std::find_if(surface.begin(), surface.end(), [&](const MeshHopCandidate& hop) { return hop.peer_id == relay; });
     park->hops.push_back(*it);
   }
-  ReserveColdSurface(park, 0);
+  ReserveColdSurface(park);
 }
 
-void CircuitRendezvousCoordinator::ReserveColdSurface(const std::shared_ptr<ColdPark>& park, size_t index) {
+void CircuitRendezvousCoordinator::ReserveColdSurface(const std::shared_ptr<ColdPark>& park) {
   MeshHost* m = mesh();
   auto chat = m ? m->ChatDeps() : std::nullopt;
   if (!chat) {
     return;
   }
-  for (; index < park->hops.size(); ++index) {
-    const MeshHopCandidate& hop = park->hops[index];
+  for (; park->next < park->hops.size(); ++park->next) {
+    const MeshHopCandidate& hop = park->hops[park->next];
     if (park->live >= kRendezvousLiveTarget && hop.peer_id != park->must_dial) {
       log().info << "circuit reserve walk done live=" << park->live;
       return;
@@ -382,10 +387,11 @@ void CircuitRendezvousCoordinator::ReserveColdSurface(const std::shared_ptr<Cold
       continue;
     }
     IChatPeerLinks* links = &chat->links;
-    log().info << "circuit reserve assoc start peer=" << hop.peer_id << " (serial cold=" << index + 1 << "/"
+    const size_t index = park->next++;
+    log().info << "circuit reserve assoc start peer=" << hop.peer_id << " (cold=" << index + 1 << "/"
                << park->hops.size() << " live=" << park->live << ")";
     chat->links.EnsureAssociation(
-        hop.peer_id, deferred_.Bind([this, park, links, hop, next = index + 1](IChatPeerLinks::LinkRoe assoc) {
+        hop.peer_id, deferred_.Bind([this, park, links, hop](IChatPeerLinks::LinkRoe assoc) {
           if (!assoc) {
             log().warning << "circuit reserve assoc miss peer=" << hop.peer_id << " err=" << assoc.error().message;
             OnSeedDialMissed(*links, hop);
@@ -394,8 +400,17 @@ void CircuitRendezvousCoordinator::ReserveColdSurface(const std::shared_ptr<Cold
             StartReserveOnRelay(hop.peer_id, "circuit reserve");
             ++park->live;
           }
-          ReserveColdSurface(park, next);
+          ReserveColdSurface(park);  // the next one, unless the stagger started it already
         }));
+    // Happy Eyeballs: a relay that has not answered by then does not hold up the next one.
+    if (auto lane = m->IoLane(); lane && park->next < park->hops.size()) {
+      (void)lane->PostAfter(kColdParkStagger, [this, park, started = park->next, alive = deferred_.token(),
+                                               snap = deferred_.Snapshot()]() {
+        if (pp::Lifetime::Alive(alive, snap) && park->next == started) {
+          ReserveColdSurface(park);  // nothing moved the walk on since
+        }
+      });
+    }
     return;
   }
 }

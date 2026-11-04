@@ -25,7 +25,7 @@ this repo, **B** = pp-browser `src/`.
 | Effective bootstrap peers | B `foundation/data/MeshRole.cpp:42-88` | directory nodes, then config `bootstrap_peers` (else 2 built-in seeds) | none; per call | DHT endpoints, rendezvous, `bootstrap_seeds` |
 | `MeshHopPolicy::bootstrap_seeds` | B `feature/conversations/MeshConnectivityWiring.cpp:68-75` | effective list, or config only (`trusted_relays_only`); org seeds dropped when the probe failed | pushed every 5 s and on directory update | seed warm / park (M `src/reach/CircuitRendezvousCoordinator.cpp`) |
 | `MeshHopPolicy::rendezvous_candidates` | B `domain/people/MeshHopPolicy.cpp:169-209` | contacts ∪ directory ∪ DHT ∪ seeds, kept only when a circuit relay (org seed, or listed with `circuit_relay`) | none | reserve, park, `DialableRelayIds` |
-| Park surface | M `CircuitRendezvousCoordinator.cpp:248-280` | sticky R1, then Connected, then the rest | park cold-dials **all** remaining, serially | PeerReach park gate, Accept |
+| Park surface | M `CircuitRendezvousCoordinator.cpp:248-280` | sticky R1, then Connected, then the rest | park cold-dials the selected ones, staggered 750 ms | PeerReach park gate, Accept |
 | Circuit reach relays | M `src/reach/AmpCircuitHopReach.cpp` (`PutAdvertisedRelaysFirst`, `OrderCircuitRelayAttempts`, `CircuitRelayRefusals`) | the relays the target advertised (`PeerReachRequest::advertised_relays`: a call's CallAccept names where the callee is parked), in its order; then sticky R1, Connected, the rest; a relay that refused a circuit in the last 10 min goes behind all but the advertised | 4 bridges in a 14 s envelope; a `not registered` miss retries once only on an advertised relay | `EnsureViaCircuit` |
 | `MeshHopPolicy::punch_introducers` | B `MeshConnectivityWiring.cpp:76-82` | contacts (Connected first), then config seeds | walk with a tried set | cold punch (M `src/reach/PunchIntroducerWalk.cpp`) |
 | Directory query peers | B `feature/conversations/ConversationsHub.cpp:916-941` | Amp directory providers, then seeds | none; every 300 s | directory refresh |
@@ -180,7 +180,10 @@ Rules built on it:
   runs after mesh start and after a network change **only if** no outcome is recent; none while
   the app is backgrounded (mobile).
 - **The park:** reserve on the selected set (every Connected relay, then the cold walk, seeds
-  first), and wait on **bootstrap seeds only**: settle once enough are Connected — the target, or
+  first; a cold relay that has not answered in 750 ms does not hold up the next — Happy Eyeballs:
+  dialed one after another, an unreachable one cost its whole 8 s dial timeout, and a call's caller
+  had walked its relays before the answerer was parked anywhere, pp-browser #502), and wait on
+  **bootstrap seeds only**: settle once enough are Connected — the target, or
   every seed not held down (and dialable) when there are fewer; ≥1 after a short grace or at the
   deadline, as before. When every seed is held down, the park answers **not parked at once**.
   A seed's miss is redialed within the park only when it may pass (the record does not hold it
