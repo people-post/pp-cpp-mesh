@@ -54,7 +54,7 @@ public:
   void SetAdvertisement(const std::string& peer_id_base58, int amp_udp_port,
                         const std::vector<std::string>& lan_ipv4_addrs);
 
-  /** Build `/ip4/…/udp/…/adp/1.0.0/p2p/…` from a browse result. */
+  /** Build `/ip4/…/udp/…/adp/1.0.0/p2p/…` from a browse result (the legacy token: the TXT record says no wire version). */
   static std::optional<std::string> BuildAdpMultiaddr(const LanMdnsDiscoveredPeer& peer);
 
   /** The announcement packet (PTR, SRV with the Amp UDP port, TXT `peer=`, A per address); empty when incomplete. */

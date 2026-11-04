@@ -239,7 +239,7 @@ std::vector<std::string> BuildAmpReachabilityProbeTargets(const std::string& amp
     if (ip.empty() || ip == "0.0.0.0" || ip == "127.0.0.1") {
       return;
     }
-    AppendUnique(targets, EnsurePeerIdSuffix("/ip4/" + ip + "/udp/" + std::to_string(*port) + "/adp/1.0.0",
+    AppendUnique(targets, EnsurePeerIdSuffix("/ip4/" + ip + pp::amp::AdpUdpSegment(static_cast<uint16_t>(*port)),
                                              local_peer_id));
   };
 
@@ -247,7 +247,7 @@ std::vector<std::string> BuildAmpReachabilityProbeTargets(const std::string& amp
     if (ip.empty() || ip == "::" || ip == "::1" || !IsGlobalIpv6(ip)) {
       return;
     }
-    AppendUnique(targets, EnsurePeerIdSuffix("/ip6/" + ip + "/udp/" + std::to_string(*port) + "/adp/1.0.0",
+    AppendUnique(targets, EnsurePeerIdSuffix("/ip6/" + ip + pp::amp::AdpUdpSegment(static_cast<uint16_t>(*port)),
                                              local_peer_id));
   };
 
@@ -339,7 +339,7 @@ std::vector<std::string> BuildAmpGlobalIpv6AdvertisedAddrs(const std::string& am
       continue;
     }
     const std::string ma =
-        EnsurePeerIdSuffix("/ip6/" + ip + "/udp/" + std::to_string(*port) + "/adp/1.0.0", local_peer_id);
+        EnsurePeerIdSuffix("/ip6/" + ip + pp::amp::AdpUdpSegment(static_cast<uint16_t>(*port)), local_peer_id);
     // Prefer FormatAdpMultiaddr round-trip when parseable so ingest matches dial.
     if (auto parsed = pp::amp::ParseAdpMultiaddr(ma)) {
       if (auto formatted = pp::amp::FormatAdpMultiaddr(parsed->endpoint, parsed->peer_id)) {
