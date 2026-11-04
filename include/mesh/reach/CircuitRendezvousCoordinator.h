@@ -104,7 +104,13 @@ private:
   /** Rendezvous surface registered and ordered for parking (sticky R1 / connected first). */
   std::vector<MeshHopCandidate> OrderedParkSurface(IChatPeerLinks& links);
   void StartReserveOnRelay(const std::string& relay, const char* label);
-  void ReserveColdSurface(const std::shared_ptr<ColdPark>& park, size_t index);
+  /**
+   * Dial the park's next cold relay and reserve on it once it associates, until enough are live. One that has
+   * not answered within kColdParkStagger does not hold up the next (Happy Eyeballs): an unreachable relay used to
+   * cost its whole dial timeout (8 s) before the next was tried, and a call's caller had walked its relays and
+   * given up before the answerer was parked anywhere (pp-browser #502, target_not_reserved).
+   */
+  void ReserveColdSurface(const std::shared_ptr<ColdPark>& park);
   /** A dial to `hop` missed: when a park waits on it, dial it again if the miss may pass (or fail the park). */
   void OnSeedDialMissed(IChatPeerLinks& links, const MeshHopCandidate& hop);
   std::vector<std::shared_ptr<SeedPark>> WaitingParks();
