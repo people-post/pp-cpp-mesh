@@ -5,9 +5,7 @@
 
 namespace pp::mesh {
 
-/** N021 media data frame wire constants (shared by encode/decode + length-prefixed IO). */
-inline constexpr uint8_t kMediaDataVersion = 1;
-inline constexpr size_t kMediaDataHeaderBytes = 1 + 4 + 2 + 1 + 4 + 1; // ver+stream+chan+type+seq+mark
+/** The largest media frame a relay takes (its wire is mesh/l4/shared/MediaFrame.h, A029 H2). */
 inline constexpr size_t kMaxMediaFrameBytes = 256 * 1024;
 
 /** Subscription key for a (stream, channel) pair — client and server subscription sets. */

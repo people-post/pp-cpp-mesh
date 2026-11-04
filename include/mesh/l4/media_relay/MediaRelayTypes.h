@@ -6,6 +6,7 @@
 #include "mesh/types/RelayScope.h"
 #include "common/Error.h"
 #include "mesh/l4/shared/L4ProtocolIds.h"
+#include "mesh/l4/shared/MediaFrame.h"
 #include <cstdint>
 #include <string>
 #include <unordered_set>
@@ -78,13 +79,6 @@ enum class MediaRelayClientEvent {
 const char* MediaRelayClientPhaseName(MediaRelayClientPhase phase);
 const char* MediaRelayClientEventName(MediaRelayClientEvent ev);
 
-/** N021 channel_type QoS classes (not codecs). */
-enum class MediaChannelType : uint8_t {
-  ReliableOrdered = 0,
-  LatestLossy = 1,
-  BestEffort = 2,
-};
-
 struct MediaRelayQuoteRequest {
   /** Opaque session id (a call id today). Serialized as the JSON field "call_id" (wire unchanged). */
   std::string session_id;
@@ -126,21 +120,5 @@ struct MediaRelayAdmissionPolicy {
   RelayScopeMask serve_scope_mask = kRelayScopeVolunteerServe;
   std::unordered_set<std::string> contact_peer_ids;
 };
-
-/** The relay QoS class for a media channel: audio in order, video latest-wins (MEDIA_CHANNELS.md). */
-MediaChannelType MediaChannelTypeFor(uint16_t channel_id);
-
-struct MediaDataFrame {
-  uint32_t stream_id = 0;
-  uint16_t channel_id = 0;
-  MediaChannelType channel_type = MediaChannelType::BestEffort;
-  uint32_t seq = 0;
-  uint8_t mark = 0;
-  std::vector<uint8_t> payload;
-};
-
-/** Encode/decode N021 data frames (body after u64-BE length prefix). */
-std::vector<uint8_t> EncodeMediaDataFrame(const MediaDataFrame& frame);
-Roe<MediaDataFrame> DecodeMediaDataFrame(const std::vector<uint8_t>& body);
 
 } // namespace pp::mesh
