@@ -1,1 +1,1 @@
-pp_mesh_add_tests(pp_mesh_reach)
+pp_mesh_add_tests(pp_mesh_reach LINK_LIBS pp_mesh_testing)
