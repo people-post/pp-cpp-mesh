@@ -17,6 +17,13 @@ std::string PreferAccountName(const DirectoryHit& hit) {
   return hit.hit_id;
 }
 
+/** N032: what a node says it runs, carried from its record into each of its directory nodes. */
+void CopyClaims(const NameRecord& record, MeshDirectoryNode& node) {
+  node.amp_wire = record.amp_wire;
+  node.node_version = record.node_version;
+  node.features = record.features;
+}
+
 } // namespace
 
 NameCapabilities NameCapabilitiesFromAd(const MeshCapabilitiesAd& ad) {
@@ -52,6 +59,9 @@ NameRecord NameRecordFromMeshNodeHit(const MeshNodeHit& hit) {
     record.peer_id = hit.endpoints.front().peer_id;
     record.multiaddrs = hit.endpoints.front().multiaddrs;
   }
+  record.amp_wire = hit.amp_wire;
+  record.node_version = hit.node_version;
+  record.features = hit.features;
   return record;
 }
 
@@ -112,6 +122,7 @@ std::vector<MeshDirectoryNode> MeshDirectoryNodesFromNameRecords(const std::vect
         node.seq = record.seq;
         node.expires_at = record.expires_at;
         node.nickname = record.nickname;
+        CopyClaims(record, node);
         out.push_back(std::move(node));
       }
       continue;
@@ -131,6 +142,7 @@ std::vector<MeshDirectoryNode> MeshDirectoryNodesFromNameRecords(const std::vect
     node.seq = record.seq;
     node.expires_at = record.expires_at;
     node.nickname = record.nickname;
+    CopyClaims(record, node);
     out.push_back(std::move(node));
   }
   return out;
