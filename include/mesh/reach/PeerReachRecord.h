@@ -32,6 +32,8 @@ enum class PeerReachFailure : uint8_t {
   KeepaliveLost,
   /** The OS has no route to it. */
   Unreachable,
+  /** It answered in another wire version (its version negotiation reply, N032): no dial works until it changes. */
+  VersionMismatch,
 };
 
 const char* PeerReachStateName(PeerReachState state);

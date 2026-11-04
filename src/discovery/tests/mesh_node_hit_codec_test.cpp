@@ -30,5 +30,29 @@ TEST(MeshNodeHitCodecTest, AHitWithoutABindingDecodesWithoutOne) {
   EXPECT_FALSE(decoded->kem_binding_signature_b64.has_value());
 }
 
+// N032: what a node says it runs travels with its row; a row without it (before N032) decodes as "not said".
+TEST(MeshNodeHitCodecTest, WhatANodeSaysItRunsRoundTripsAndIsOptional) {
+  MeshNodeHit hit;
+  hit.relay_user_id = "relay-user-1";
+  hit.amp_wire = 2;
+  hit.node_version = "4.1.0";
+  hit.features = {"hop_data_lane"};
+  auto decoded = MeshNodeHitFromObject(MeshNodeHitToObject(hit));
+  ASSERT_TRUE(decoded) << decoded.error().message;
+  EXPECT_EQ(decoded->amp_wire, 2);
+  EXPECT_EQ(decoded->node_version, "4.1.0");
+  EXPECT_EQ(decoded->features, hit.features);
+
+  MeshNodeHit before;
+  before.relay_user_id = "relay-user-2";
+  const auto object = MeshNodeHitToObject(before);
+  EXPECT_FALSE(object.contains("amp_wire")) << "nothing said, nothing sent";
+  auto old = MeshNodeHitFromObject(object);
+  ASSERT_TRUE(old) << old.error().message;
+  EXPECT_EQ(old->amp_wire, 0);
+  EXPECT_TRUE(old->node_version.empty());
+  EXPECT_TRUE(old->features.empty());
+}
+
 } // namespace
 } // namespace pp::mesh

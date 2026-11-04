@@ -6,6 +6,7 @@
 
 #include <sodium.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace pp::mesh {
@@ -39,11 +40,18 @@ uint64_t GetU64(const uint8_t* in) {
   return v;
 }
 
-ByteVector Aad(const MediaDataFrame& frame, const std::string& context) {
+/** The header then `tail`, into a buffer sized once (growing one from the 18 B header trips GCC 12's -Warray-bounds). */
+template <typename Tail>
+ByteVector HeaderThen(const MediaDataFrame& frame, const Tail& tail) {
   const auto header = EncodeMediaFrameHeader(frame);
-  ByteVector aad(header.begin(), header.end());
-  aad.insert(aad.end(), context.begin(), context.end());
-  return aad;
+  ByteVector out(header.size() + tail.size());
+  std::copy(header.begin(), header.end(), out.begin());
+  std::copy(tail.begin(), tail.end(), out.begin() + static_cast<std::ptrdiff_t>(header.size()));
+  return out;
+}
+
+ByteVector Aad(const MediaDataFrame& frame, const std::string& context) {
+  return HeaderThen(frame, context);
 }
 
 /** The guard keeps this many (instance, epoch, channel) entries before it forgets other instances / epochs. */
@@ -67,12 +75,7 @@ std::array<uint8_t, kMediaFrameHeaderBytes> EncodeMediaFrameHeader(const MediaDa
 }
 
 std::vector<uint8_t> EncodeMediaDataFrame(const MediaDataFrame& frame) {
-  const auto header = EncodeMediaFrameHeader(frame);
-  std::vector<uint8_t> body;
-  body.reserve(header.size() + frame.payload.size());
-  body.assign(header.begin(), header.end());
-  body.insert(body.end(), frame.payload.begin(), frame.payload.end());
-  return body;
+  return HeaderThen(frame, frame.payload);
 }
 
 Roe<MediaDataFrame> DecodeMediaDataFrame(const std::vector<uint8_t>& body) {

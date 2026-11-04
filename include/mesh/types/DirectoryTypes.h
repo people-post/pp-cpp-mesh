@@ -90,6 +90,13 @@ struct MeshNodeHit {
   std::optional<std::string> kem_public_key_b64;
   /** The account's ML-DSA signature binding `kem_public_key_b64` to it (pp-browser:kem-binding-v1). */
   std::optional<std::string> kem_binding_signature_b64;
+  /**
+   * What the node says it runs (N032): claims, so they may exclude it from candidates (a wire mismatch, a missing
+   * feature), never rank it higher. 0 / empty = not said (a node or directory before N032): dialed as before.
+   */
+  int amp_wire = 0;
+  std::string node_version;
+  std::vector<std::string> features;
 };
 
 inline const DirectoryEndpoint* PreferredDirectoryEndpoint(const std::vector<DirectoryEndpoint>& endpoints) {

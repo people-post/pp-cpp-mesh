@@ -69,6 +69,19 @@ common::Object MeshNodeHitToObject(const MeshNodeHit& hit) {
     object.set("kem_binding_signature_b64", *hit.kem_binding_signature_b64);
   }
   object.set("capabilities", CapabilitiesToObject(hit.capabilities));
+  if (hit.amp_wire > 0) {
+    object.set("amp_wire", static_cast<int64_t>(hit.amp_wire));
+  }
+  if (!hit.node_version.empty()) {
+    object.set("node_version", hit.node_version);
+  }
+  if (!hit.features.empty()) {
+    std::vector<common::Value> features;
+    for (const std::string& f : hit.features) {
+      features.emplace_back(f);
+    }
+    object.set("features", common::makeArray(std::move(features)));
+  }
   std::vector<common::Value> endpoints;
   endpoints.reserve(hit.endpoints.size());
   for (const DirectoryEndpoint& ep : hit.endpoints) {
@@ -115,6 +128,19 @@ Roe<MeshNodeHit> MeshNodeHitFromObject(const common::Object& object) {
   }
   if (const common::Object* caps = object.getObject("capabilities")) {
     hit.capabilities = CapabilitiesFromObject(*caps);
+  }
+  if (auto wire = object.getIf<int64_t>("amp_wire"); wire && *wire > 0 && *wire < 16) {
+    hit.amp_wire = static_cast<int>(*wire);
+  }
+  if (auto version = object.getString("node_version")) {
+    hit.node_version = *version;
+  }
+  if (const common::Array* features = object.getArray("features")) {
+    for (const common::Value& f : features->elements) {
+      if (auto s = common::asString(f)) {
+        hit.features.push_back(*s);
+      }
+    }
   }
   if (const common::Array* endpoints = object.getArray("endpoints")) {
     for (const common::Value& ep_val : endpoints->elements) {

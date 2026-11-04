@@ -79,6 +79,18 @@ TEST(PeerReachRecordTest, ARefusalIsAShortRetry) {
   EXPECT_TRUE(record.MayDial("QmBusy", PeerReachRecord::kRetryRefusedMs, kNet));
 }
 
+// N032: a node that answered in another wire version stays out of dials for the longest retry, from the first time.
+TEST(PeerReachRecordTest, AVersionMismatchIsTheLongestHoldDown) {
+  PeerReachRecord record;
+  record.OnLinkEvent(DialFailed("QmOld", LinkDropReason::VersionMismatch), 0, kNet);
+  const auto facts = record.Facts("QmOld", kNet);
+  EXPECT_EQ(facts.state, PeerReachState::Down);
+  EXPECT_EQ(facts.last_failure, PeerReachFailure::VersionMismatch);
+  EXPECT_STREQ(PeerReachFailureName(facts.last_failure), "version-mismatch");
+  EXPECT_FALSE(record.MayDial("QmOld", PeerReachRecord::kRetryMaxMs - 1, kNet));
+  EXPECT_TRUE(record.MayDial("QmOld", PeerReachRecord::kRetryMaxMs, kNet));
+}
+
 TEST(PeerReachRecordTest, OnlyALossThatMeansGoneCounts) {
   PeerReachRecord record;
   record.OnLinkEvent(Lost("QmIdle", LinkDropReason::ConnectionDead, 0), 0, kNet);
