@@ -34,6 +34,8 @@ PeerReachFailure DialFailure(const pp::amp::LinkDropReason reason) {
     return PeerReachFailure::Unreachable;
   case pp::amp::LinkDropReason::DualDialLost:
     return PeerReachFailure::None;  // the peer answered on the other dial
+  case pp::amp::LinkDropReason::VersionMismatch:
+    return PeerReachFailure::VersionMismatch;
   default:
     return PeerReachFailure::NoAnswer;
   }
@@ -79,6 +81,8 @@ const char* PeerReachFailureName(const PeerReachFailure failure) {
     return "keepalive-lost";
   case PeerReachFailure::Unreachable:
     return "unreachable";
+  case PeerReachFailure::VersionMismatch:
+    return "version-mismatch";
   }
   return "none";
 }
@@ -136,6 +140,8 @@ void PeerReachRecord::NoteFailed(const std::string& peer_id, const PeerReachFail
   entry.down_network_gen = network_gen;
   if (failure == PeerReachFailure::Refused) {
     f.retry_at_ms = now_ms + kRetryRefusedMs;
+  } else if (failure == PeerReachFailure::VersionMismatch) {
+    f.retry_at_ms = now_ms + kRetryMaxMs; // a node does not change its version in minutes
   } else {
     const int doublings = std::min(f.fails_in_row - 1, 3);
     f.retry_at_ms = now_ms + std::min(kRetryFirstMs << doublings, kRetryMaxMs);
