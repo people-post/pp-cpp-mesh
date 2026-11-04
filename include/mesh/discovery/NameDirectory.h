@@ -40,6 +40,10 @@ struct NameRecord {
   std::string expires_at;
   std::string nickname;
   std::string relay_user_id;
+  /** What the node says it runs (N032; see MeshNodeHit): 0 / empty = not said. */
+  int amp_wire = 0;
+  std::string node_version;
+  std::vector<std::string> features;
 };
 
 /** Abstract phone book — backends: HTTP now, Amp later, chain later (N029). */

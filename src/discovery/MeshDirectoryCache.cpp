@@ -1,5 +1,7 @@
 #include "mesh/discovery/MeshDirectoryCache.h"
 
+#include "amp/L1/Types.h"
+
 #include "mesh/discovery/NameDirectory.h"
 #include "common/AtomicFileWrite.h"
 #include "mesh/types/MeshExecutors.h"
@@ -31,6 +33,19 @@ common::Object NodeToObject(const MeshDirectoryNode& node) {
     mas.emplace_back(ma);
   }
   o.set("multiaddrs", common::makeArray(std::move(mas)));
+  if (node.amp_wire > 0) {
+    o.set("amp_wire", static_cast<int64_t>(node.amp_wire));
+  }
+  if (!node.node_version.empty()) {
+    o.set("node_version", node.node_version);
+  }
+  if (!node.features.empty()) {
+    std::vector<common::Value> features;
+    for (const std::string& f : node.features) {
+      features.emplace_back(f);
+    }
+    o.set("features", common::makeArray(std::move(features)));
+  }
   return o;
 }
 
@@ -49,6 +64,15 @@ std::optional<MeshDirectoryNode> NodeFromObject(const common::Object& o) {
   node.media_relay = o.getIf<bool>("media_relay").value_or(false);
   node.dht = o.getIf<bool>("dht").value_or(false);
   node.ledger_gateway = o.getIf<bool>("ledger_gateway").value_or(false);
+  node.amp_wire = static_cast<int>(o.getIf<int64_t>("amp_wire").value_or(0));
+  node.node_version = o.getString("node_version").value_or("");
+  if (const common::Array* features = o.getArray("features")) {
+    for (const common::Value& v : features->elements) {
+      if (auto s = common::asString(v)) {
+        node.features.push_back(*s);
+      }
+    }
+  }
   if (const common::Array* mas = o.getArray("multiaddrs")) {
     for (const common::Value& v : mas->elements) {
       if (auto s = common::asString(v)) {
@@ -62,6 +86,12 @@ std::optional<MeshDirectoryNode> NodeFromObject(const common::Object& o) {
 }
 
 } // namespace
+
+std::vector<MeshDirectoryNode> WithoutOtherWireVersions(std::vector<MeshDirectoryNode> nodes) {
+  std::erase_if(
+      nodes, [](const MeshDirectoryNode& node) { return node.amp_wire > 0 && node.amp_wire != pp::adp::kWireVersion; });
+  return nodes;
+}
 
 MeshDirectoryCache::MeshDirectoryCache(Fetcher fetcher, std::shared_ptr<pp::Executor> blocking)
     : fetcher_(std::move(fetcher)), blocking_(std::move(blocking)) {}
@@ -132,6 +162,7 @@ void MeshDirectoryCache::LoadPersisted() {
       loaded.push_back(std::move(*node));
     }
   }
+  loaded = WithoutOtherWireVersions(std::move(loaded));
   if (loaded.empty()) {
     return;
   }
@@ -187,7 +218,7 @@ void MeshDirectoryCache::ApplyRefreshResult(Roe<std::vector<MeshDirectoryNode>> 
     std::lock_guard lock(mutex_);
     inflight_ = false;
     if (result) {
-      nodes_ = std::move(*result);
+      nodes_ = WithoutOtherWireVersions(std::move(*result));
       next_refresh_at_ = now + refresh_interval_;
       PersistLocked();
     } else {

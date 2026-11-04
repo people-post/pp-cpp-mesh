@@ -1,4 +1,5 @@
 #include "mesh/discovery/MeshDirectoryCache.h"
+#include "amp/L1/Types.h"
 #include "mesh/discovery/NameDirectory.h"
 
 #include "mesh/types/DirectoryTypes.h"
@@ -180,6 +181,66 @@ TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
   ASSERT_EQ(snap[0].multiaddrs.size(), 1u);
   EXPECT_TRUE(snap[0].circuit_relay);
   std::filesystem::remove(path);
+}
+
+MeshDirectoryNode NodeOnWire(const std::string& peer, const int amp_wire) {
+  MeshDirectoryNode node;
+  node.peer_id = peer;
+  node.amp_wire = amp_wire;
+  node.node_version = amp_wire > 0 ? "4.1.0" : "";
+  return node;
+}
+
+// N032 rule 4: what a node says it runs reaches the cache through either directory, survives a restart, and a node
+// that says it speaks another wire version is dropped (on refresh and on load); one that says nothing stays.
+TEST(MeshDirectoryCacheTest, NodesOfAnotherWireVersionAreDroppedAndClaimsPersist) {
+  MeshNodeHit hit;
+  hit.relay_user_id = "relay:new";
+  hit.amp_wire = pp::adp::kWireVersion;
+  hit.node_version = "4.1.0";
+  hit.features = {"hop_data_lane"};
+  DirectoryEndpoint ep;
+  ep.peer_id = "12D3KooWNew";
+  hit.endpoints.push_back(ep);
+  const auto from_hits = MeshDirectoryNodesFromHits({hit});
+  ASSERT_EQ(from_hits.size(), 1u);
+  EXPECT_EQ(from_hits[0].amp_wire, pp::adp::kWireVersion);
+  EXPECT_EQ(from_hits[0].node_version, "4.1.0");
+  EXPECT_EQ(from_hits[0].features, hit.features);
+
+  const auto* info = ::testing::UnitTest::GetInstance();
+  const std::string path =
+      (std::filesystem::temp_directory_path() / ("pp_mesh_dir_wire_" + std::to_string(info->random_seed()) + ".json"))
+          .string();
+  std::filesystem::remove(path);
+  const int other = pp::adp::kWireVersion + 1;
+  {
+    MeshDirectoryCache cache(
+        [&]() -> Roe<std::vector<MeshDirectoryNode>> {
+          return std::vector<MeshDirectoryNode>{NodeOnWire("QmSilent", 0), NodeOnWire("QmOurs", pp::adp::kWireVersion),
+                                                NodeOnWire("QmOther", other)};
+        },
+        nullptr);
+    cache.SetPersistPath(path);
+    cache.RequestRefresh();
+    const auto snap = cache.Snapshot();
+    ASSERT_EQ(snap.size(), 2u);
+    EXPECT_EQ(snap[0].peer_id, "QmSilent") << "a node that says nothing is dialed as before";
+    EXPECT_EQ(snap[1].peer_id, "QmOurs");
+    EXPECT_EQ(snap[1].node_version, "4.1.0");
+  }
+  {
+    MeshDirectoryCache restarted([]() -> Roe<std::vector<MeshDirectoryNode>> { return Error("no net"); }, nullptr);
+    restarted.SetPersistPath(path);
+    restarted.LoadPersisted();
+    const auto snap = restarted.Snapshot();
+    ASSERT_EQ(snap.size(), 2u);
+    EXPECT_EQ(snap[1].amp_wire, pp::adp::kWireVersion) << "the claim survives a restart";
+  }
+  std::filesystem::remove(path);
+
+  const auto kept = WithoutOtherWireVersions({NodeOnWire("QmOther", other)});
+  EXPECT_TRUE(kept.empty());
 }
 
 TEST(NameDirectoryTest, ListServiceMapsMeshNodes) {

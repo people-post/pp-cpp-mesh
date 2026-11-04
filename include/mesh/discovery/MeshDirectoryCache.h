@@ -75,6 +75,12 @@ private:
 };
 
 /** Flatten Brief mesh_node hits into per-endpoint rows for hop policy. */
+/**
+ * N032 rule 4, claims only exclude: drop the nodes that say they speak another amp wire version. A node that says
+ * nothing (amp_wire 0: before N032) stays and is dialed as before; a claim never ranks a node higher.
+ */
+std::vector<MeshDirectoryNode> WithoutOtherWireVersions(std::vector<MeshDirectoryNode> nodes);
+
 std::vector<MeshDirectoryNode> MeshDirectoryNodesFromHits(const std::vector<MeshNodeHit>& hits);
 
 } // namespace pp::mesh
