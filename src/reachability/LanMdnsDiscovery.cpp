@@ -1,4 +1,6 @@
 #include "mesh/reachability/LanMdnsDiscovery.h"
+
+#include "amp/link/Types.h"
 #include "mesh/reachability/LanMdnsSocket.h"
 
 #include <algorithm>
@@ -347,8 +349,9 @@ std::optional<std::string> LanMdnsDiscovery::BuildAdpMultiaddr(const LanMdnsDisc
   if (peer.peer_id_base58.empty() || peer.host_ip.empty() || peer.amp_udp_port <= 0) {
     return std::nullopt;
   }
-  return "/ip4/" + peer.host_ip + "/udp/" + std::to_string(peer.amp_udp_port) + "/adp/1.0.0/p2p/" +
-         peer.peer_id_base58;
+  // The TXT record says no wire version: the legacy token says none either (dialed; version negotiation decides).
+  return "/ip4/" + peer.host_ip + "/udp/" + std::to_string(peer.amp_udp_port) + "/adp/" +
+         pp::amp::kAdpMultiaddrLegacyVersion + "/p2p/" + peer.peer_id_base58;
 }
 
 void LanMdnsDiscovery::ThreadMain() {

@@ -199,7 +199,7 @@ void ReachabilityEngine::ProbeSeed(AmpReachabilityProbeDeps deps, ReachabilitySn
   }
   auto seed_ma = FirstAdpBootstrap(deps.bootstrap_peers);
   if (!seed_ma) {
-    result.signals.seed_dial_error = "no ADP bootstrap peers (dial-back needs /udp/…/adp/1.0.0/p2p/…)";
+    result.signals.seed_dial_error = "no ADP bootstrap peers (dial-back needs /udp/…/adp/<wire>/p2p/…)";
     // Without an Amp seed we cannot distinguish inbound; keep chrome honest (not Blocked).
     result.status = ReachabilityStatus::Unknown;
     Complete(std::move(result), /*classify=*/false);
