@@ -110,6 +110,8 @@ struct MediaRelayServer::Impl {
   mutable std::mutex mu;
   MediaRelayAdmissionPolicy admission;
   MediaRelayVideoPolicy video_policy;
+  /** The node's service levels (MeshHost's); null: none said. */
+  std::atomic<ServiceLoadMonitor *> load{nullptr};
   std::atomic<bool> started{false};
   std::atomic<bool> stopped{true};
   std::atomic<bool> serve_inbound{true};
@@ -417,7 +419,27 @@ struct MediaRelayServer::Impl {
     quotes.Clear();
   }
 
-  /** A refusal: its code for the client's logic, its text for logs (docs/ERRORS.md). */
+  /** Requires `mu`. The group-call pressure this server sees (calls hosted, of
+   * the limit), then the level. */
+  ServiceLoad PublishLoadLocked() {
+    ServiceLoadMonitor *monitor = load.load(std::memory_order_acquire);
+    if (!monitor) {
+      return ServiceLoad::Unknown;
+    }
+    monitor->SetPressure(MeshService::MediaRelay, "sessions",
+                         static_cast<double>(hosts_by_call.size()) /
+                             static_cast<double>(kMediaRelayServeMaxSessions));
+    return monitor->Level(MeshService::MediaRelay);
+  }
+
+  ServiceLoad LevelNow() const {
+    ServiceLoadMonitor *monitor = load.load(std::memory_order_acquire);
+    return monitor ? monitor->Level(MeshService::MediaRelay)
+                   : ServiceLoad::Unknown;
+  }
+
+  /** A refusal: its code for the client's logic, its text for logs, the node's
+   * level (docs/ERRORS.md). */
   void Reject(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const MediaRelayRefusal refusal,
               const std::string& error, const MediaRelayAttachEvent ev) {
     common::Object err;
@@ -427,6 +449,7 @@ struct MediaRelayServer::Impl {
       err.set("code", std::string(code));
     }
     err.set("error", error);
+    SetLoadField(err, LevelNow());
     channel.EnqueueOutbound(JsonToBody(common::DumpJson(err)));
     (void)sm.Apply(ev);
     channel.Close();
@@ -611,6 +634,17 @@ struct MediaRelayServer::Impl {
       Reject(channel, sm, MediaRelayRefusal::BadRequest, carried.error().message, MediaRelayAttachEvent::AdmitFail);
       return false;
     }
+    // Full or draining: no new call here (one it hosts still takes its members
+    // — refusing them would split it).
+    if (const ServiceLoad level = PublishLoadLocked();
+        ServiceLoadRefusesNew(level) &&
+        !hosts_by_call.contains(req.session_id)) {
+      metrics.quotes_refused_busy.Inc();
+      Reject(channel, sm, MediaRelayRefusal::Busy,
+             std::string("media-relay busy: ") + ServiceLoadWire(level),
+             MediaRelayAttachEvent::AdmitFail);
+      return false;
+    }
     auto q = BuildDefaultMediaRelayQuote(req);
     q.video_levels = *carried;
     if (!quotes.Add(q, req.session_id, sm.remote, Clock::now())) {
@@ -633,6 +667,7 @@ struct MediaRelayServer::Impl {
     quote_resp.set("ceiling_bytes", q.ceiling_bytes);
     quote_resp.set("ceiling_amount", q.ceiling_amount);
     quote_resp.set("video_levels", VideoLevelsToJson(q.video_levels));
+    SetLoadField(quote_resp, LevelNow());
     channel.EnqueueOutbound(JsonToBody(common::DumpJson(quote_resp)));
     (void)sm.Apply(MediaRelayAttachEvent::OpQuote);
     return true;
@@ -670,6 +705,7 @@ struct MediaRelayServer::Impl {
     accept_resp.set("op", "accept");
     accept_resp.set("session_token", sm.session_token);
     accept_resp.set("quote_id", sm.accepted_quote_id);
+    SetLoadField(accept_resp, LevelNow());
     channel.EnqueueOutbound(JsonToBody(common::DumpJson(accept_resp)));
     (void)sm.Apply(MediaRelayAttachEvent::OpAccept);
     return true;
@@ -713,6 +749,14 @@ struct MediaRelayServer::Impl {
       return false;
     }
     std::shared_ptr<HostSession> host = hosts_by_call.contains(call_id) ? hosts_by_call[call_id] : nullptr;
+    if (const ServiceLoad level = PublishLoadLocked();
+        !host && ServiceLoadRefusesNew(level)) {
+      metrics.attaches_refused.Inc();
+      Reject(*channel, sm, MediaRelayRefusal::Busy,
+             std::string("relay busy: ") + ServiceLoadWire(level),
+             MediaRelayAttachEvent::AttachFail);
+      return false;
+    }
     if (!host && !MediaRelayCanOpenHostSession(hosts_by_call.size(), kMediaRelayServeMaxSessions)) {
       metrics.attaches_refused.Inc();
       Reject(*channel, sm, MediaRelayRefusal::Busy, "relay busy: too many sessions",
@@ -895,6 +939,10 @@ MediaRelayRuntimeStats MediaRelayServer::RuntimeStats() const {
     }
   }
   return stats;
+}
+
+void MediaRelayServer::SetLoadMonitor(ServiceLoadMonitor *monitor) {
+  impl_->load.store(monitor, std::memory_order_release);
 }
 
 void MediaRelayServer::SetVideoPolicy(MediaRelayVideoPolicy policy) {

@@ -344,11 +344,18 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   // H013: the relays the target says it is parked on go first, whatever our own ranking or a recent
   // refusal says; only they earn a same-relay retry on `not registered`.
   auto advertised = std::make_shared<const std::vector<std::string>>(std::move(advertised_relays));
-  auto relays = std::make_shared<std::vector<std::string>>(PutAdvertisedRelaysFirst(
-      refusals_.Demote(OrderCircuitRelayAttempts(std::move(collected), sticky,
-                                                 [this](const std::string& key) { return links_.IsConnected(key); }),
-                       now_ms),
-      *advertised));
+  std::vector<std::string> ordered = refusals_.Demote(
+      OrderCircuitRelayAttempts(
+          std::move(collected), sticky,
+          [this](const std::string &key) { return links_.IsConnected(key); }),
+      now_ms);
+  if (peer_loads_) {
+    // Open before busy, full / draining last (a full one refuses at once:
+    // cheap, but not first).
+    peer_loads_->OrderBest(ordered, MeshService::Relay, PeerLoadBook::NowMs());
+  }
+  auto relays = std::make_shared<std::vector<std::string>>(
+      PutAdvertisedRelaysFirst(std::move(ordered), *advertised));
 
   AmpReachLog().info << "EnsureViaCircuit start target=" << target_peer_id
                      << " protocol=" << target_protocol << " nested=" << (nested_session ? 1 : 0)

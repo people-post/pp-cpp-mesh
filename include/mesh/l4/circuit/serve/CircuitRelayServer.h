@@ -1,9 +1,10 @@
 #pragma once
 
-#include "mesh/l4/shared/RelayRuntimeStats.h"
 #include "amp/link/MeshRuntime.h"
 #include "common/metrics/MetricsRegistry.h"
 #include "mesh/l4/circuit/CircuitRelayTypes.h"
+#include "mesh/l4/shared/RelayRuntimeStats.h"
+#include "mesh/types/ServiceLoad.h"
 #include <cstddef>
 #include <memory>
 
@@ -35,6 +36,13 @@ public:
   bool ServeInbound() const;
   /** K003 standby circuits served at once: relay-wide and per dialer PeerId (0 keeps the default). */
   void SetStandbyLimits(size_t max_standby, size_t max_per_dialer);
+  /**
+   * This node's service levels (its MeshHost's): the server sets the park and
+   * relay pressures it sees, says the level in every reply, and takes nothing
+   * new while a level refuses it. Null: no levels said, the counts' hard limits
+   * only.
+   */
+  void SetLoadMonitor(ServiceLoadMonitor *monitor);
   /** Tunnels bridged / still in setup, and parked reservations (aggregates only). Any thread. */
   CircuitRelayRuntimeStats RuntimeStats() const;
 

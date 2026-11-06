@@ -45,8 +45,11 @@ std::string BodyToJson(const std::vector<uint8_t>& body) {
   return std::string(body.begin(), body.end());
 }
 
-/** A refusal: its code for the dialer's logic, its text for logs (docs/ERRORS.md). */
-std::vector<uint8_t> ErrorBody(const CircuitRefusal refusal, const std::string& message) {
+/** A refusal: its code for the dialer's logic, its text for logs, the node's
+ * level (docs/ERRORS.md). */
+std::vector<uint8_t> ErrorBody(const CircuitRefusal refusal,
+                               const std::string &message,
+                               const ServiceLoad load = ServiceLoad::Unknown) {
   common::Object err;
   err.set("v", int64_t{1});
   err.set("ok", false);
@@ -54,6 +57,7 @@ std::vector<uint8_t> ErrorBody(const CircuitRefusal refusal, const std::string& 
     err.set("code", std::string(code));
   }
   err.set("error", message);
+  SetLoadField(err, load);
   return JsonToBody(common::DumpJson(err));
 }
 
@@ -165,6 +169,8 @@ struct CircuitRelayServer::Impl {
   CircuitRelayMetrics metrics;
   std::mutex mu;
   CircuitRelayAdmissionPolicy admission;
+  /** The node's service levels (MeshHost's); null: none said. */
+  std::atomic<ServiceLoadMonitor *> load{nullptr};
   std::atomic<bool> started{false};
   std::atomic<bool> stopped{true};
   std::atomic<bool> serve_inbound{true};
@@ -222,6 +228,24 @@ struct CircuitRelayServer::Impl {
   std::unordered_map<std::string, std::vector<CircuitTunnelId>> far_leg_waiters_;
 
   /** Live bridges, relay-wide and from `dialer` (PB-022). Under `mu`. */
+  /**
+   * Requires `mu`. The park and relay pressures this server sees (reservations
+   * held, bridges live, of their limits), then the level for `service`.
+   */
+  ServiceLoad PublishLoadLocked(const MeshService service) {
+    ServiceLoadMonitor *monitor = load.load(std::memory_order_acquire);
+    if (!monitor) {
+      return ServiceLoad::Unknown;
+    }
+    monitor->SetPressure(MeshService::Park, "reservations",
+                         static_cast<double>(reservations.size()) /
+                             static_cast<double>(kCircuitMaxReservations));
+    monitor->SetPressure(MeshService::Relay, "bridges",
+                         static_cast<double>(CountLiveTunnelsLocked({}).first) /
+                             static_cast<double>(kCircuitMaxTunnels));
+    return monitor->Level(service);
+  }
+
   std::pair<size_t, size_t> CountLiveTunnelsLocked(const std::string& dialer) const {
     size_t total = 0;
     size_t from_dialer = 0;
@@ -572,6 +596,9 @@ struct CircuitRelayServer::Impl {
     response.set("v", int64_t{1});
     response.set("ok", true);
     response.set("resolved_multiaddr", tunnel.resolved_multiaddr);
+    if (ServiceLoadMonitor *monitor = load.load(std::memory_order_acquire)) {
+      SetLoadField(response, monitor->Level(MeshService::Relay));
+    }
     if (!tunnel.near_session->EnqueueOutbound(JsonToBody(common::DumpJson(response)))) {
       TearDown(tunnel, false, "failed to ack bridge");
       return;
@@ -764,8 +791,16 @@ struct CircuitRelayServer::Impl {
       CountStandbyLocked(remote, admit);
     }
     const auto decision = DecideCircuitAdmit(admit);
-    auto refuse = [&](const CircuitRefusal refusal, const std::string& message) {
-      near_session->EnqueueOutbound(ErrorBody(refusal, message));
+    const MeshService service =
+        op == "reserve" ? MeshService::Park : MeshService::Relay;
+    ServiceLoad level = ServiceLoad::Unknown;
+    {
+      std::lock_guard lock(mu);
+      level = PublishLoadLocked(service);
+    }
+    auto refuse = [&](const CircuitRefusal refusal,
+                      const std::string &message) {
+      near_session->EnqueueOutbound(ErrorBody(refusal, message, level));
       near_session->Close();
     };
     if (decision == CircuitAdmitDecision::RefuseStandbyFull) {
@@ -788,7 +823,7 @@ struct CircuitRelayServer::Impl {
       return;
     }
     if (op == "reserve") {
-      HandleReserve(near_session, remote, root, refuse);
+      HandleReserve(near_session, remote, root, refuse, level);
       return;
     }
     const std::string target_protocol = root.getString("target_protocol").value_or(kCircuitRelayProtocolId);
@@ -796,6 +831,16 @@ struct CircuitRelayServer::Impl {
       metrics.bridge_refused_admission.Inc();
       CircuitTunnelLog().warning << "circuit bridge refused dialer=" << remote << " protocol=" << target_protocol;
       refuse(CircuitRefusal::BadRequest, "circuit bridge: target protocol not relayed");
+      return;
+    }
+    if (ServiceLoadRefusesNew(level)) {
+      // Full or draining for relaying: what it says is what it does
+      // (docs/PEER_REACH.md § Service load).
+      metrics.bridge_refused_admission.Inc();
+      CircuitTunnelLog().warning << "circuit bridge refused dialer=" << remote
+                                 << " load=" << ServiceLoadWire(level);
+      refuse(CircuitRefusal::Busy,
+             std::string("relay busy: relay ") + ServiceLoadWire(level));
       return;
     }
     {
@@ -851,8 +896,10 @@ struct CircuitRelayServer::Impl {
   }
 
   template <typename Refuse>
-  void HandleReserve(const std::shared_ptr<pp::amp::ChannelSession>& near_session, const std::string& remote,
-                     const common::Object& root, Refuse& refuse) {
+  void
+  HandleReserve(const std::shared_ptr<pp::amp::ChannelSession> &near_session,
+                const std::string &remote, const common::Object &root,
+                Refuse &refuse, const ServiceLoad level) {
     if (remote.empty()) {
       metrics.reserve_refused.Inc();
       CircuitTunnelLog().warning << "circuit reserve refused: remote peer id unknown";
@@ -863,6 +910,16 @@ struct CircuitRelayServer::Impl {
                                                        kCircuitMaxReserveTimeoutMs);
     {
       std::lock_guard lock(mu);
+      // A renewal is not new work: a phone parked here stays parked while the
+      // node is full or draining.
+      if (!reservations.contains(remote) && ServiceLoadRefusesNew(level)) {
+        metrics.reserve_refused.Inc();
+        CircuitTunnelLog().warning << "circuit reserve refused key=" << remote
+                                   << " load=" << ServiceLoadWire(level);
+        refuse(CircuitRefusal::Busy,
+               std::string("relay busy: park ") + ServiceLoadWire(level));
+        return;
+      }
       if (!reservations.contains(remote) && reservations.size() >= kCircuitMaxReservations) {
         metrics.reserve_refused.Inc();
         CircuitTunnelLog().warning << "circuit reserve refused: relay holds " << reservations.size();
@@ -880,6 +937,8 @@ struct CircuitRelayServer::Impl {
     ack.set("v", int64_t{1});
     ack.set("ok", true);
     ack.set("op", "reserve");
+    SetLoadField(ack, level); // draining: the phone parks elsewhere when it can
+                              // (still served here meanwhile)
     near_session->EnqueueOutbound(JsonToBody(common::DumpJson(ack)));
     // Answerer park may complete after the dialer already armed a ServeDial wait.
     NotifyFarLegReady(remote);
@@ -969,6 +1028,10 @@ bool CircuitRelayServer::IsStarted() const {
 void CircuitRelayServer::SetAdmissionPolicy(CircuitRelayAdmissionPolicy policy) {
   std::lock_guard lock(impl_->mu);
   impl_->admission = std::move(policy);
+}
+
+void CircuitRelayServer::SetLoadMonitor(ServiceLoadMonitor *monitor) {
+  impl_->load.store(monitor, std::memory_order_release);
 }
 
 void CircuitRelayServer::SetServeInbound(const bool serve) {

@@ -7,6 +7,7 @@
 #include "mesh/l4/media_relay/MediaRelayTypes.h"
 #include "mesh/l4/media_relay/client/IMediaRelayClient.h"
 #include "mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/types/ServiceLoad.h"
 
 #include "common/Error.h"
 #include <functional>
@@ -46,6 +47,9 @@ public:
   void Stop();
   bool IsStarted() const;
 
+  /** Where the hops' own group-call levels go as their replies say them
+   * (MeshHost's PeerLoadBook). */
+  void SetPeerLoadBook(PeerLoadBook *book);
   void SetCircuitHopRegistry(AmpCircuitHopRegistry* hops);
 
   MediaRelaySessionId StartQuote(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,

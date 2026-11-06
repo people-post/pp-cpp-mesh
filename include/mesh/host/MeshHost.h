@@ -1,27 +1,28 @@
 #pragma once
 
-#include "mesh/types/MeshConfigTypes.h"
 #include "amp/link/AmpStack.h"
-#include "mesh/host/LocalNetworkChange.h"
-#include "mesh/host/UdpSocketProbe.h"
-#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "common/Error.h"
+#include "common/SerialExecutor.h"
+#include "common/metrics/MetricsRegistry.h"
 #include "mesh/dht/AmpDhtProtocol.h"
 #include "mesh/discovery/AmpDirectoryProtocol.h"
+#include "mesh/host/LocalNetworkChange.h"
+#include "mesh/host/MeshIdentityConfig.h"
+#include "mesh/host/MeshPorts.h"
+#include "mesh/host/MeshPumpThread.h"
+#include "mesh/host/UdpSocketProbe.h"
+#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
+#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
+#include "mesh/l4/circuit/serve/CircuitRelayServer.h"
+#include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
+#include "mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/reachability/ReachabilityEngine.h"
 #include "mesh/reachability/dial_back/client/DialBackClient.h"
 #include "mesh/reachability/dial_back/serve/DialBackServer.h"
 #include "mesh/reachability/punch/AmpPunchCoordinator.h"
-#include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
-#include "mesh/l4/media_relay/serve/MediaRelayServer.h"
-#include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
-#include "mesh/l4/circuit/serve/CircuitRelayServer.h"
-#include "mesh/host/MeshIdentityConfig.h"
-#include "mesh/host/MeshPorts.h"
+#include "mesh/types/MeshConfigTypes.h"
 #include "mesh/types/MeshExecutors.h"
-#include "common/SerialExecutor.h"
-#include "mesh/host/MeshPumpThread.h"
-#include "mesh/reachability/ReachabilityEngine.h"
-#include "common/Error.h"
-#include "common/metrics/MetricsRegistry.h"
+#include "mesh/types/ServiceLoad.h"
 
 #include <chrono>
 #include <atomic>
@@ -137,6 +138,16 @@ public:
   /** media_relay client side (outbound quote / attach, the attached session). */
   MediaRelayClientCoordinator* AmpMediaRelayClientCoord();
   AmpCircuitHopRegistry* AmpCircuitHops();
+  /**
+   * This node's service levels (docs/PEER_REACH.md § Service load): its servers
+   * set the pressures they see, a tick adds the link table's, and an operator
+   * adds more (CPU, uplink) or drains it. They say the level in their replies.
+   */
+  ServiceLoadMonitor &OwnLoad() { return own_load_; }
+  /** What other nodes said about their own load, as this host's clients heard
+   * it. */
+  PeerLoadBook &PeerLoads() { return peer_loads_; }
+  const PeerLoadBook &PeerLoads() const { return peer_loads_; }
   /** Amp dial-back for reachability chrome (D8); null when Amp is down. */
   DialBackClient* AmpDialBack();
   /** Amp coordinated punch (H009 / L3.25a); null when Amp is down. */
@@ -269,6 +280,11 @@ private:
   std::unique_ptr<AmpDhtProtocol> amp_dht_;
   /** The DHT's self-publish io tick (0: none). */
   pp::amp::MeshRuntime::IoTickId dht_tick_ = 0;
+  ServiceLoadMonitor own_load_;
+  PeerLoadBook peer_loads_;
+  /** Samples the link table's pressure into own_load_ (once a second). */
+  pp::amp::MeshRuntime::IoTickId load_tick_ = 0;
+  size_t max_links_ = 0;
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;
   bool host_dht_ = false;
   bool host_directory_ = false;

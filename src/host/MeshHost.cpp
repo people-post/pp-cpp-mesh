@@ -1,12 +1,14 @@
 #include "mesh/reachability/ReachabilityNetIf.h"
 #include "mesh/reachability/AmpObservedAddrs.h"
 #include "mesh/host/MeshHost.h"
+
 #include "mesh/host/AmpLinkConfig.h"
 #include "mesh/host/MeshLinkEventLog.h"
+#include "mesh/l4/circuit/CircuitRelayTypes.h"
+#include "mesh/l4/media_relay/MediaRelayTypes.h"
 #include "mesh/reachability/dial_back/DialBackTypes.h"
 #include "mesh/reachability/punch/PunchTypes.h"
-#include "mesh/l4/media_relay/MediaRelayTypes.h"
-#include "mesh/l4/circuit/CircuitRelayTypes.h"
+#include <array>
 
 #include "mesh/host/MeshPorts.h"
 
@@ -111,6 +113,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   const bool serves_others =
       config.host_circuit_relay || config.host_media_relay || config.host_dht || config.host_directory;
   amp_cfg.link_config = MakeProductAmpLinkConfig(serves_others ? AmpLinkTable::Server : AmpLinkTable::Device);
+  max_links_ = amp_cfg.link_config.max_links;
 
   auto stack = pp::amp::AmpStack::Create(std::move(io), amp_clock_, std::move(amp_cfg));
   if (!stack) {
@@ -226,6 +229,51 @@ void MeshHost::EnsureAmpL4Coordinators() {
         std::make_unique<MediaRelayClientCoordinator>(amp_->Runtime(), amp_media_relay_server_.get());
   }
   amp_media_relay_client_->SetCircuitHopRegistry(amp_circuit_hops_.get());
+  amp_circuit_server_->SetLoadMonitor(&own_load_);
+  amp_media_relay_server_->SetLoadMonitor(&own_load_);
+  amp_circuit_client_->SetPeerLoadBook(&peer_loads_);
+  amp_media_relay_client_->SetPeerLoadBook(&peer_loads_);
+  if (load_tick_ == 0 && max_links_ > 0) {
+    // Every service needs a link per client: the table's fill is a pressure on
+    // each (sampled once a second). The levels for the operator too:
+    // pp_service_load{service} (1 open, 2 busy, 3 full, 4 draining) and the
+    // worst pressure behind it (pp-browser docs/contracts/NODE_METRICS.md).
+    struct Gauges {
+      MetricGauge *level = nullptr;
+      MetricGauge *pressure = nullptr;
+    };
+    auto gauges = std::make_shared<std::array<Gauges, kMeshServiceCount>>();
+    for (const MeshService service :
+         {MeshService::Park, MeshService::Relay, MeshService::MediaRelay}) {
+      const MetricLabels labels = {{"service", MeshServiceName(service)}};
+      (*gauges)[static_cast<size_t>(service)] = {
+          &metrics_.Gauge("pp_service_load",
+                          "This node's level per service: 1 open, 2 busy, 3 "
+                          "full, 4 draining",
+                          labels),
+          &metrics_.Gauge("pp_service_pressure",
+                          "The worst pressure behind the level (0..1)",
+                          labels)};
+    }
+    auto sampled_ms = std::make_shared<int64_t>(0);
+    load_tick_ = amp_->Runtime().AddIoTick([this, sampled_ms, gauges]() {
+      const int64_t now = PeerLoadBook::NowMs();
+      if (now - *sampled_ms < 1000 || !amp_) {
+        return;
+      }
+      *sampled_ms = now;
+      const double links =
+          static_cast<double>(amp_->Runtime().Links().CountLinks()) /
+          static_cast<double>(max_links_);
+      for (const MeshService service :
+           {MeshService::Park, MeshService::Relay, MeshService::MediaRelay}) {
+        own_load_.SetPressure(service, "links", links);
+        const Gauges &g = (*gauges)[static_cast<size_t>(service)];
+        g.level->Set(static_cast<double>(own_load_.Level(service)));
+        g.pressure->Set(own_load_.Pressure(service));
+      }
+    });
+  }
   auto io_pump = MakeL4IoPump();
   auto post_worker = MakeL4WorkerPost(executors_.work);
   if (!amp_dial_back_server_) {
@@ -344,6 +392,9 @@ void MeshHost::StopAmp() {
   amp_directory_.reset();
   if (amp_ && dht_tick_ != 0) {
     amp_->Runtime().RemoveIoTick(std::exchange(dht_tick_, 0));  // nothing drives now: MeshPump joined
+  }
+  if (amp_ && load_tick_ != 0) {
+    amp_->Runtime().RemoveIoTick(std::exchange(load_tick_, 0));
   }
   amp_dht_.reset();
   amp_media_relay_client_.reset();

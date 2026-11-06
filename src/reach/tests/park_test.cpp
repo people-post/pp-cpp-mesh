@@ -1,4 +1,5 @@
 #include "mesh/testing/park_harness.h"
+#include "mesh/types/ServiceLoad.h"
 
 #include <gtest/gtest.h>
 
@@ -145,6 +146,82 @@ TEST(ParkTest, SlowSeedsAreStillParkedOn) {
   EXPECT_TRUE(*parked);
   EXPECT_GE(bench->ElapsedMs(), 500) << "the bench's delay held nothing back";
   ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*first) && bench->ParkedOn(*second); }, 10'000));
+}
+
+// Service load (docs/PEER_REACH.md § Service load): a seed that is full for
+// parking refuses the reservation and says so; the phone parks on two others
+// instead of counting the full one as parked.
+TEST(ParkTest, AFullSeedIsNotParkedOnAndTwoOthersAre) {
+  auto bench = MakeBench();
+  ASSERT_NE(bench, nullptr);
+  auto full = bench->AddRelay(RelayKind::Answers);
+  auto second = bench->AddRelay(RelayKind::Answers);
+  auto third = bench->AddRelay(RelayKind::Answers);
+  ASSERT_TRUE(full && second && third);
+  bench->RelayHost(*full)->OwnLoad().SetPressure(MeshService::Park, "test",
+                                                 1.0);
+
+  bench->Park().ReserveOnBootstrapSeeds();
+  ASSERT_TRUE(bench->RunUntil(
+      [&] { return bench->ParkedOn(*second) && bench->ParkedOn(*third); },
+      10'000))
+      << "parked on " << bench->Parked().size();
+  EXPECT_FALSE(bench->ParkedOn(*full));
+  EXPECT_EQ(bench->Phone().PeerLoads().Load(*full, MeshService::Park,
+                                            PeerLoadBook::NowMs()),
+            ServiceLoad::Full)
+      << "the refusal said why";
+}
+
+// A relay the phone is parked on starts draining: its renewal still holds, says
+// draining, and the phone parks on another as well before the node goes away.
+TEST(ParkTest, ADrainingRelayIsReplaced) {
+  auto bench = MakeBench();
+  ASSERT_NE(bench, nullptr);
+  auto first = bench->AddRelay(RelayKind::Answers);
+  auto second = bench->AddRelay(RelayKind::Answers);
+  auto third = bench->AddRelay(RelayKind::Answers);
+  ASSERT_TRUE(first && second && third);
+  bench->Park().ReserveOnBootstrapSeeds();
+  ASSERT_TRUE(bench->RunUntil(
+      [&] { return bench->ParkedOn(*first) && bench->ParkedOn(*second); },
+      5000));
+  EXPECT_EQ(bench->Phone().PeerLoads().Load(*first, MeshService::Park,
+                                            PeerLoadBook::NowMs()),
+            ServiceLoad::Open)
+      << "the reservation's ack says the level";
+
+  bench->RelayHost(*first)->OwnLoad().SetDraining(true);
+  bench->Park().ReserveOnBootstrapSeeds(); // the app renews every 20 s
+  ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*third); }, 10'000))
+      << "a replacement for the draining one";
+  EXPECT_TRUE(bench->ParkedOn(*second));
+  EXPECT_EQ(bench->Phone().PeerLoads().Load(*first, MeshService::Park,
+                                            PeerLoadBook::NowMs()),
+            ServiceLoad::Draining);
+}
+
+// A full relay still takes the renewal of a phone already parked on it: full
+// means nothing new, not out.
+TEST(ParkTest, AFullRelayKeepsThePhonesAlreadyParkedOnIt) {
+  auto bench = MakeBench();
+  ASSERT_NE(bench, nullptr);
+  auto first = bench->AddRelay(RelayKind::Answers);
+  auto second = bench->AddRelay(RelayKind::Answers);
+  ASSERT_TRUE(first && second);
+  bench->Park().ReserveOnBootstrapSeeds();
+  ASSERT_TRUE(bench->RunUntil(
+      [&] { return bench->ParkedOn(*first) && bench->ParkedOn(*second); },
+      5000));
+
+  bench->RelayHost(*first)->OwnLoad().SetPressure(MeshService::Park, "test",
+                                                  1.0);
+  bench->Park().ReserveOnBootstrapSeeds();
+  bench->RunUntil([] { return false; }, 3000);
+  EXPECT_TRUE(bench->ParkedOn(*first)) << "renewed, not refused";
+  EXPECT_EQ(bench->Phone().PeerLoads().Load(*first, MeshService::Park,
+                                            PeerLoadBook::NowMs()),
+            ServiceLoad::Full);
 }
 
 }  // namespace

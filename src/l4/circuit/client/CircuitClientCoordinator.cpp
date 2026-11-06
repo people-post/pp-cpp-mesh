@@ -77,6 +77,8 @@ CircuitClientCoordinator::Failure CircuitClientCoordinator::FromRefusal(const Ci
 struct CircuitClientCoordinator::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
   mutable std::mutex mu;
+  /** The relays' levels as they say them (MeshHost's); null: not kept. */
+  std::atomic<PeerLoadBook *> loads{nullptr};
   std::atomic<bool> started{false};
   std::atomic<bool> stopped{true};
   std::atomic<uint64_t> next_id{1};
@@ -281,6 +283,11 @@ struct CircuitClientCoordinator::Impl {
       return false;
     }
     const bool ack_ok = root->getIf<bool>("ok").value_or(false);
+    if (PeerLoadBook *book = loads.load(std::memory_order_acquire)) {
+      book->Note(tunnel.relay_peer_key,
+                 tunnel.is_reserve ? MeshService::Park : MeshService::Relay,
+                 LoadField(*root), PeerLoadBook::NowMs());
+    }
     const auto decision = DecideCircuitBridgeAck(CircuitBridgeAckContext{.phase = tunnel.phase, .ack_ok = ack_ok});
     if (decision == CircuitBridgeAckDecision::IgnoreStale) {
       return true;
@@ -510,6 +517,12 @@ void CircuitClientCoordinator::Stop() {
   impl_->lifetime.Invalidate();
 }
 
+bool CircuitClientCoordinator::HoldsReservation(
+    const std::string &relay_peer_key) const {
+  std::lock_guard lock(impl_->mu);
+  return impl_->reserved_relays.contains(relay_peer_key);
+}
+
 bool CircuitClientCoordinator::IsStarted() const {
   return impl_->started.load(std::memory_order_acquire);
 }
@@ -565,6 +578,10 @@ CircuitTunnelId CircuitClientCoordinator::StartBridge(const std::string& relay_p
   tunnel->on_finished = std::move(on_finished);
   tunnel->deadline = Clock::now() + std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 8000);
   return impl_->Launch(std::move(tunnel));
+}
+
+void CircuitClientCoordinator::SetPeerLoadBook(PeerLoadBook *book) {
+  impl_->loads.store(book, std::memory_order_release);
 }
 
 CircuitTunnelId CircuitClientCoordinator::StartReserve(const std::string& relay_peer_key, BridgeFinished on_finished,

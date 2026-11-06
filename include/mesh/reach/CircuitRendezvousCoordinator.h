@@ -1,11 +1,12 @@
 #pragma once
 
 #include "amp/link/PeerLinkManager.h"
+#include "common/Lifetime.h"
 #include "common/Module.h"
-#include "mesh/types/MeshHopTypes.h"
 #include "mesh/host/MeshHost.h"
 #include "mesh/reach/PeerReachRecord.h"
-#include "common/Lifetime.h"
+#include "mesh/types/MeshHopTypes.h"
+#include "mesh/types/ServiceLoad.h"
 
 #include <cstddef>
 #include <functional>
@@ -85,6 +86,21 @@ private:
   void PostIoOrRun(std::function<void()> task) const;
   std::vector<MeshHopCandidate> RendezvousCandidates(const std::string& exclude_peer_id = {}) const;
   PeerReachFacts Facts(const std::string& peer_id) const;
+  /**
+   * `relay` counts toward the park's live relays by what it said of its own
+   * load (docs/PEER_REACH.md § Service load): not when draining, nor when full
+   * unless this device already holds its reservation there (a renewal is
+   * accepted).
+   */
+  bool ParkCountsOn(const std::string &relay) const;
+  /** The park's level for `relay`, as it said it (Unknown when it did not or
+   * long ago). */
+  ServiceLoad ParkLoad(const std::string &relay) const;
+  /** A relay said full or draining: park elsewhere now, not at the next round
+   * (at most every kReplaceParkEveryMs). */
+  void ReplaceParkSoon(const std::string &relay, ServiceLoad load);
+  static constexpr int64_t kReplaceParkEveryMs = 5000;
+  int64_t replace_park_at_ms_ = 0;
   /** The relay this node parks on first: the chosen / announced R1, else circuit reach's last good one. */
   std::string StickyRelay() const;
   std::vector<std::string> BootstrapSeedPeerIds() const;

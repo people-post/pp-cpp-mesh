@@ -199,6 +199,9 @@ CircuitRendezvousCoordinator::ParkCount CircuitRendezvousCoordinator::CountParkO
   const int64_t now = PeerReachRecord::NowMs();
   for (const std::string& seed : BootstrapSeedPeerIds()) {
     const pp::amp::LinkSnapshotEx snap = chat->links.SnapshotByPeerId(seed);
+    if (!ParkCountsOn(seed)) {
+      continue; // full (and not ours) or draining: it does not park this device
+    }
     if (snap.base.phase == pp::amp::PeerLinkPhase::Connected) {
       if (snap.transport != pp::amp::TransportClass::Carrier) {
         ++count.usable;
@@ -218,6 +221,40 @@ CircuitRendezvousCoordinator::ParkCount CircuitRendezvousCoordinator::CountParkO
     }
   }
   return count;
+}
+
+ServiceLoad
+CircuitRendezvousCoordinator::ParkLoad(const std::string &relay) const {
+  MeshHost *m = mesh();
+  return m ? m->PeerLoads().Load(relay, MeshService::Park,
+                                 PeerLoadBook::NowMs())
+           : ServiceLoad::Unknown;
+}
+
+bool CircuitRendezvousCoordinator::ParkCountsOn(
+    const std::string &relay) const {
+  const ServiceLoad load = ParkLoad(relay);
+  if (load == ServiceLoad::Draining) {
+    return false;
+  }
+  if (load == ServiceLoad::Full) {
+    MeshHost *m = mesh();
+    return m && m->AmpCircuitClient() &&
+           m->AmpCircuitClient()->HoldsReservation(relay);
+  }
+  return true;
+}
+
+void CircuitRendezvousCoordinator::ReplaceParkSoon(const std::string &relay,
+                                                   const ServiceLoad load) {
+  const int64_t now = PeerReachRecord::NowMs();
+  if (now < replace_park_at_ms_) {
+    return;
+  }
+  replace_park_at_ms_ = now + kReplaceParkEveryMs;
+  log().info << "circuit rendezvous replace peer=" << relay
+             << " load=" << ServiceLoadWire(load);
+  ReserveOnBootstrapSeeds();
 }
 
 std::vector<std::string> CircuitRendezvousCoordinator::BootstrapSeedPeerIds() const {
@@ -339,14 +376,35 @@ void CircuitRendezvousCoordinator::ReserveOnBootstrapSeedsOnIo() {
   std::vector<ReachCandidate> view;
   view.reserve(surface.size());
   for (const MeshHopCandidate& hop : surface) {
+    if (!ParkCountsOn(hop.peer_id)) {
+      // Full or draining (docs/PEER_REACH.md § Service load): not parked on for
+      // this round. A reservation already held on a draining relay is renewed
+      // meanwhile — it still serves until this device parks elsewhere.
+      if (m->AmpCircuitClient()->HoldsReservation(hop.peer_id)) {
+        StartReserveOnRelay(hop.peer_id, "circuit reserve (draining)");
+      }
+      log().info << "circuit rendezvous skip peer=" << hop.peer_id
+                 << " load=" << ServiceLoadWire(ParkLoad(hop.peer_id));
+      continue;
+    }
     view.push_back({hop.peer_id, chat->links.IsConnected(hop.peer_id) && !ReachableOnlyViaCarrier(chat->links, hop.peer_id),
                     Facts(hop.peer_id)});
   }
-  // Seeds first (stable): the park waits on them (H010), so the capped cold walk must reach them.
+  // Seeds first (stable): the park waits on them (H010), so the capped cold
+  // walk must reach them. Within each, the ones that said they are open before
+  // busy ones.
   const std::vector<std::string> seeds = BootstrapSeedPeerIds();
-  std::stable_partition(view.begin(), view.end(), [&seeds](const ReachCandidate& c) {
-    return std::find(seeds.begin(), seeds.end(), c.peer_id) != seeds.end();
-  });
+  const auto seeds_end = std::stable_partition(
+      view.begin(), view.end(), [&seeds](const ReachCandidate &c) {
+        return std::find(seeds.begin(), seeds.end(), c.peer_id) != seeds.end();
+      });
+  const auto by_load = [this](const ReachCandidate &a,
+                              const ReachCandidate &b) {
+    return ServiceLoadRank(ParkLoad(a.peer_id)) <
+           ServiceLoadRank(ParkLoad(b.peer_id));
+  };
+  std::stable_sort(view.begin(), seeds_end, by_load);
+  std::stable_sort(seeds_end, view.end(), by_load);
   auto park = std::make_shared<ColdPark>();
   park->must_dial = StickyRelay();
   const ReachSelection pick = SelectForRole(view, PeerReachRecord::NowMs(), kRendezvousLiveTarget,
@@ -490,14 +548,26 @@ void CircuitRendezvousCoordinator::StartReserveOnRelay(const std::string& relay,
   const std::string what = label;
   const auto id = m->AmpCircuitClient()->StartReserve(
       relay,
-      deferred_.Bind([this, relay, what](CircuitClientCoordinator::BridgeRoe result) {
+      deferred_.Bind([this, relay,
+                      what](CircuitClientCoordinator::BridgeRoe result) {
+        const ServiceLoad load =
+            ParkLoad(relay); // the reply's level, noted by the circuit client
         if (!result) {
           // Live Brief may still lack op=reserve (dogfood fd4e3de "unsupported op"). A Connected
           // PeerLink alone is enough for peer-id-only ServeDial — log and keep the link.
-          log().warning << what << " miss peer=" << relay << " err=" << result.error().message;
+          log().warning << what << " miss peer=" << relay
+                        << " err=" << result.error().message
+                        << " load=" << ServiceLoadWire(load);
+          if (ServiceLoadRefusesNew(load)) {
+            ReplaceParkSoon(relay, load);
+          }
           return;
         }
-        log().info << what << " ok peer=" << relay;
+        log().info << what << " ok peer=" << relay
+                   << " load=" << ServiceLoadWire(load);
+        if (load == ServiceLoad::Draining) {
+          ReplaceParkSoon(relay, load);
+        }
       }),
       15000);
   if (!id) {
