@@ -190,6 +190,14 @@ Rules built on it:
   down, or it refused — up but busy). Other rendezvous relays are never waited on or redialed: one
   may be the very peer being reached (a contact that relays), and dialing it is the dual-NAT dial
   the park exists to prevent (hard lab `B-HARD-CALL-NAT-COLD-DIRTY` caught a surface-wide park).
+  The park runs on a bench too: `mesh::test::ParkHarness` (`mesh/testing/park_harness.h`) puts a
+  phone's MeshHost and the product's `CircuitRendezvousCoordinator` with relays that answer, answer
+  slowly (`DelayedDatagramIo`: every exchange `rtt_ms` longer) or never do, on one in-memory hub and
+  one virtual clock; `src/reach/tests/park_test.cpp` checks the stagger (an unreachable first seed,
+  parked in under 2 s — 8 s serially; a near seed behind a 1.5 s one, under 2 s — 4.6 s serially),
+  that slow seeds are still parked on, the walk's stop at two live relays, seeds first, the chosen
+  R1 and the deadline. A park rule changes there first; the app lab
+  (pp-browser `call_path_*_two_hops`) is the end-to-end check.
 - **Circuit dial:** the relays circuit reach may bridge through leave out those held down
   (unless Connected) — a StartBridge through one would only time out. Relays the target
   advertised go first (pp-browser media-hop-reachability H013): the target knows where it holds a
@@ -215,6 +223,42 @@ Rules built on it:
   published view (media ranking's `recently_failed`).
 - **Probe:** left as it is. It runs at mesh start (the record is empty) and right after a network
   change (every Down mark reads Unknown then) — the record has nothing to say at either moment.
+
+## 5a. Service load
+
+A node says how busy it is, per service, as it judges it: not the numbers behind it (`ServiceLoad.h`; pp-browser
+p2p-mesh N033). The reach record (§4) holds what the mesh observes; what a node says of itself is kept apart, in the
+host's `PeerLoadBook`.
+
+- **Services:** `park` (a circuit reservation and the link holding it), `relay` (a 1:1 call's bridge),
+  `media_relay` (hosting a group call).
+- **Levels**, each an action for the client:
+
+  | Level | The client |
+  |-------|------------|
+  | `open` | prefers it |
+  | `busy` | uses it when nothing better is around |
+  | `full` | sends it nothing new; it would be refused (`code: "busy"`). What it already serves goes on: a phone parked there renews, a call it hosts still takes its members |
+  | `draining` | moves off when it can; it takes nothing new and is going away |
+
+- **On the wire:** `"load": "open" | "busy" | "full" | "draining"` beside `ok`, in circuit reserve and bridge replies
+  (the park level for a reserve, the relay level for a bridge) and media_relay quote / accept replies — refusals
+  included. Absent: an older node, or nothing to say (Unknown). An unknown word reads Unknown.
+- **The node's rule** (`ServiceLoadMonitor`): each service's pressure is the worst of its sources, 0 (idle) to 1 (at
+  capacity) — reservations, bridges, hosted calls, the link table (sampled once a second), and what the operator feeds
+  in (CPU, uplink: `SetPressure`). Busy from 0.70 (back to open below 0.60), full from 0.95 (back below 0.90): a gap
+  between on and off, so a node near a line does not flap. Draining (the operator's) sets every service. The servers
+  admit by the same level they say: full is exactly when a node refuses new work. The rule can change without a
+  client: clients act on the level only. The levels are on the node's metrics as `pp_service_load{service}` and
+  `pp_service_pressure{service}`.
+- **The client:** a level is good for 2 min (`PeerLoadBook::kFreshMs`), then reads Unknown.
+  - The park (`CircuitRendezvousCoordinator`) does not count a relay that said draining, nor one that said full
+    unless it holds a reservation there (its renewal is accepted). It skips them for the round, orders the rest open
+    before busy (seeds still first), and on a full refusal or a draining ack starts a new round at once (at most every
+    5 s) instead of at the app's next renewal. A reservation held on a draining relay is renewed meanwhile.
+  - The bridge walk (`AmpCircuitHopReach`) tries open relays before busy ones and full / draining ones last; the
+    relays the target advertised still go first (H013).
+  - The app's group-call hop ranking reads `PeerLoads()` for `media_relay`.
 
 ## 6. Where the DHT fits
 

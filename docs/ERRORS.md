@@ -32,6 +32,10 @@ A refusal a peer sends carries a `code` string beside its `error` text. The code
 protocol; the text is not. A reply without `code` (an older peer) is classified from its text, in
 one legacy function per protocol, and only there.
 
+Circuit and media_relay replies, refusals and acks alike, may also carry the node's `load` for the service asked
+(`open` / `busy` / `full` / `draining`, docs/PEER_REACH.md § 5a). A `busy` refusal from a node that says `full` or
+`draining` is its level speaking: it takes nothing new for that service.
+
 | Protocol | Reply | Codes |
 |----------|-------|-------|
 | `/pp-mesh/circuit/1.0.0` | `{"ok":false,"code":…,"error":…}` | `target_not_reserved` (the target is not parked here), `target_unreachable` (the relay could not reach it), `busy` (standby refused), `refused` (scope, unknown dialer), `not_ready`, `bad_request` — `CircuitRefusal` |

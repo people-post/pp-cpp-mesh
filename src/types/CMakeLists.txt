@@ -3,6 +3,7 @@ pp_mesh_add_library(types
     AddressDisclosure.cpp
     MeshHopDial.cpp
     PublicAddress.cpp
+    ServiceLoad.cpp
   LIBS pp_common)
 
 if(PP_MESH_BUILD_TESTS)

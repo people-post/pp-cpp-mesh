@@ -7,6 +7,7 @@
 #include "mesh/l4/media_relay/MediaRelayTypes.h"
 #include "mesh/l4/media_relay/MediaRelayVideoLevels.h"
 #include "mesh/l4/shared/RelayRuntimeStats.h"
+#include "mesh/types/ServiceLoad.h"
 
 #include "common/Error.h"
 #include <chrono>
@@ -48,6 +49,13 @@ public:
   MediaRelayRuntimeStats RuntimeStats() const;
   /** B009: which video levels this relay carries per publisher (from the operator's config). */
   void SetVideoPolicy(MediaRelayVideoPolicy policy);
+  /**
+   * This node's service levels (its MeshHost's): the server sets the group-call
+   * pressure it sees, says the level in its replies, and opens no new call
+   * while the level refuses it — a call it already hosts still takes its
+   * members. Null: no level said, the hard limits only.
+   */
+  void SetLoadMonitor(ServiceLoadMonitor *monitor);
   /** Test: how long a session outlives its last participant (default kEmptySessionGrace). */
   void SetEmptySessionGraceForTest(std::chrono::milliseconds grace);
 

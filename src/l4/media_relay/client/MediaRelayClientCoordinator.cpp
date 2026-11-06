@@ -85,6 +85,8 @@ auto LaneLog() {
 } // namespace
 
 struct MediaRelayClientCoordinator::Impl {
+  /** The hops' levels as they say them (MeshHost's); null: not kept. */
+  std::atomic<PeerLoadBook *> loads{nullptr};
   pp::amp::MeshRuntime* runtime = nullptr;
   MediaRelayServer* local_server = nullptr;
   AmpCircuitHopRegistry* circuit_hops = nullptr;
@@ -501,6 +503,10 @@ struct MediaRelayClientCoordinator::Impl {
       TearDown(*session, false, Failure::Of(Err::BadReply, "invalid media-relay json"));
       return false;
     }
+    if (PeerLoadBook *book = loads.load(std::memory_order_acquire)) {
+      book->Note(session->hop_peer_key, MeshService::MediaRelay,
+                 LoadField(*root), PeerLoadBook::NowMs());
+    }
     if (session->role == MediaRelayBundleRole::ClientQuote && session->phase == MediaRelayBundlePhase::WaitQuote) {
       const auto decision =
           DecideMediaRelayQuoteAck({.phase = session->phase, .ack_ok = root->getIf<bool>("ok").value_or(false)});
@@ -745,6 +751,10 @@ void MediaRelayClientCoordinator::Stop() {
 
 bool MediaRelayClientCoordinator::IsStarted() const {
   return impl_->started.load(std::memory_order_acquire);
+}
+
+void MediaRelayClientCoordinator::SetPeerLoadBook(PeerLoadBook *book) {
+  impl_->loads.store(book, std::memory_order_release);
 }
 
 void MediaRelayClientCoordinator::SetCircuitHopRegistry(AmpCircuitHopRegistry* hops) {

@@ -6,6 +6,7 @@
 #include "mesh/l4/circuit/CircuitBundleLogic.h"
 #include "mesh/l4/circuit/CircuitRelayTypes.h"
 #include "mesh/l4/circuit/CircuitTunnelErr.h"
+#include "mesh/types/ServiceLoad.h"
 
 #include "amp/link/PeerLinkManager.h"
 #include "common/CodedFailure.h"
@@ -57,6 +58,9 @@ public:
   void Start();
   void Stop();
   bool IsStarted() const;
+  /** This device holds a reservation on `relay_peer_key` now (its renewals are
+   * accepted even by a full relay). */
+  bool HoldsReservation(const std::string &relay_peer_key) const;
 
   /** Cancel all in-flight / bridging tunnels and reservations (Leave / shutdown). */
   void AbortInflight();
@@ -69,6 +73,9 @@ public:
                               FrameHandler on_payload = {}, ClosedCallback on_closed = {},
                               BridgeFinished on_finished = {}, int timeout_ms = 8000);
 
+  /** Where the relays' own levels go as their replies say them (MeshHost's
+   * PeerLoadBook); null: nowhere. */
+  void SetPeerLoadBook(PeerLoadBook *book);
   /**
    * Park on relay until TTL / CancelTunnel so R can bridge to this PeerId without dialing into
    * NAT (answerer outbound Session).

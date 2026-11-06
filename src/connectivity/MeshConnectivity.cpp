@@ -355,6 +355,7 @@ void MeshConnectivity::WireCircuitHopReach(MeshHost* m, const MeshIoContext& io)
         punch->TryUpgradePunchAsync(introducer_peer_key, target_peer_id, std::move(on_done));
       },
       io.post_io, io.post_after);
+  reach->SetPeerLoads(&m->PeerLoads());
   // Circuit reach reports from inside its own handling: note it (and run the consumer hook) after.
   reach->SetOnRelayChosen([this, alive = deferred_.token(), snap = deferred_.Snapshot()](const std::string& relay_peer_key) {
     if (relay_peer_key.empty() || !pp::Lifetime::Alive(alive, snap)) {

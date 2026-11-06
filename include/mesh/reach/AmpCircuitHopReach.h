@@ -1,12 +1,13 @@
 #pragma once
 
+#include "common/Lifetime.h"
+#include "mesh/host/MeshPorts.h"
 #include "mesh/l4/circuit/CircuitRelayRefusals.h"
 #include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "mesh/l4/circuit/client/CircuitClientCoordinator.h"
-#include "mesh/host/MeshPorts.h"
 #include "mesh/reach/MeshReachPorts.h"
 #include "mesh/reach/PunchIntroducerWalk.h"
-#include "common/Lifetime.h"
+#include "mesh/types/ServiceLoad.h"
 
 #include <atomic>
 #include <chrono>
@@ -56,6 +57,13 @@ public:
   void TryEnsureRelayedAsync(const std::string& peer_key, CircuitReachDone on_done,
                              CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None) override;
 
+  /**
+   * What relays said of their own load (MeshHost's PeerLoadBook): a relay that
+   * said busy is tried after open ones, a full or draining one last
+   * (docs/PEER_REACH.md § Service load). Null: the order without it.
+   */
+  void SetPeerLoads(const PeerLoadBook *book) { peer_loads_ = book; }
+
   /** Its mesh is going away (MeshHost::IsStopping): the synchronous waits below are refused. */
   void SetStopping(std::function<bool()> stopping) { stopping_ = std::move(stopping); }
 
@@ -93,6 +101,7 @@ private:
   OnRelayChosen on_relay_chosen_;
   /** AbortPending Invalidates — in-flight EnsureViaCircuit / punch cbs no-op. */
   std::function<bool()> stopping_;
+  const PeerLoadBook *peer_loads_ = nullptr;
   pp::Lifetime deferred_;
   /** Active StartBridge id for this reach chain; AbortPending CancelTunnel's it (hard cancel). */
   std::atomic<uint64_t> inflight_tunnel_value_{0};

@@ -1,8 +1,9 @@
 #include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
 #include "mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/l4/shared/ProductChannelPolicies.h"
 #include "mesh/testing/mesh_test_harness.h"
 #include "mesh/types/RelayScope.h"
-#include "mesh/l4/shared/ProductChannelPolicies.h"
+#include "mesh/types/ServiceLoad.h"
 
 #include <gtest/gtest.h>
 #include <vector>
@@ -632,6 +633,74 @@ TEST_F(AmpMediaRelayClientLossTest, AWriteThatFailsTheChannelDoesNotDeadlockTheS
   EXPECT_EQ(lost.load(), 1);
   EXPECT_FALSE(client_->IsAttached());
   client_->RemoveClientTransportLostObserver(token);
+}
+
+// Service load (docs/PEER_REACH.md § Service load): a hop's quote says its
+// group-call level, and the client keeps it.
+TEST_F(MediaRelayServerClientTest, AQuoteSaysTheHopsLevel) {
+  ServiceLoadMonitor load;
+  PeerLoadBook book;
+  hop_->SetLoadMonitor(&load);
+  client_->SetPeerLoadBook(&book);
+  MediaRelayQuoteRequest req;
+  req.session_id = "call-level";
+  Wait<MediaRelayQuote> wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, wait.Fn(), 8000));
+  wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(wait.result) << wait.result.error().message;
+  EXPECT_EQ(book.Load("hop", MeshService::MediaRelay, PeerLoadBook::NowMs()),
+            ServiceLoad::Open);
+}
+
+// A full hop opens no new call: busy, and the refusal says full.
+TEST_F(MediaRelayServerClientTest, AFullHopRefusesANewCallAndSaysSo) {
+  ServiceLoadMonitor load;
+  PeerLoadBook book;
+  hop_->SetLoadMonitor(&load);
+  client_->SetPeerLoadBook(&book);
+  load.SetPressure(MeshService::MediaRelay, "cpu", 1.0);
+  MediaRelayQuoteRequest req;
+  req.session_id = "call-new";
+  Wait<MediaRelayQuote> wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, wait.Fn(), 8000));
+  wait.PumpUntilDone(*harness_);
+  ASSERT_FALSE(wait.result);
+  EXPECT_EQ(wait.result.error().GetCode(), MediaRelayErr::HopBusy)
+      << wait.result.error().message;
+  EXPECT_EQ(book.Load("hop", MeshService::MediaRelay, PeerLoadBook::NowMs()),
+            ServiceLoad::Full);
+}
+
+// A call the hop already hosts still takes its members when the hop is full:
+// refusing them would split the call.
+TEST_F(MediaRelayServerClientTest, AFullHopStillTakesAMemberOfACallItHosts) {
+  ServiceLoadMonitor load;
+  hop_->SetLoadMonitor(&load);
+  MediaRelayQuoteRequest req;
+  req.session_id = "call-hosted";
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result) << quote_wait.result.error().message;
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach("hop", quote_wait.result->quote_id,
+                                   req.session_id, req.session_id, {},
+                                   attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result) << attach_wait.result.error().message;
+
+  load.SetDraining(true);
+  Wait<MediaRelayQuote> again;
+  ASSERT_TRUE(client_->StartQuote("hop", req, again.Fn(), 8000));
+  again.PumpUntilDone(*harness_);
+  EXPECT_TRUE(again.result)
+      << (again.result ? "" : again.result.error().message);
+  MediaRelayQuoteRequest other;
+  other.session_id = "call-other";
+  Wait<MediaRelayQuote> refused;
+  ASSERT_TRUE(client_->StartQuote("hop", other, refused.Fn(), 8000));
+  refused.PumpUntilDone(*harness_);
+  EXPECT_FALSE(refused.result) << "a new call is refused";
 }
 
 } // namespace
