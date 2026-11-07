@@ -74,6 +74,14 @@ struct ServiceLoadThresholds {
   double full_leave = 0.90;
 };
 
+/**
+ * The pressure of a socket's kernel receive drops (datagrams a second the kernel threw away for want of buffer): 0
+ * when none, 1 from kDropsPerSecondFull. Any steady drop means the pump does not keep up; a burst is smoothed by the
+ * caller.
+ */
+inline constexpr double kDropsPerSecondFull = 500.0;
+double DropRatePressure(double drops_per_second);
+
 /** The level after `prev` for `pressure` (0 idle .. 1 at capacity), draining or
  * not. Pure. */
 ServiceLoad NextServiceLoad(ServiceLoad prev, double pressure, bool draining,

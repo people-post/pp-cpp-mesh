@@ -82,6 +82,10 @@ ServiceLoad LoadField(const common::Object &reply) {
   return ServiceLoadFromWire(reply.getString("load").value_or(""));
 }
 
+double DropRatePressure(const double drops_per_second) {
+  return std::clamp(drops_per_second / kDropsPerSecondFull, 0.0, 1.0);
+}
+
 ServiceLoad NextServiceLoad(const ServiceLoad prev, const double pressure,
                             const bool draining,
                             const ServiceLoadThresholds &t) {

@@ -569,7 +569,7 @@ void CircuitRendezvousCoordinator::StartReserveOnRelay(const std::string& relay,
           ReplaceParkSoon(relay, load);
         }
       }),
-      15000);
+      kParkReserveHoldMs);
   if (!id) {
     log().warning << what << " StartReserve rejected peer=" << relay;
     return;
