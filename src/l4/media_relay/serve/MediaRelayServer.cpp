@@ -177,6 +177,9 @@ struct MediaRelayServer::Impl {
     const auto now = Clock::now();
     quotes.Expire(now);
     DropEmptySessionsLocked(now);
+    // Also between requests: other services' replies say this level ("loads"), and a level only a request moved
+    // would stay full after the calls ended, with no one asking again.
+    (void)PublishLoadLocked();
   }
 
   /**
@@ -450,7 +453,7 @@ struct MediaRelayServer::Impl {
       err.set("code", std::string(code));
     }
     err.set("error", error);
-    SetLoadField(err, LevelNow());
+    SetLoadFields(err, LevelNow(), load.load(std::memory_order_acquire));
     channel.EnqueueOutbound(JsonToBody(common::DumpJson(err)));
     (void)sm.Apply(ev);
     channel.Close();
@@ -668,7 +671,7 @@ struct MediaRelayServer::Impl {
     quote_resp.set("ceiling_bytes", q.ceiling_bytes);
     quote_resp.set("ceiling_amount", q.ceiling_amount);
     quote_resp.set("video_levels", VideoLevelsToJson(q.video_levels));
-    SetLoadField(quote_resp, LevelNow());
+    SetLoadFields(quote_resp, LevelNow(), load.load(std::memory_order_acquire));
     channel.EnqueueOutbound(JsonToBody(common::DumpJson(quote_resp)));
     (void)sm.Apply(MediaRelayAttachEvent::OpQuote);
     return true;
@@ -706,7 +709,7 @@ struct MediaRelayServer::Impl {
     accept_resp.set("op", "accept");
     accept_resp.set("session_token", sm.session_token);
     accept_resp.set("quote_id", sm.accepted_quote_id);
-    SetLoadField(accept_resp, LevelNow());
+    SetLoadFields(accept_resp, LevelNow(), load.load(std::memory_order_acquire));
     channel.EnqueueOutbound(JsonToBody(common::DumpJson(accept_resp)));
     (void)sm.Apply(MediaRelayAttachEvent::OpAccept);
     return true;

@@ -33,7 +33,7 @@ protocol; the text is not. A reply without `code` (an older peer) is classified 
 one legacy function per protocol, and only there.
 
 Circuit and media_relay replies, refusals and acks alike, may also carry the node's `load` for the service asked
-(`open` / `busy` / `full` / `draining`, docs/PEER_REACH.md § 5a). A `busy` refusal from a node that says `full` or
+(`open` / `busy` / `full` / `draining`, docs/PEER_REACH.md § 5a), and `loads` for every service it serves. A `busy` refusal from a node that says `full` or
 `draining` is its level speaking: it takes nothing new for that service.
 
 | Protocol | Reply | Codes |

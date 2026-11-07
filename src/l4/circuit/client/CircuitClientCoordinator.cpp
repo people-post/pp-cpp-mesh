@@ -284,9 +284,8 @@ struct CircuitClientCoordinator::Impl {
     }
     const bool ack_ok = root->getIf<bool>("ok").value_or(false);
     if (PeerLoadBook *book = loads.load(std::memory_order_acquire)) {
-      book->Note(tunnel.relay_peer_key,
-                 tunnel.is_reserve ? MeshService::Park : MeshService::Relay,
-                 LoadField(*root), PeerLoadBook::NowMs());
+      NoteReplyLoads(*book, tunnel.relay_peer_key, tunnel.is_reserve ? MeshService::Park : MeshService::Relay, *root,
+                     PeerLoadBook::NowMs());
     }
     const auto decision = DecideCircuitBridgeAck(CircuitBridgeAckContext{.phase = tunnel.phase, .ack_ok = ack_ok});
     if (decision == CircuitBridgeAckDecision::IgnoreStale) {

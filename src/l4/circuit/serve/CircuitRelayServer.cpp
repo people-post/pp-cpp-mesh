@@ -47,9 +47,9 @@ std::string BodyToJson(const std::vector<uint8_t>& body) {
 
 /** A refusal: its code for the dialer's logic, its text for logs, the node's
  * level (docs/ERRORS.md). */
-std::vector<uint8_t> ErrorBody(const CircuitRefusal refusal,
-                               const std::string &message,
-                               const ServiceLoad load = ServiceLoad::Unknown) {
+std::vector<uint8_t> ErrorBody(const CircuitRefusal refusal, const std::string& message,
+                               const ServiceLoad load = ServiceLoad::Unknown,
+                               const ServiceLoadMonitor* monitor = nullptr) {
   common::Object err;
   err.set("v", int64_t{1});
   err.set("ok", false);
@@ -57,7 +57,7 @@ std::vector<uint8_t> ErrorBody(const CircuitRefusal refusal,
     err.set("code", std::string(code));
   }
   err.set("error", message);
-  SetLoadField(err, load);
+  SetLoadFields(err, load, monitor);
   return JsonToBody(common::DumpJson(err));
 }
 
@@ -556,6 +556,10 @@ struct CircuitRelayServer::Impl {
       CloseQuietSlot(it->second.session, ResolveLink(peer_id));
       reservations.erase(it);
     }
+    // Also between requests: other services' replies say these levels ("loads"), and a level only a request moved
+    // would stay full after the parks ended, with no one asking again.
+    std::lock_guard lock(mu);
+    (void)PublishLoadLocked(MeshService::Park);
   }
 
   void ArmBridge(Tunnel& tunnel) {
@@ -598,7 +602,7 @@ struct CircuitRelayServer::Impl {
     response.set("ok", true);
     response.set("resolved_multiaddr", tunnel.resolved_multiaddr);
     if (ServiceLoadMonitor *monitor = load.load(std::memory_order_acquire)) {
-      SetLoadField(response, monitor->Level(MeshService::Relay));
+      SetLoadFields(response, monitor->Level(MeshService::Relay), monitor);
     }
     if (!tunnel.near_session->EnqueueOutbound(JsonToBody(common::DumpJson(response)))) {
       TearDown(tunnel, false, "failed to ack bridge");
@@ -799,9 +803,8 @@ struct CircuitRelayServer::Impl {
       std::lock_guard lock(mu);
       level = PublishLoadLocked(service);
     }
-    auto refuse = [&](const CircuitRefusal refusal,
-                      const std::string &message) {
-      near_session->EnqueueOutbound(ErrorBody(refusal, message, level));
+    auto refuse = [&](const CircuitRefusal refusal, const std::string& message) {
+      near_session->EnqueueOutbound(ErrorBody(refusal, message, level, load.load(std::memory_order_acquire)));
       near_session->Close();
     };
     if (decision == CircuitAdmitDecision::RefuseStandbyFull) {
@@ -938,8 +941,8 @@ struct CircuitRelayServer::Impl {
     ack.set("v", int64_t{1});
     ack.set("ok", true);
     ack.set("op", "reserve");
-    SetLoadField(ack, level); // draining: the phone parks elsewhere when it can
-                              // (still served here meanwhile)
+    // draining: the phone parks elsewhere when it can (still served here meanwhile)
+    SetLoadFields(ack, level, load.load(std::memory_order_acquire));
     near_session->EnqueueOutbound(JsonToBody(common::DumpJson(ack)));
     // Answerer park may complete after the dialer already armed a ServeDial wait.
     NotifyFarLegReady(remote);

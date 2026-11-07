@@ -61,6 +61,15 @@ inline bool ServiceLoadRefusesNew(const ServiceLoad load) {
 int ServiceLoadRank(ServiceLoad load);
 /** A reply's `"load"`: set when the node says a level. */
 void SetLoadField(common::Object &reply, ServiceLoad load);
+class ServiceLoadMonitor;
+/**
+ * A reply's `"load"` (the level of the service replying), and with `monitor` its `"loads"`: every service this node
+ * serves, `{"park": "open", "media_relay": "full", …}` — so a client that parks here knows before its first group
+ * call whether this hop takes one.
+ */
+void SetLoadFields(common::Object& reply, ServiceLoad load, const ServiceLoadMonitor* monitor);
+/** MeshServiceName's inverse; false for a name this node does not know. */
+bool MeshServiceFromName(std::string_view name, MeshService& out);
 /** A reply's `"load"`; Unknown when absent (an older node) or not a known word.
  */
 ServiceLoad LoadField(const common::Object &reply);
@@ -108,11 +117,15 @@ public:
   ServiceLoad Level(MeshService service) const;
   /** The worst source's pressure, for logs and tests. */
   double Pressure(MeshService service) const;
+  /** Whether this node serves `service` (its replies' `"loads"` name only those). */
+  void SetServed(MeshService service, bool served);
+  bool Served(MeshService service) const;
 
 private:
   struct Service {
     std::unordered_map<std::string, double> sources;
     ServiceLoad level = ServiceLoad::Open;
+    bool served = false;
   };
   void RecomputeLocked(Service &service);
   static double WorstLocked(const Service &service);
@@ -163,5 +176,12 @@ private:
   mutable std::mutex mu_;
   std::unordered_map<std::string, Entry> entries_;
 };
+
+/**
+ * What a reply from `peer_id` to a `replying` request says: its `"load"` for that service, and its `"loads"` for each
+ * service it names.
+ */
+void NoteReplyLoads(PeerLoadBook& book, const std::string& peer_id, MeshService replying, const common::Object& reply,
+                    int64_t now_ms);
 
 } // namespace pp::mesh

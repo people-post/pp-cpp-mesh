@@ -380,6 +380,10 @@ void MeshHost::StartAmpL4Hosting(const bool host_circuit, const bool host_media,
   if (amp_media_relay_server_) {
     amp_media_relay_server_->SetServeInbound(host_media);
   }
+  // What this node's replies say its levels of ("loads"): the services it serves.
+  own_load_.SetServed(MeshService::Park, host_circuit);
+  own_load_.SetServed(MeshService::Relay, host_circuit);
+  own_load_.SetServed(MeshService::MediaRelay, host_media);
   ApplyAmpAdvertisement(MeshHostConfig{.host_circuit_relay = host_circuit,
                                        .host_media_relay = host_media,
                                        .host_dht = host_dht,

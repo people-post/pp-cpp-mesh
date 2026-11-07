@@ -243,7 +243,11 @@ host's `PeerLoadBook`.
 
 - **On the wire:** `"load": "open" | "busy" | "full" | "draining"` beside `ok`, in circuit reserve and bridge replies
   (the park level for a reserve, the relay level for a bridge) and media_relay quote / accept replies — refusals
-  included. Absent: an older node, or nothing to say (Unknown). An unknown word reads Unknown.
+  included. Absent: an older node, or nothing to say (Unknown). An unknown word reads Unknown. Beside it,
+  `"loads": {"park": …, "relay": …, "media_relay": …}` says every service the node serves (v6.4.0), so a phone that
+  parks on a hop knows its group-call level before planning a call there (`NoteReplyLoads`); a service it does not
+  serve is not named. Each server also republishes its pressures on its own tick, not only on a request: a level
+  others read from other services' replies must not stay full after the work ended.
 - **The node's rule** (`ServiceLoadMonitor`): each service's pressure is the worst of its sources, 0 (idle) to 1 (at
   capacity) — reservations, bridges, hosted calls, the link table (sampled once a second), and what the operator feeds
   in (CPU, uplink: `SetPressure`). Busy from 0.70 (back to open below 0.60), full from 0.95 (back below 0.90): a gap

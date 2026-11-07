@@ -78,6 +78,55 @@ void SetLoadField(common::Object &reply, const ServiceLoad load) {
   }
 }
 
+void SetLoadFields(common::Object& reply, const ServiceLoad load, const ServiceLoadMonitor* monitor) {
+  SetLoadField(reply, load);
+  if (!monitor) {
+    return;
+  }
+  common::Object loads;
+  for (std::size_t i = 0; i < kMeshServiceCount; ++i) {
+    const auto service = static_cast<MeshService>(i);
+    if (!monitor->Served(service)) {
+      continue;
+    }
+    if (const char* word = ServiceLoadWire(monitor->Level(service)); *word != '\0') {
+      loads.set(MeshServiceName(service), std::string(word));
+    }
+  }
+  if (!loads.empty()) {
+    reply.set("loads", std::move(loads));
+  }
+}
+
+bool MeshServiceFromName(const std::string_view name, MeshService& out) {
+  for (std::size_t i = 0; i < kMeshServiceCount; ++i) {
+    const auto service = static_cast<MeshService>(i);
+    if (name == MeshServiceName(service)) {
+      out = service;
+      return true;
+    }
+  }
+  return false;
+}
+
+void NoteReplyLoads(PeerLoadBook& book, const std::string& peer_id, const MeshService replying,
+                    const common::Object& reply, const int64_t now_ms) {
+  book.Note(peer_id, replying, LoadField(reply), now_ms);
+  const common::Object* loads = reply.getObject("loads");
+  if (!loads) {
+    return; // an older node: only the service that replied
+  }
+  for (const auto& [name, value] : loads->entries()) {
+    MeshService service;
+    if (!MeshServiceFromName(name, service) || service == replying) {
+      continue; // "load" already said the replying service's
+    }
+    if (const auto* word = std::get_if<std::string>(&value)) {
+      book.Note(peer_id, service, ServiceLoadFromWire(*word), now_ms);
+    }
+  }
+}
+
 ServiceLoad LoadField(const common::Object &reply) {
   return ServiceLoadFromWire(reply.getString("load").value_or(""));
 }
@@ -136,6 +185,16 @@ ServiceLoad ServiceLoadMonitor::Level(const MeshService service) const {
 double ServiceLoadMonitor::Pressure(const MeshService service) const {
   std::lock_guard lock(mu_);
   return WorstLocked(services_[Index(service)]);
+}
+
+void ServiceLoadMonitor::SetServed(const MeshService service, const bool served) {
+  std::lock_guard lock(mu_);
+  services_[Index(service)].served = served;
+}
+
+bool ServiceLoadMonitor::Served(const MeshService service) const {
+  std::lock_guard lock(mu_);
+  return services_[Index(service)].served;
 }
 
 double ServiceLoadMonitor::WorstLocked(const Service &service) {
