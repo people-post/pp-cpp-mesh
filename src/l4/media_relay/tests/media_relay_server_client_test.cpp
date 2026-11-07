@@ -703,5 +703,36 @@ TEST_F(MediaRelayServerClientTest, AFullHopStillTakesAMemberOfACallItHosts) {
   EXPECT_FALSE(refused.result) << "a new call is refused";
 }
 
+// The operator's capacity is the group calls' 1.0: a hop sized for one call is full while it hosts it,
+// and a second call hears so.
+TEST_F(MediaRelayServerClientTest, AHopHostsAsManyCallsAsItsCapacity) {
+  ServiceLoadMonitor load;
+  PeerLoadBook book;
+  hop_->SetLoadMonitor(&load);
+  hop_->SetMaxSessions(1);
+  client_->SetPeerLoadBook(&book);
+  MediaRelayQuoteRequest req;
+  req.session_id = "call-one";
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result) << quote_wait.result.error().message;
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach("hop", quote_wait.result->quote_id, req.session_id, req.session_id, {},
+                                   attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result) << attach_wait.result.error().message;
+
+  MediaRelayQuoteRequest other;
+  other.session_id = "call-two";
+  Wait<MediaRelayQuote> refused;
+  ASSERT_TRUE(client_->StartQuote("hop", other, refused.Fn(), 8000));
+  refused.PumpUntilDone(*harness_);
+  ASSERT_FALSE(refused.result) << "a second call is refused";
+  EXPECT_EQ(refused.result.error().GetCode(), MediaRelayErr::HopBusy) << refused.result.error().message;
+  EXPECT_EQ(book.Load("hop", MeshService::MediaRelay, PeerLoadBook::NowMs()), ServiceLoad::Full);
+  EXPECT_DOUBLE_EQ(load.Pressure(MeshService::MediaRelay), 1.0) << "a request reads the hop's pressure as it arrives";
+}
+
 } // namespace
 } // namespace pp::mesh

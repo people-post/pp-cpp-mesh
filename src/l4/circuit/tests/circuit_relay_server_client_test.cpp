@@ -5,6 +5,7 @@
 #include "amp/L3/ChannelSession.h"
 #include "mesh/testing/mesh_triple_harness.h"
 #include "mesh/types/RelayScope.h"
+#include "mesh/types/ServiceLoad.h"
 
 #include <gtest/gtest.h>
 #include <thread>
@@ -349,6 +350,26 @@ TEST_F(CircuitRelayServerClientTest, ReserveThenBridge) {
     ASSERT_TRUE(target_got_);
     EXPECT_EQ(target_received_, payload);
   }
+}
+
+// The operator's capacity is the park's 1.0: one reservation fills a relay sized for one, and the next
+// answerer hears full and parks elsewhere.
+TEST_F(CircuitRelayServerClientTest, ARelayParksAsManyAsItsCapacity) {
+  ServiceLoadMonitor load;
+  relay_->SetLoadMonitor(&load);
+  relay_->SetCapacity(1, 0);
+  BridgeWait first;
+  ASSERT_TRUE(client_b_->StartReserve("relay", first.Fn(), 15000));
+  first.PumpUntilDone(*harness_);
+  ASSERT_TRUE(first.result) << first.result.error().message;
+
+  BridgeWait second;
+  ASSERT_TRUE(client_->StartReserve("relay", second.Fn(), 15000));
+  second.PumpUntilDone(*harness_);
+  ASSERT_FALSE(second.result) << "a full relay parks no one more";
+  EXPECT_EQ(second.result.error().GetCode(), CircuitTunnelErr::RelayBusy) << second.result.error().message;
+  EXPECT_DOUBLE_EQ(load.Pressure(MeshService::Park), 1.0) << "a request reads the relay's pressure as it arrives";
+  EXPECT_EQ(load.Level(MeshService::Park), ServiceLoad::Full);
 }
 
 // Dogfood 2026-09-24: a cold relay link idled past the 5 s ADP liveness window and was evicted

@@ -52,6 +52,8 @@ struct MeshHostConfig {
   /** Serve Amp directory twin (pp-node / org seed; N029 nd4). */
   bool host_directory = false;
   MediaRelayBudgetConfig media_relay_budget{};
+  /** What a node serving others takes on (links, parked, bridges, group calls); a device ignores it. */
+  MeshCapacityConfig capacity{};
   RelayPricingConfig media_relay_pricing{};
   /** Video levels the hosted media_relay carries per publisher (B009). */
   MediaRelayVideoPolicy media_relay_video{};

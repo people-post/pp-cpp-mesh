@@ -149,6 +149,8 @@ struct MediaRelayServer::Impl {
   /** Quotes issued and not yet accepted — expire / capped. */
   MediaRelayQuoteBook quotes;
   std::unordered_map<std::string, std::shared_ptr<HostSession>> hosts_by_call;
+  /** Group calls hosted at most (the operator's capacity; under `mu`). */
+  size_t max_sessions = kMediaRelayServeMaxSessions;
   std::shared_ptr<HostParticipant> local_part_;
   std::shared_ptr<HostSession> local_session_;
   std::string local_peer_id_;
@@ -427,8 +429,7 @@ struct MediaRelayServer::Impl {
       return ServiceLoad::Unknown;
     }
     monitor->SetPressure(MeshService::MediaRelay, "sessions",
-                         static_cast<double>(hosts_by_call.size()) /
-                             static_cast<double>(kMediaRelayServeMaxSessions));
+                         static_cast<double>(hosts_by_call.size()) / static_cast<double>(max_sessions));
     return monitor->Level(MeshService::MediaRelay);
   }
 
@@ -757,7 +758,7 @@ struct MediaRelayServer::Impl {
              MediaRelayAttachEvent::AttachFail);
       return false;
     }
-    if (!host && !MediaRelayCanOpenHostSession(hosts_by_call.size(), kMediaRelayServeMaxSessions)) {
+    if (!host && !MediaRelayCanOpenHostSession(hosts_by_call.size(), max_sessions)) {
       metrics.attaches_refused.Inc();
       Reject(*channel, sm, MediaRelayRefusal::Busy, "relay busy: too many sessions",
              MediaRelayAttachEvent::AttachFail);
@@ -943,6 +944,13 @@ MediaRelayRuntimeStats MediaRelayServer::RuntimeStats() const {
 
 void MediaRelayServer::SetLoadMonitor(ServiceLoadMonitor *monitor) {
   impl_->load.store(monitor, std::memory_order_release);
+}
+
+void MediaRelayServer::SetMaxSessions(const size_t max_sessions) {
+  if (max_sessions > 0) {
+    std::lock_guard lock(impl_->mu);
+    impl_->max_sessions = max_sessions;
+  }
 }
 
 void MediaRelayServer::SetVideoPolicy(MediaRelayVideoPolicy policy) {

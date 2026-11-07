@@ -36,6 +36,8 @@ public:
   bool ServeInbound() const;
   /** K003 standby circuits served at once: relay-wide and per dialer PeerId (0 keeps the default). */
   void SetStandbyLimits(size_t max_standby, size_t max_per_dialer);
+  /** Parked answerers and live bridges at most: the hard limits, and the 1.0 of their pressures (0 keeps the default). */
+  void SetCapacity(size_t max_reservations, size_t max_tunnels);
   /**
    * This node's service levels (its MeshHost's): the server sets the park and
    * relay pressures it sees, says the level in every reply, and takes nothing

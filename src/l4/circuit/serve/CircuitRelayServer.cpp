@@ -216,6 +216,9 @@ struct CircuitRelayServer::Impl {
   uint64_t closed_bridge_bytes = 0;
   size_t max_standby = kCircuitDefaultMaxStandby;
   size_t max_standby_per_dialer = kCircuitDefaultMaxStandbyPerDialer;
+  /** Parked answerers and live bridges at most (the operator's capacity; under `mu`). */
+  size_t max_reservations = kCircuitMaxReservations;
+  size_t max_tunnels = kCircuitMaxTunnels;
   /** PeerId → parked inbound circuit channel from an answerer (op=reserve). */
   std::unordered_map<std::string, Reservation> reservations;
   /** Dialer PeerId → when it last had this relay dial new target addresses (PB-023), this minute. */
@@ -238,11 +241,9 @@ struct CircuitRelayServer::Impl {
       return ServiceLoad::Unknown;
     }
     monitor->SetPressure(MeshService::Park, "reservations",
-                         static_cast<double>(reservations.size()) /
-                             static_cast<double>(kCircuitMaxReservations));
+                         static_cast<double>(reservations.size()) / static_cast<double>(max_reservations));
     monitor->SetPressure(MeshService::Relay, "bridges",
-                         static_cast<double>(CountLiveTunnelsLocked({}).first) /
-                             static_cast<double>(kCircuitMaxTunnels));
+                         static_cast<double>(CountLiveTunnelsLocked({}).first) / static_cast<double>(max_tunnels));
     return monitor->Level(service);
   }
 
@@ -264,7 +265,7 @@ struct CircuitRelayServer::Impl {
   /** One more new target address from `dialer` this minute, or false when it had its share (PB-023). */
   bool TakeNewTargetLocked(const std::string& dialer) {
     const auto now = Clock::now();
-    if (new_targets_by_dialer.size() > kCircuitMaxTunnels) {
+    if (new_targets_by_dialer.size() > max_tunnels) {
       std::erase_if(new_targets_by_dialer,
                     [&](const auto& entry) { return now - entry.second.start >= std::chrono::minutes(1); });
     }
@@ -846,7 +847,7 @@ struct CircuitRelayServer::Impl {
     {
       std::lock_guard lock(mu);
       const auto [total, from_dialer] = CountLiveTunnelsLocked(remote);
-      if (total >= kCircuitMaxTunnels || from_dialer >= kCircuitMaxTunnelsPerDialer) {
+      if (total >= max_tunnels || from_dialer >= kCircuitMaxTunnelsPerDialer) {
         metrics.bridge_refused_admission.Inc();
         CircuitTunnelLog().warning << "circuit bridge refused dialer=" << remote << " tunnels=" << total
                                    << " from_dialer=" << from_dialer;
@@ -920,7 +921,7 @@ struct CircuitRelayServer::Impl {
                std::string("relay busy: park ") + ServiceLoadWire(level));
         return;
       }
-      if (!reservations.contains(remote) && reservations.size() >= kCircuitMaxReservations) {
+      if (!reservations.contains(remote) && reservations.size() >= max_reservations) {
         metrics.reserve_refused.Inc();
         CircuitTunnelLog().warning << "circuit reserve refused: relay holds " << reservations.size();
         refuse(CircuitRefusal::Busy, "relay busy: too many reservations");
@@ -1070,6 +1071,16 @@ void CircuitRelayServer::SetStandbyLimits(const size_t max_standby, const size_t
   }
   if (max_per_dialer > 0) {
     impl_->max_standby_per_dialer = max_per_dialer;
+  }
+}
+
+void CircuitRelayServer::SetCapacity(const size_t max_reservations, const size_t max_tunnels) {
+  std::lock_guard lock(impl_->mu);
+  if (max_reservations > 0) {
+    impl_->max_reservations = max_reservations;
+  }
+  if (max_tunnels > 0) {
+    impl_->max_tunnels = max_tunnels;
   }
 }
 

@@ -33,7 +33,10 @@ inline constexpr size_t kServerMaxPendingInbound = 128;
  */
 inline constexpr size_t kServerUdpBufferBytes = 8 * 1024 * 1024;
 
-/** PeerLinkConfig for the product mesh (MeshHost) — tests use the same config. */
-pp::amp::PeerLinkConfig MakeProductAmpLinkConfig(AmpLinkTable table = AmpLinkTable::Device);
+/**
+ * PeerLinkConfig for the product mesh (MeshHost) — tests use the same config. `server_links` sizes a Server table
+ * (0: kServerMaxLinks); pending handshakes stay under half of it, so a flood still cannot fill the table.
+ */
+pp::amp::PeerLinkConfig MakeProductAmpLinkConfig(AmpLinkTable table = AmpLinkTable::Device, size_t server_links = 0);
 
 } // namespace pp::mesh

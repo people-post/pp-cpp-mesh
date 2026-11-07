@@ -17,3 +17,15 @@ TEST(AmpLinkConfigTest, AServerHasRoomForItsClients) {
   EXPECT_LT(server.max_pending_inbound, server.max_links) << "a handshake flood still cannot fill the table";
   EXPECT_EQ(server.keepalive_warm_interval, device.keepalive_warm_interval);
 }
+
+// The operator sizes a server's table (mesh.capacity.links); pending handshakes stay under half of it.
+TEST(AmpLinkConfigTest, AServerTableTakesTheOperatorsSize) {
+  const pp::amp::PeerLinkConfig big = MakeProductAmpLinkConfig(AmpLinkTable::Server, 20000);
+  EXPECT_EQ(big.max_links, 20000u);
+  EXPECT_EQ(big.max_pending_inbound, pp::mesh::kServerMaxPendingInbound);
+  const pp::amp::PeerLinkConfig small = MakeProductAmpLinkConfig(AmpLinkTable::Server, 8);
+  EXPECT_EQ(small.max_links, 8u);
+  EXPECT_EQ(small.max_pending_inbound, 4u) << "a handshake flood still cannot fill the table";
+  EXPECT_EQ(MakeProductAmpLinkConfig(AmpLinkTable::Device, 20000).max_links, pp::amp::PeerLinkConfig{}.max_links)
+      << "a device keeps Amp's table";
+}
