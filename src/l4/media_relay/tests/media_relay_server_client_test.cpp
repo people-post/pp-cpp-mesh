@@ -734,5 +734,31 @@ TEST_F(MediaRelayServerClientTest, AHopHostsAsManyCallsAsItsCapacity) {
   EXPECT_DOUBLE_EQ(load.Pressure(MeshService::MediaRelay), 1.0) << "a request reads the hop's pressure as it arrives";
 }
 
+// The hop's group-call level follows its calls between requests too: other services' replies say it ("loads"),
+// so a level only a request moved would stay full after the calls ended, with no one asking again.
+TEST_F(MediaRelayServerClientTest, AHopsLevelFollowsItsCallsWithoutARequest) {
+  ServiceLoadMonitor load;
+  hop_->SetLoadMonitor(&load);
+  hop_->SetMaxSessions(1);
+  hop_->SetEmptySessionGraceForTest(std::chrono::milliseconds{0});
+  MediaRelayQuoteRequest req;
+  req.session_id = "call-ends";
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result) << quote_wait.result.error().message;
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach("hop", quote_wait.result->quote_id, req.session_id, req.session_id, {},
+                                   attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result) << attach_wait.result.error().message;
+  harness_->PumpUntil([&] { return load.Level(MeshService::MediaRelay) == ServiceLoad::Full; }, 800);
+  EXPECT_EQ(load.Level(MeshService::MediaRelay), ServiceLoad::Full) << "hosting its one call, the hop is full";
+
+  client_->Detach();
+  harness_->PumpUntil([&] { return load.Level(MeshService::MediaRelay) == ServiceLoad::Open; }, 800);
+  EXPECT_EQ(load.Level(MeshService::MediaRelay), ServiceLoad::Open) << "the call ended: open again, unasked";
+}
+
 } // namespace
 } // namespace pp::mesh

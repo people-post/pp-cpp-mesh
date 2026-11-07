@@ -96,5 +96,34 @@ TEST(ServiceLoadTest, DropsBecomeAPressure) {
   EXPECT_DOUBLE_EQ(DropRatePressure(kDropsPerSecondFull * 3), 1.0);
 }
 
+// A reply says every service the node serves ("loads"), not only the one replying: a client that parks here knows
+// before its first group call whether this hop takes one. An older node's reply ("load" only) notes its own service.
+TEST(ServiceLoadTest, AReplySaysEveryServiceTheNodeServes) {
+  ServiceLoadMonitor node;
+  node.SetServed(MeshService::Park, true);
+  node.SetServed(MeshService::MediaRelay, true);
+  node.SetPressure(MeshService::MediaRelay, "sessions", 1.0);
+  common::Object reply;
+  SetLoadFields(reply, node.Level(MeshService::Park), &node);
+  const common::Object* loads = reply.getObject("loads");
+  ASSERT_NE(loads, nullptr);
+  EXPECT_EQ(loads->getString("park").value_or(""), "open");
+  EXPECT_EQ(loads->getString("media_relay").value_or(""), "full");
+  EXPECT_FALSE(loads->contains("relay")) << "a service the node does not serve is not said";
+
+  PeerLoadBook book;
+  const int64_t now = 1000;
+  NoteReplyLoads(book, "hop", MeshService::Park, reply, now);
+  EXPECT_EQ(book.Load("hop", MeshService::Park, now), ServiceLoad::Open);
+  EXPECT_EQ(book.Load("hop", MeshService::MediaRelay, now), ServiceLoad::Full);
+  EXPECT_EQ(book.Load("hop", MeshService::Relay, now), ServiceLoad::Unknown);
+
+  common::Object older;
+  SetLoadField(older, ServiceLoad::Busy);
+  NoteReplyLoads(book, "old", MeshService::Relay, older, now);
+  EXPECT_EQ(book.Load("old", MeshService::Relay, now), ServiceLoad::Busy);
+  EXPECT_EQ(book.Load("old", MeshService::MediaRelay, now), ServiceLoad::Unknown);
+}
+
 } // namespace
 } // namespace pp::mesh

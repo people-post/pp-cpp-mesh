@@ -372,6 +372,26 @@ TEST_F(CircuitRelayServerClientTest, ARelayParksAsManyAsItsCapacity) {
   EXPECT_EQ(load.Level(MeshService::Park), ServiceLoad::Full);
 }
 
+// A park's reply says the node's other levels too: a phone parked on a hop full of group calls knows it before it
+// plans one there.
+TEST_F(CircuitRelayServerClientTest, AParkReplySaysTheHopsGroupCallLevel) {
+  ServiceLoadMonitor load;
+  load.SetServed(MeshService::Park, true);
+  load.SetServed(MeshService::Relay, true);
+  load.SetServed(MeshService::MediaRelay, true);
+  load.SetPressure(MeshService::MediaRelay, "sessions", 1.0);
+  relay_->SetLoadMonitor(&load);
+  PeerLoadBook book;
+  client_b_->SetPeerLoadBook(&book);
+  BridgeWait reserve;
+  ASSERT_TRUE(client_b_->StartReserve("relay", reserve.Fn(), 15000));
+  reserve.PumpUntilDone(*harness_);
+  ASSERT_TRUE(reserve.result) << reserve.result.error().message;
+  const int64_t now = PeerLoadBook::NowMs();
+  EXPECT_EQ(book.Load("relay", MeshService::Park, now), ServiceLoad::Open);
+  EXPECT_EQ(book.Load("relay", MeshService::MediaRelay, now), ServiceLoad::Full);
+}
+
 // Dogfood 2026-09-24: a cold relay link idled past the 5 s ADP liveness window and was evicted
 // with the answerer's reservation ("Couldn't connect"). Held reservations keep the relay link hot.
 TEST_F(CircuitRelayServerClientTest, ReserveKeepsRelayLinkHotUntilReleased) {

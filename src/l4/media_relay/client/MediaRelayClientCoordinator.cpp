@@ -504,8 +504,7 @@ struct MediaRelayClientCoordinator::Impl {
       return false;
     }
     if (PeerLoadBook *book = loads.load(std::memory_order_acquire)) {
-      book->Note(session->hop_peer_key, MeshService::MediaRelay,
-                 LoadField(*root), PeerLoadBook::NowMs());
+      NoteReplyLoads(*book, session->hop_peer_key, MeshService::MediaRelay, *root, PeerLoadBook::NowMs());
     }
     if (session->role == MediaRelayBundleRole::ClientQuote && session->phase == MediaRelayBundlePhase::WaitQuote) {
       const auto decision =
