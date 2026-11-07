@@ -89,6 +89,8 @@ public:
   Roe<void> Start(const MeshHostConfig& config);
   void Stop();
   void Tick();
+  /** One pump round: Tick, and whether datagrams are still waiting (the drain used its whole budget). */
+  bool PumpTick();
   bool IsRunning() const;
 
   bool MeshPumpRunning() const { return pump_.IsRunning(); }
@@ -285,6 +287,8 @@ private:
   /** Samples the link table's pressure into own_load_ (once a second). */
   pp::amp::MeshRuntime::IoTickId load_tick_ = 0;
   size_t max_links_ = 0;
+  /** The bound socket (shared with the stack), for its buffers and kernel drops. */
+  std::shared_ptr<pp::adp::DatagramIo> io_;
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;
   bool host_dht_ = false;
   bool host_directory_ = false;

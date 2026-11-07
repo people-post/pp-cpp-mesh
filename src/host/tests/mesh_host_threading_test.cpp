@@ -105,10 +105,43 @@ TEST(MeshHostThreadingTest, MeshPumpIsTheOnlyDriver) {
   host.Stop();
 }
 
+// A tick that says more is waiting is followed by the next at once, not after the interval: a fixed nap after every
+// tick capped what a node could take in, and the kernel dropped the rest (pp-browser stress lab, 2026-11-06).
+TEST(MeshPumpThreadTest, AFullDrainIsFollowedAtOnce) {
+  std::atomic<int> ticks{0};
+  MeshPumpThread pump;
+  pump.Start([&ticks]() {
+    ++ticks;
+    return true;  // always more waiting
+  }, std::chrono::milliseconds(50));
+  std::this_thread::sleep_for(std::chrono::milliseconds(120));
+  pump.Stop();
+  EXPECT_GT(ticks.load(), 20) << "an idle pump would have ticked about 3 times";
+}
+
+// The busy share is the part of a second spent in ticks: near 1 for a pump that never catches up, near 0 when idle.
+TEST(MeshPumpThreadTest, TheBusyShareFollowsTheTicks) {
+  MeshPumpThread busy;
+  busy.Start([]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    return true;
+  }, std::chrono::milliseconds(5));
+  MeshPumpThread idle;
+  idle.Start([]() { return false; }, std::chrono::milliseconds(5));
+  std::this_thread::sleep_for(std::chrono::milliseconds(2300));
+  EXPECT_GT(busy.BusyFraction(), 0.9);
+  EXPECT_LT(idle.BusyFraction(), 0.2);
+  busy.Stop();
+  idle.Stop();
+}
+
 TEST(MeshPumpThreadTest, StartStopJoins) {
   std::atomic<int> ticks{0};
   MeshPumpThread pump;
-  pump.Start([&ticks]() { ++ticks; }, std::chrono::milliseconds(5));
+  pump.Start([&ticks]() {
+    ++ticks;
+    return false;
+  }, std::chrono::milliseconds(5));
   EXPECT_TRUE(pump.IsRunning());
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
   while (ticks.load(std::memory_order_acquire) < 3 && std::chrono::steady_clock::now() < deadline) {

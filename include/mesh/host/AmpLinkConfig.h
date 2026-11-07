@@ -26,6 +26,12 @@ inline constexpr std::chrono::milliseconds kProductWarmKeepaliveInterval{25'000}
 enum class AmpLinkTable { Device, Server };
 inline constexpr size_t kServerMaxLinks = 2048;
 inline constexpr size_t kServerMaxPendingInbound = 128;
+/**
+ * The UDP socket buffers a host others connect to asks for (receive and send): bursts wait in the kernel instead of
+ * being dropped while the pump works. Linux grants at most net.core.rmem_max / wmem_max (pp-node's packaging raises
+ * them; pp-browser docs/ops/BUILD.md); a device keeps the OS default.
+ */
+inline constexpr size_t kServerUdpBufferBytes = 8 * 1024 * 1024;
 
 /** PeerLinkConfig for the product mesh (MeshHost) — tests use the same config. */
 pp::amp::PeerLinkConfig MakeProductAmpLinkConfig(AmpLinkTable table = AmpLinkTable::Device);

@@ -100,6 +100,12 @@ private:
    * (at most every kReplaceParkEveryMs). */
   void ReplaceParkSoon(const std::string &relay, ServiceLoad load);
   static constexpr int64_t kReplaceParkEveryMs = 5000;
+  /**
+   * How long a park's reservation is held (the relay's own default; at most 60 s there). Longer than the app's
+   * renewal (every 10 s in a call, every 20 s for a desktop staying reachable): at 15 s a desktop was unparked 5 s in
+   * every 20 (pp-browser stress lab, 2026-11-06).
+   */
+  static constexpr int kParkReserveHoldMs = 30000;
   int64_t replace_park_at_ms_ = 0;
   /** The relay this node parks on first: the chosen / announced R1, else circuit reach's last good one. */
   std::string StickyRelay() const;

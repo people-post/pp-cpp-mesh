@@ -89,5 +89,12 @@ TEST(ServiceLoadTest, TheBookKeepsWhatANodeSaidForAWhile) {
             (std::vector<std::string>{"open", "unknown", "busy", "full"}));
 }
 
+// Kernel drops a second as a pressure: none is idle, kDropsPerSecondFull and more is full.
+TEST(ServiceLoadTest, DropsBecomeAPressure) {
+  EXPECT_DOUBLE_EQ(DropRatePressure(0), 0.0);
+  EXPECT_NEAR(DropRatePressure(kDropsPerSecondFull * 0.5), 0.5, 1e-9);
+  EXPECT_DOUBLE_EQ(DropRatePressure(kDropsPerSecondFull * 3), 1.0);
+}
+
 } // namespace
 } // namespace pp::mesh

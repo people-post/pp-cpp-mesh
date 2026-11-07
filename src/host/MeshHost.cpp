@@ -96,22 +96,28 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   // whole run, so moving from an IPv4-only network to IPv6-only cellular (NAT64) needs no rebind.
   // pp-cpp-amp clears IPV6_V6ONLY and maps IPv4 peers both ways; advertise / probe targets come
   // from the interfaces, not the bind family. IPv4 only when the OS has no IPv6 socket support.
-  auto bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V6({}, config.amp_udp_port));
+  // A host others connect to (seed / relay / DHT / directory) needs a link per client, and buffers for its bursts.
+  const bool serves_others =
+      config.host_circuit_relay || config.host_media_relay || config.host_dht || config.host_directory;
+  pp::adp::UdpSocketOptions socket_options;
+  if (serves_others) {
+    socket_options.receive_buffer_bytes = kServerUdpBufferBytes;
+    socket_options.send_buffer_bytes = kServerUdpBufferBytes;
+  }
+  auto bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V6({}, config.amp_udp_port), socket_options);
   if (!bound) {
-    bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port));
+    bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.amp_udp_port), socket_options);
   }
   if (!bound) {
     return bound.error();
   }
   std::shared_ptr<pp::adp::DatagramIo> io = std::move(*bound);
+  io_ = io;
   amp_clock_ = std::make_shared<pp::adp::WallClock>();
 
   pp::amp::AmpStack::Config amp_cfg;
   amp_cfg.identity = std::move(identity);
   amp_cfg.local_peer_id = *peer_id;
-  // A host others connect to (seed / relay / DHT / directory) needs a link per client.
-  const bool serves_others =
-      config.host_circuit_relay || config.host_media_relay || config.host_dht || config.host_directory;
   amp_cfg.link_config = MakeProductAmpLinkConfig(serves_others ? AmpLinkTable::Server : AmpLinkTable::Device);
   max_links_ = amp_cfg.link_config.max_links;
 
@@ -160,7 +166,8 @@ void MeshHost::StartOwnedThreads() {
   l4_on_workers_.store(true, std::memory_order_release);
   if (!pump_.IsRunning()) {
     // The pump is the runtime's only driver: a drive from any other thread is refused (and counted).
-    pump_.Start([this]() { Tick(); }, MeshPumpThread::kDefaultInterval, [this]() { amp_->Runtime().ClaimDriver(); },
+    pump_.Start([this]() { return PumpTick(); }, MeshPumpThread::kDefaultInterval,
+                [this]() { amp_->Runtime().ClaimDriver(); },
                 [this]() { amp_->Runtime().ReleaseDriver(); });
   }
 }
@@ -255,20 +262,44 @@ void MeshHost::EnsureAmpL4Coordinators() {
                           "The worst pressure behind the level (0..1)",
                           labels)};
     }
-    auto sampled_ms = std::make_shared<int64_t>(0);
-    load_tick_ = amp_->Runtime().AddIoTick([this, sampled_ms, gauges]() {
+    // The pump's busy share and the socket's kernel drops: what saturates a node before any count does (pp-browser
+    // stress lab, 2026-11-06 — a node at 30 s of delay still counted itself open).
+    MetricGauge* io_busy =
+        &metrics_.Gauge("pp_io_busy_fraction", "Share of the last second the mesh pump worked (0..1)");
+    MetricGauge* udp_drops =
+        &metrics_.Gauge("pp_udp_receive_drops", "Datagrams the kernel dropped for want of receive buffer, since start");
+    MetricGauge* udp_rcvbuf = &metrics_.Gauge("pp_udp_receive_buffer_bytes", "The socket's granted receive buffer");
+    struct Sample {
+      int64_t at_ms = 0;
+      uint64_t drops = 0;
+      double drop_pressure = 0.0;  // smoothed: one burst is not a full node
+    };
+    auto sample = std::make_shared<Sample>();
+    load_tick_ = amp_->Runtime().AddIoTick([this, sample, gauges, io_busy, udp_drops, udp_rcvbuf]() {
       const int64_t now = PeerLoadBook::NowMs();
-      if (now - *sampled_ms < 1000 || !amp_) {
+      if (now - sample->at_ms < 1000 || !amp_) {
         return;
       }
-      *sampled_ms = now;
-      const double links =
-          static_cast<double>(amp_->Runtime().Links().CountLinks()) /
-          static_cast<double>(max_links_);
-      for (const MeshService service :
-           {MeshService::Park, MeshService::Relay, MeshService::MediaRelay}) {
+      const double seconds = sample->at_ms == 0 ? 1.0 : static_cast<double>(now - sample->at_ms) / 1000.0;
+      sample->at_ms = now;
+      const double links = static_cast<double>(amp_->Runtime().Links().CountLinks()) / static_cast<double>(max_links_);
+      const double busy = pump_.IsRunning() ? pump_.BusyFraction() : 0.0;
+      io_busy->Set(busy);
+      if (const auto stats = io_ ? io_->Stats() : std::nullopt) {
+        udp_rcvbuf->Set(static_cast<double>(stats->receive_buffer_bytes));
+        if (stats->receive_drops) {
+          const uint64_t drops = *stats->receive_drops;
+          const double rate = drops >= sample->drops ? static_cast<double>(drops - sample->drops) / seconds : 0.0;
+          sample->drops = drops;
+          sample->drop_pressure = 0.5 * sample->drop_pressure + 0.5 * DropRatePressure(rate);
+          udp_drops->Set(static_cast<double>(drops));
+        }
+      }
+      for (const MeshService service : {MeshService::Park, MeshService::Relay, MeshService::MediaRelay}) {
         own_load_.SetPressure(service, "links", links);
-        const Gauges &g = (*gauges)[static_cast<size_t>(service)];
+        own_load_.SetPressure(service, "io", busy);
+        own_load_.SetPressure(service, "udp_drops", sample->drop_pressure);
+        const Gauges& g = (*gauges)[static_cast<size_t>(service)];
         g.level->Set(static_cast<double>(own_load_.Level(service)));
         g.pressure->Set(own_load_.Pressure(service));
       }
@@ -405,6 +436,7 @@ void MeshHost::StopAmp() {
   if (amp_) {
     amp_->Stop();
     amp_.reset();
+    io_.reset();
     blocked_listener_amp_ = nullptr;  // its listener went with it
   }
   chat_links_.reset();
@@ -494,6 +526,15 @@ void MeshHost::Tick() {
     // drive from another thread is too. The DHT's self-publish is an io tick, inside the drive.
     amp_->Runtime().Drive();
   }
+}
+
+bool MeshHost::PumpTick() {
+  if (!amp_) {
+    return false;
+  }
+  const uint64_t before = amp_->Runtime().GetEndpoint().Stats().rx_datagrams;
+  Tick();
+  return amp_->Runtime().GetEndpoint().Stats().rx_datagrams - before >= pp::adp::kDefaultPumpBudget;
 }
 
 void MeshHost::RunOnLane(const std::function<void()>& task) {
