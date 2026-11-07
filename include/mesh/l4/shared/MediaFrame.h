@@ -33,14 +33,17 @@ inline constexpr size_t kMediaFrameHeaderBytes = 1 + 1 + 4 + 4 + 8;
 inline constexpr size_t kMediaFrameTagBytes = 16;
 inline constexpr size_t kMediaFrameNonceBytes = 24;
 
-/** The relay QoS class of a channel's frames (not a codec): audio in order, video latest-wins (MEDIA_CHANNELS.md). */
+/**
+ * The relay QoS class of a channel's frames (not a codec). Only LatestLossy changes a hop's behaviour (it drops stale
+ * non-keyframes); ReliableOrdered is a label, forwarded best effort like the rest (MEDIA_CHANNELS.md).
+ */
 enum class MediaChannelType : uint8_t {
   ReliableOrdered = 0,
   LatestLossy = 1,
   BestEffort = 2,
 };
 
-/** The QoS class a sender stamps on a channel's frames: audio in order, video latest-wins. */
+/** The QoS class a sender stamps on a channel's frames: audio ReliableOrdered (a label), video LatestLossy. */
 MediaChannelType MediaChannelTypeFor(uint16_t channel_id);
 
 /** One frame: the clear header's fields, and `payload` — sealed (ciphertext + tag) on the wire, opaque to a hop. */
