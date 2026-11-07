@@ -121,6 +121,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   amp_cfg.link_config =
       MakeProductAmpLinkConfig(serves_others ? AmpLinkTable::Server : AmpLinkTable::Device, config.capacity.links);
   max_links_ = amp_cfg.link_config.max_links;
+  const size_t accepted_connections = AcceptedConnectionsFor(amp_cfg.link_config);
 
   auto stack = pp::amp::AmpStack::Create(std::move(io), amp_clock_, std::move(amp_cfg));
   if (!stack) {
@@ -135,6 +136,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   (*stack)->Start();
   // Amp UDP accept is always on (Clients need inbound Amp for dial-back / LAN).
   (*stack)->GetEndpoint().SetAcceptEnabled(true);
+  (*stack)->GetEndpoint().SetMaxAcceptedConnections(accepted_connections);
   amp_listen_multiaddr_ = *listen;
   (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   // Every protocol this host serves registers a handler: refuse opens for anything else, so a peer

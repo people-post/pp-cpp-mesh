@@ -18,4 +18,8 @@ pp::amp::PeerLinkConfig MakeProductAmpLinkConfig(const AmpLinkTable table, const
   return config;
 }
 
+size_t AcceptedConnectionsFor(const pp::amp::PeerLinkConfig& config) {
+  return std::max(kAmpDefaultAcceptedConnections, config.max_links + config.max_pending_inbound);
+}
+
 } // namespace pp::mesh

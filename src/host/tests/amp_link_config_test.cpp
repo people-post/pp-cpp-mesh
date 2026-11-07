@@ -29,3 +29,11 @@ TEST(AmpLinkConfigTest, AServerTableTakesTheOperatorsSize) {
   EXPECT_EQ(MakeProductAmpLinkConfig(AmpLinkTable::Device, 20000).max_links, pp::amp::PeerLinkConfig{}.max_links)
       << "a device keeps Amp's table";
 }
+
+// Amp's endpoint accepts a connection per link and per pending handshake: a big table is not capped at Amp's own
+// default (the stress lab's 8000 parked clients stopped at 4096), and a device's endpoint is as before.
+TEST(AmpLinkConfigTest, TheEndpointTakesWhatTheTableHolds) {
+  const pp::amp::PeerLinkConfig big = MakeProductAmpLinkConfig(AmpLinkTable::Server, 20000);
+  EXPECT_EQ(pp::mesh::AcceptedConnectionsFor(big), 20000u + big.max_pending_inbound);
+  EXPECT_EQ(pp::mesh::AcceptedConnectionsFor(MakeProductAmpLinkConfig()), pp::mesh::kAmpDefaultAcceptedConnections);
+}
