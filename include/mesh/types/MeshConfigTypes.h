@@ -4,6 +4,7 @@
 // data on pp-cpp-common only: an app embeds them in its own config (pp-browser's MeshConfig) without
 // depending on Amp.
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -49,6 +50,21 @@ struct MeshDhtConfig {
   int soft_reputation_penalty_threshold = 3;
   /** Soft-reputation cooldown after penalty (seconds). */
   int soft_reputation_cooldown_seconds = 300;
+};
+
+/**
+ * How much a node serving others takes on (pp-browser docs/ops/CONFIGURATION.md `mesh.capacity`). Each is a hard
+ * limit and the 1.0 of its pressure behind the service levels (N033); 0 = the default. A device ignores it.
+ */
+struct MeshCapacityConfig {
+  /** Amp links: one per client, whatever it uses (kServerMaxLinks). */
+  size_t links = 0;
+  /** Parked answerers (circuit reservations; kCircuitMaxReservations). */
+  size_t reservations = 0;
+  /** Live 1:1 bridges (kCircuitMaxTunnels). */
+  size_t bridges = 0;
+  /** Group calls hosted (media_relay sessions; kMediaRelayServeMaxSessions). */
+  size_t group_calls = 0;
 };
 
 /** ↑/↓ ceilings for media_relay (N019). 0 = unbounded / ops default. */

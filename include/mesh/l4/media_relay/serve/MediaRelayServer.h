@@ -49,6 +49,8 @@ public:
   MediaRelayRuntimeStats RuntimeStats() const;
   /** B009: which video levels this relay carries per publisher (from the operator's config). */
   void SetVideoPolicy(MediaRelayVideoPolicy policy);
+  /** Group calls hosted at most: the hard limit, and the 1.0 of its pressure (0 keeps the default). */
+  void SetMaxSessions(size_t max_sessions);
   /**
    * This node's service levels (its MeshHost's): the server sets the group-call
    * pressure it sees, says the level in its replies, and opens no new call

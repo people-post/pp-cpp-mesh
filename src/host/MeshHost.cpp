@@ -118,8 +118,10 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   pp::amp::AmpStack::Config amp_cfg;
   amp_cfg.identity = std::move(identity);
   amp_cfg.local_peer_id = *peer_id;
-  amp_cfg.link_config = MakeProductAmpLinkConfig(serves_others ? AmpLinkTable::Server : AmpLinkTable::Device);
+  amp_cfg.link_config =
+      MakeProductAmpLinkConfig(serves_others ? AmpLinkTable::Server : AmpLinkTable::Device, config.capacity.links);
   max_links_ = amp_cfg.link_config.max_links;
+  const size_t accepted_connections = AcceptedConnectionsFor(amp_cfg.link_config);
 
   auto stack = pp::amp::AmpStack::Create(std::move(io), amp_clock_, std::move(amp_cfg));
   if (!stack) {
@@ -134,6 +136,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   (*stack)->Start();
   // Amp UDP accept is always on (Clients need inbound Amp for dial-back / LAN).
   (*stack)->GetEndpoint().SetAcceptEnabled(true);
+  (*stack)->GetEndpoint().SetMaxAcceptedConnections(accepted_connections);
   amp_listen_multiaddr_ = *listen;
   (*stack)->Links().SetLocalListenMultiaddrs({amp_listen_multiaddr_});
   // Every protocol this host serves registers a handler: refuse opens for anything else, so a peer
@@ -154,6 +157,10 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
                     config.host_directory);
   if (amp_media_relay_server_) {
     amp_media_relay_server_->SetVideoPolicy(config.media_relay_video);
+    amp_media_relay_server_->SetMaxSessions(config.capacity.group_calls);
+  }
+  if (amp_circuit_server_) {
+    amp_circuit_server_->SetCapacity(config.capacity.reservations, config.capacity.bridges);
   }
   StartOwnedThreads();
   return Roe<void>();
