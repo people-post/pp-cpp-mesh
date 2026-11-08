@@ -51,6 +51,8 @@ private:
 
   /** Adds `busy` to this second's tally; at a second's end publishes its fraction. */
   void NoteBusy(std::chrono::steady_clock::duration busy, std::chrono::steady_clock::time_point now);
+  /** kBusyBreather of yielding (not a timed wait: Windows rounds that up to a timer tick); false once stopped. */
+  bool YieldBreather();
 
   std::function<bool()> tick_;
   std::function<void()> on_thread_start_;

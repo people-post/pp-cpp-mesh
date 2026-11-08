@@ -1,6 +1,7 @@
 #include "mesh/host/MeshPumpThread.h"
 
 #include <algorithm>
+#include <thread>
 #include <utility>
 
 namespace pp::mesh {
@@ -60,10 +61,19 @@ void MeshPumpThread::ThreadMain() {
     const bool more = tick_ && tick_();
     const auto ended = std::chrono::steady_clock::now();
     NoteBusy(ended - began, ended);
-    // Datagrams still waiting: drain them almost at once — but not at once. A drive holds the runtime's lock; a pump
-    // that took it straight back starved every other thread that needs it (status, posted work).
+    if (more) {
+      // Datagrams still waiting: drain them almost at once — but not at once. A drive holds the runtime's lock; a
+      // pump that took it straight back starved every other thread that needs it (status, posted work). The
+      // breather yields rather than waits: a timed wait on Windows sleeps a whole timer tick (1-16 ms), longer than
+      // the idle interval, and the busy pump there was no faster than an idle one (MeshPumpThreadTest on
+      // windows-2022, v6.2.0 to v6.4.0).
+      if (!YieldBreather()) {
+        break;
+      }
+      continue;
+    }
     std::unique_lock<std::mutex> lock(mutex_);
-    if (cv_.wait_for(lock, more ? kBusyBreather : interval_, [this]() { return stop_requested_; })) {
+    if (cv_.wait_for(lock, interval_, [this]() { return stop_requested_; })) {
       break;
     }
   }
@@ -71,6 +81,20 @@ void MeshPumpThread::ThreadMain() {
     on_thread_exit_();
   }
   running_.store(false, std::memory_order_release);
+}
+
+bool MeshPumpThread::YieldBreather() {
+  const auto until = std::chrono::steady_clock::now() + kBusyBreather;
+  do {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (stop_requested_) {
+        return false;
+      }
+    }
+    std::this_thread::yield();
+  } while (std::chrono::steady_clock::now() < until);
+  return true;
 }
 
 void MeshPumpThread::NoteBusy(const std::chrono::steady_clock::duration busy,

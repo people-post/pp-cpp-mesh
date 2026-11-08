@@ -26,12 +26,12 @@ inline constexpr std::chrono::milliseconds kProductWarmKeepaliveInterval{25'000}
 enum class AmpLinkTable { Device, Server };
 /**
  * A server's table by default (the operator's mesh.capacity.links overrides it). Measured on a two-core node,
- * Release, clients parked and renewing every 10 s (pp-browser docs/ops/STRESS_LAB.md, 2026-11-07): 2k links 4 % of
- * a core, 4k 13 %, 8k 56 %, ~20 KB each; past ~11k the one pump thread saturates and the node sheds to ~7-8k. The
- * cost grows faster than the count (Amp walks the table each tick), so 8192 keeps an idle table near half a core,
- * with busy / full from ~5.7k / ~7.8k.
+ * Release, clients parked and renewing every 10 s, with pp-cpp-amp v5.1.0 (pp-browser docs/ops/STRESS_LAB.md,
+ * 2026-11-08): 6k links 5 % of a core, 12k 17 %, 20k 46 %, ~20 KB each; past ~23k the one pump thread saturates.
+ * 16384 keeps an idle table near a third of a core, with busy / full from ~11.5k / ~15.6k. (8192 under Amp v5.0.3,
+ * whose walks every pump round cost a node ~40 % of a core at 6k.)
  */
-inline constexpr size_t kServerMaxLinks = 8192;
+inline constexpr size_t kServerMaxLinks = 16384;
 inline constexpr size_t kServerMaxPendingInbound = 128;
 /** pp-cpp-amp's Endpoint accepts this many connections unless told otherwise (Endpoint::max_accepted_conns_). */
 inline constexpr size_t kAmpDefaultAcceptedConnections = 4096;
