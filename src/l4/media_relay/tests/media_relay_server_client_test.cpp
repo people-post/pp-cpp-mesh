@@ -588,7 +588,9 @@ TEST_F(AmpMediaRelayClientLossTest, EmptiedSessionAdmitsNonContactsOnlyWithinIts
   EXPECT_TRUE(quote()) << "emptied, within the grace: still the call's session";
 
   std::this_thread::sleep_for(std::chrono::milliseconds(400));
-  harness_->PumpBoth();  // the hop's tick drops the expired session
+  // The hop's next tick drops the expired session: io ticks run on Amp's housekeeping cadence (its clock).
+  harness_->clock->Advance(pp::amp::kDefaultHousekeepingInterval.count());
+  harness_->PumpBoth();
   auto refused = quote();
   ASSERT_FALSE(refused) << "after the grace the call is over";
   EXPECT_EQ(refused.error().GetCode(), MediaRelayErr::HopRefused) << refused.error().message;
