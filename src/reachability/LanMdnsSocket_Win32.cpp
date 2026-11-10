@@ -101,13 +101,11 @@ int UdpMulticastSocket::Recv(uint8_t* buf, size_t cap) {
   if (!IsOpen() || buf == nullptr || cap == 0) {
     return 0;
   }
-  const int n = recvfrom(impl_->fd, reinterpret_cast<char*>(buf), static_cast<int>(cap), 0, nullptr,
-                         nullptr);
+  const int n = recvfrom(impl_->fd, reinterpret_cast<char*>(buf), static_cast<int>(cap), 0, nullptr, nullptr);
   return n;
 }
 
-void UdpMulticastSocket::Send(const uint8_t* data, size_t len, uint16_t dest_port,
-                              const char* multicast_ipv4) {
+void UdpMulticastSocket::Send(const uint8_t* data, size_t len, uint16_t dest_port, const char* multicast_ipv4) {
   if (!IsOpen() || data == nullptr || len == 0) {
     return;
   }

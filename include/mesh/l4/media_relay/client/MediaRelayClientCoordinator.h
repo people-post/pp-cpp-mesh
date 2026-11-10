@@ -49,16 +49,15 @@ public:
 
   /** Where the hops' own group-call levels go as their replies say them
    * (MeshHost's PeerLoadBook). */
-  void SetPeerLoadBook(PeerLoadBook *book);
+  void SetPeerLoadBook(PeerLoadBook* book);
   void SetCircuitHopRegistry(AmpCircuitHopRegistry* hops);
 
   MediaRelaySessionId StartQuote(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,
                                  QuoteFinished on_finished, int timeout_ms = 8000);
 
   MediaRelaySessionId StartAttach(const std::string& hop_peer_key, const std::string& quote_id,
-                                  const std::string& call_id, const std::string& auth_stub,
-                                  FrameHandler on_frame, AttachFinished on_finished,
-                                  int timeout_ms = 8000);
+                                  const std::string& call_id, const std::string& auth_stub, FrameHandler on_frame,
+                                  AttachFinished on_finished, int timeout_ms = 8000);
 
   void Cancel(MediaRelaySessionId id);
   void AbortInflight();

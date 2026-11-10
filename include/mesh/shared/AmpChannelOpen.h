@@ -24,16 +24,15 @@ inline int64_t AmpDeadlineFromSteady(pp::amp::PeerLinkManager& links,
 }
 
 /** WhenChannelOpen with a steady_clock wall deadline (harness / product parks). */
-inline void AmpWhenChannelOpen(pp::amp::PeerLinkManager& links, const std::string& peer_key,
-                               const uint32_t channel_id, const std::chrono::steady_clock::time_point deadline,
+inline void AmpWhenChannelOpen(pp::amp::PeerLinkManager& links, const std::string& peer_key, const uint32_t channel_id,
+                               const std::chrono::steady_clock::time_point deadline,
                                std::function<void(bool open)> done) {
   links.WhenChannelOpen(peer_key, channel_id, AmpDeadlineFromSteady(links, deadline), std::move(done));
 }
 
 /** WhenChannelOpenOnLink with a steady_clock wall deadline: the channel's own link, by handle. */
 inline void AmpWhenChannelOpenOnLink(pp::amp::PeerLinkManager& links, const pp::amp::LinkHandle link,
-                                     const uint32_t channel_id,
-                                     const std::chrono::steady_clock::time_point deadline,
+                                     const uint32_t channel_id, const std::chrono::steady_clock::time_point deadline,
                                      std::function<void(bool open)> done) {
   links.WhenChannelOpenOnLink(link, channel_id, AmpDeadlineFromSteady(links, deadline), std::move(done));
 }

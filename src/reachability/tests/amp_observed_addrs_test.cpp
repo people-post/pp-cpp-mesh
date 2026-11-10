@@ -42,7 +42,6 @@ TEST(AmpObservedAddrsTest, SkipsUnusableDialBack) {
   }
 }
 
-
 TEST(AmpObservedAddrsTest, PrefersSeedObservedReflexiveIpv4OverLanOnly) {
   ReachabilitySnapshot snap;
   // Probe dial of LAN targets failed, but seed reported reflexive public IPv4 (B26).

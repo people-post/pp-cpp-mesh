@@ -34,9 +34,8 @@ public:
   /** Optional L3.25b: Amp punch before circuit (H002). */
   using TryPunchAsync = std::function<void(const std::string& target_peer_id, PunchIntroducerWalk::Done on_done)>;
   /** Optional L3.25c: punch via an explicit introducer (circuit R1). */
-  using TryPunchViaIntroducerAsync =
-      std::function<void(const std::string& introducer_peer_key, const std::string& target_peer_id,
-                         PunchIntroducerWalk::Done on_done)>;
+  using TryPunchViaIntroducerAsync = std::function<void(
+      const std::string& introducer_peer_key, const std::string& target_peer_id, PunchIntroducerWalk::Done on_done)>;
 
   /** One bridge's failure, as reach's (the tunnel's chain in `message`). */
   static CircuitReachFailure WrapTunnelFailure(const CircuitClientCoordinator::Failure& tunnel);
@@ -62,7 +61,7 @@ public:
    * said busy is tried after open ones, a full or draining one last
    * (docs/PEER_REACH.md § Service load). Null: the order without it.
    */
-  void SetPeerLoads(const PeerLoadBook *book) { peer_loads_ = book; }
+  void SetPeerLoads(const PeerLoadBook* book) { peer_loads_ = book; }
 
   /** Its mesh is going away (MeshHost::IsStopping): the synchronous waits below are refused. */
   void SetStopping(std::function<bool()> stopping) { stopping_ = std::move(stopping); }
@@ -101,7 +100,7 @@ private:
   OnRelayChosen on_relay_chosen_;
   /** AbortPending Invalidates — in-flight EnsureViaCircuit / punch cbs no-op. */
   std::function<bool()> stopping_;
-  const PeerLoadBook *peer_loads_ = nullptr;
+  const PeerLoadBook* peer_loads_ = nullptr;
   pp::Lifetime deferred_;
   /** Active StartBridge id for this reach chain; AbortPending CancelTunnel's it (hard cancel). */
   std::atomic<uint64_t> inflight_tunnel_value_{0};

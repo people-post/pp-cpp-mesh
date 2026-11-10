@@ -48,10 +48,10 @@ enum class ServiceLoad : uint8_t {
 };
 
 /** The wire word ("open" / "busy" / "full" / "draining"); empty for Unknown. */
-const char *ServiceLoadWire(ServiceLoad load);
+const char* ServiceLoadWire(ServiceLoad load);
 /** A word a newer node may send that this one does not know reads Unknown. */
 ServiceLoad ServiceLoadFromWire(std::string_view wire);
-const char *MeshServiceName(MeshService service);
+const char* MeshServiceName(MeshService service);
 /** The node takes no new work for it (Full, Draining). */
 inline bool ServiceLoadRefusesNew(const ServiceLoad load) {
   return load == ServiceLoad::Full || load == ServiceLoad::Draining;
@@ -60,7 +60,7 @@ inline bool ServiceLoadRefusesNew(const ServiceLoad load) {
  * Draining 3. */
 int ServiceLoadRank(ServiceLoad load);
 /** A reply's `"load"`: set when the node says a level. */
-void SetLoadField(common::Object &reply, ServiceLoad load);
+void SetLoadField(common::Object& reply, ServiceLoad load);
 class ServiceLoadMonitor;
 /**
  * A reply's `"load"` (the level of the service replying), and with `monitor` its `"loads"`: every service this node
@@ -72,7 +72,7 @@ void SetLoadFields(common::Object& reply, ServiceLoad load, const ServiceLoadMon
 bool MeshServiceFromName(std::string_view name, MeshService& out);
 /** A reply's `"load"`; Unknown when absent (an older node) or not a known word.
  */
-ServiceLoad LoadField(const common::Object &reply);
+ServiceLoad LoadField(const common::Object& reply);
 
 /** Where a pressure turns a level on and off: a gap between the two, so a node
  * near a line does not flap. */
@@ -94,7 +94,7 @@ double DropRatePressure(double drops_per_second);
 /** The level after `prev` for `pressure` (0 idle .. 1 at capacity), draining or
  * not. Pure. */
 ServiceLoad NextServiceLoad(ServiceLoad prev, double pressure, bool draining,
-                            const ServiceLoadThresholds &thresholds = {});
+                            const ServiceLoadThresholds& thresholds = {});
 
 /**
  * The node's own levels. Each service's pressure is the worst of its sources
@@ -104,12 +104,10 @@ ServiceLoad NextServiceLoad(ServiceLoad prev, double pressure, bool draining,
  */
 class ServiceLoadMonitor {
 public:
-  explicit ServiceLoadMonitor(ServiceLoadThresholds thresholds = {})
-      : thresholds_(thresholds) {}
+  explicit ServiceLoadMonitor(ServiceLoadThresholds thresholds = {}) : thresholds_(thresholds) {}
 
   /** `source`'s pressure on `service` now (clamped to 0..1). */
-  void SetPressure(MeshService service, std::string_view source,
-                   double pressure);
+  void SetPressure(MeshService service, std::string_view source, double pressure);
   /** The operator's draining (pp-node's state): every service takes nothing
    * new. */
   void SetDraining(bool draining);
@@ -127,8 +125,8 @@ private:
     ServiceLoad level = ServiceLoad::Open;
     bool served = false;
   };
-  void RecomputeLocked(Service &service);
-  static double WorstLocked(const Service &service);
+  void RecomputeLocked(Service& service);
+  static double WorstLocked(const Service& service);
 
   const ServiceLoadThresholds thresholds_;
   mutable std::mutex mu_;
@@ -149,20 +147,22 @@ public:
   /** The book's clock (steady, ms). */
   static int64_t NowMs();
 
-  void Note(const std::string &peer_id, MeshService service, ServiceLoad load,
-            int64_t now_ms);
-  ServiceLoad Load(const std::string &peer_id, MeshService service,
-                   int64_t now_ms) const;
+  void Note(const std::string& peer_id, MeshService service, ServiceLoad load, int64_t now_ms);
+  ServiceLoad Load(const std::string& peer_id, MeshService service, int64_t now_ms) const;
   /** The peer said it takes nothing new for `service`, and that is still fresh.
    */
-  bool RefusesNew(const std::string &peer_id, MeshService service,
-                  int64_t now_ms) const {
+  bool RefusesNew(const std::string& peer_id, MeshService service, int64_t now_ms) const {
     return ServiceLoadRefusesNew(Load(peer_id, service, now_ms));
   }
   /** `peer_ids` best first for `service` (ServiceLoadRank), keeping their order
    * within a rank. */
-  void OrderBest(std::vector<std::string> &peer_ids, MeshService service,
-                 int64_t now_ms) const;
+  void OrderBest(std::vector<std::string>& peer_ids, MeshService service, int64_t now_ms) const;
+  /**
+   * What `peer_id` said of `service` is forgotten; its next reply says it again. The circuit client does it when a
+   * park it held on `peer_id` ended with the link: a phone whose seed was full and then crashed skipped the restarted,
+   * empty seed for the 2 min the old "full" stayed fresh (pp-browser STRESS_LAB, 2026-11-10).
+   */
+  void Forget(const std::string& peer_id, MeshService service);
 
 private:
   struct Said {

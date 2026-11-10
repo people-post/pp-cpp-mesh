@@ -61,7 +61,7 @@ TEST(ParkTest, TheWalkStopsAtTwoLiveRelays) {
 
   bench->Park().ReserveOnBootstrapSeeds();
   ASSERT_TRUE(bench->RunUntil([&] { return bench->Parked().size() >= 2; }, 5000));
-  bench->RunUntil([] { return false; }, 2000);  // a third would have been dialed by now
+  bench->RunUntil([] { return false; }, 2000); // a third would have been dialed by now
   EXPECT_TRUE(bench->ParkedOn(*first));
   EXPECT_TRUE(bench->ParkedOn(*second));
   EXPECT_FALSE(bench->ParkedOn(*third));
@@ -158,18 +158,13 @@ TEST(ParkTest, AFullSeedIsNotParkedOnAndTwoOthersAre) {
   auto second = bench->AddRelay(RelayKind::Answers);
   auto third = bench->AddRelay(RelayKind::Answers);
   ASSERT_TRUE(full && second && third);
-  bench->RelayHost(*full)->OwnLoad().SetPressure(MeshService::Park, "test",
-                                                 1.0);
+  bench->RelayHost(*full)->OwnLoad().SetPressure(MeshService::Park, "test", 1.0);
 
   bench->Park().ReserveOnBootstrapSeeds();
-  ASSERT_TRUE(bench->RunUntil(
-      [&] { return bench->ParkedOn(*second) && bench->ParkedOn(*third); },
-      10'000))
+  ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*second) && bench->ParkedOn(*third); }, 10'000))
       << "parked on " << bench->Parked().size();
   EXPECT_FALSE(bench->ParkedOn(*full));
-  EXPECT_EQ(bench->Phone().PeerLoads().Load(*full, MeshService::Park,
-                                            PeerLoadBook::NowMs()),
-            ServiceLoad::Full)
+  EXPECT_EQ(bench->Phone().PeerLoads().Load(*full, MeshService::Park, PeerLoadBook::NowMs()), ServiceLoad::Full)
       << "the refusal said why";
 }
 
@@ -183,22 +178,15 @@ TEST(ParkTest, ADrainingRelayIsReplaced) {
   auto third = bench->AddRelay(RelayKind::Answers);
   ASSERT_TRUE(first && second && third);
   bench->Park().ReserveOnBootstrapSeeds();
-  ASSERT_TRUE(bench->RunUntil(
-      [&] { return bench->ParkedOn(*first) && bench->ParkedOn(*second); },
-      5000));
-  EXPECT_EQ(bench->Phone().PeerLoads().Load(*first, MeshService::Park,
-                                            PeerLoadBook::NowMs()),
-            ServiceLoad::Open)
+  ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*first) && bench->ParkedOn(*second); }, 5000));
+  EXPECT_EQ(bench->Phone().PeerLoads().Load(*first, MeshService::Park, PeerLoadBook::NowMs()), ServiceLoad::Open)
       << "the reservation's ack says the level";
 
   bench->RelayHost(*first)->OwnLoad().SetDraining(true);
   bench->Park().ReserveOnBootstrapSeeds(); // the app renews every 20 s
-  ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*third); }, 10'000))
-      << "a replacement for the draining one";
+  ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*third); }, 10'000)) << "a replacement for the draining one";
   EXPECT_TRUE(bench->ParkedOn(*second));
-  EXPECT_EQ(bench->Phone().PeerLoads().Load(*first, MeshService::Park,
-                                            PeerLoadBook::NowMs()),
-            ServiceLoad::Draining);
+  EXPECT_EQ(bench->Phone().PeerLoads().Load(*first, MeshService::Park, PeerLoadBook::NowMs()), ServiceLoad::Draining);
 }
 
 // A full relay still takes the renewal of a phone already parked on it: full
@@ -210,20 +198,14 @@ TEST(ParkTest, AFullRelayKeepsThePhonesAlreadyParkedOnIt) {
   auto second = bench->AddRelay(RelayKind::Answers);
   ASSERT_TRUE(first && second);
   bench->Park().ReserveOnBootstrapSeeds();
-  ASSERT_TRUE(bench->RunUntil(
-      [&] { return bench->ParkedOn(*first) && bench->ParkedOn(*second); },
-      5000));
+  ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*first) && bench->ParkedOn(*second); }, 5000));
 
-  bench->RelayHost(*first)->OwnLoad().SetPressure(MeshService::Park, "test",
-                                                  1.0);
+  bench->RelayHost(*first)->OwnLoad().SetPressure(MeshService::Park, "test", 1.0);
   bench->Park().ReserveOnBootstrapSeeds();
   bench->RunUntil([] { return false; }, 3000);
   EXPECT_TRUE(bench->ParkedOn(*first)) << "renewed, not refused";
-  EXPECT_EQ(bench->Phone().PeerLoads().Load(*first, MeshService::Park,
-                                            PeerLoadBook::NowMs()),
-            ServiceLoad::Full);
+  EXPECT_EQ(bench->Phone().PeerLoads().Load(*first, MeshService::Park, PeerLoadBook::NowMs()), ServiceLoad::Full);
 }
 
-}  // namespace
-}  // namespace pp::mesh
-
+} // namespace
+} // namespace pp::mesh

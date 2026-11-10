@@ -26,9 +26,7 @@ public:
   using PunchRoe = PunchClientCoordinator::PunchRoe;
   using IoPump = PunchClientCoordinator::IoPump;
 
-  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child) {
-    return WrapPunchLinkFailure(child);
-  }
+  static Failure WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child) { return WrapPunchLinkFailure(child); }
 
   /** `metrics`: where it records (its MeshHost's registry). */
   explicit AmpPunchCoordinator(pp::amp::MeshRuntime& runtime, IoPump io_pump = {},
@@ -65,8 +63,8 @@ public:
   void TryUpgradePunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id,
                             const std::vector<std::string>& my_addrs, std::function<void(PunchRoe)> on_done,
                             int window_ms = 2000) {
-    client_.TryUpgradePunchAsync(introducer_peer_key, target_peer_id, my_addrs,
-                                 Counted("upgrade", std::move(on_done)), window_ms);
+    client_.TryUpgradePunchAsync(introducer_peer_key, target_peer_id, my_addrs, Counted("upgrade", std::move(on_done)),
+                                 window_ms);
   }
   void TrySignalingPunchBurstAsync(const std::vector<std::string>& peer_addrs, std::function<void(PunchRoe)> on_done,
                                    int window_ms = 2000) {

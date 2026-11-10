@@ -90,8 +90,7 @@ int UdpMulticastSocket::Recv(uint8_t* buf, size_t cap) {
   return static_cast<int>(n);
 }
 
-void UdpMulticastSocket::Send(const uint8_t* data, size_t len, uint16_t dest_port,
-                              const char* multicast_ipv4) {
+void UdpMulticastSocket::Send(const uint8_t* data, size_t len, uint16_t dest_port, const char* multicast_ipv4) {
   if (!IsOpen() || data == nullptr || len == 0) {
     return;
   }

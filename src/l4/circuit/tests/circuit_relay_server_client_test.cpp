@@ -63,22 +63,21 @@ protected:
   }
 
   void ArmTargetReader() {
-    harness_->mgr_b().SetProtocolHandler(
-        kAmpBridgeTargetProtocol,
-        [this](pp::amp::LinkHandle /*handle*/, const std::string& remote_peer_id, const uint32_t channel_id) {
-          auto session = harness_->mgr_b().BindChannel(
-              remote_peer_id, channel_id, pp::amp::CircuitTunnelChannelPolicy(),
-              [this](Roe<std::vector<uint8_t>> frame) {
-                if (!frame) {
-                  return false;
-                }
-                std::lock_guard lock(target_mu_);
-                target_received_ = *frame;
-                target_got_ = true;
-                return true;
-              });
-          target_session_ = session;
-        });
+    harness_->mgr_b().SetProtocolHandler(kAmpBridgeTargetProtocol, [this](pp::amp::LinkHandle /*handle*/,
+                                                                          const std::string& remote_peer_id,
+                                                                          const uint32_t channel_id) {
+      auto session = harness_->mgr_b().BindChannel(remote_peer_id, channel_id, pp::amp::CircuitTunnelChannelPolicy(),
+                                                   [this](Roe<std::vector<uint8_t>> frame) {
+                                                     if (!frame) {
+                                                       return false;
+                                                     }
+                                                     std::lock_guard lock(target_mu_);
+                                                     target_received_ = *frame;
+                                                     target_got_ = true;
+                                                     return true;
+                                                   });
+      target_session_ = session;
+    });
   }
 
   struct BridgeWait {
@@ -162,7 +161,7 @@ TEST_F(CircuitRelayServerClientTest, BridgedTunnelIsReleasedWhenItsChannelEnds) 
 // it when the tunnel ends — otherwise its dial book kept one entry per target peer id requested.
 TEST_F(CircuitRelayServerClientTest, RelayForgetsATargetEndpointItRegisteredForOneBridge) {
   ArmTargetReader();
-  harness_->mgr_r().UnregisterEndpoint(harness_->peer_id_b);  // the relay does not know the target
+  harness_->mgr_r().UnregisterEndpoint(harness_->peer_id_b); // the relay does not know the target
   CircuitBridgeTarget target;
   target.target_multiaddr = harness_->ma_b;
   target.target_peer_id = harness_->peer_id_b;
@@ -249,7 +248,8 @@ TEST_F(CircuitRelayServerClientTest, ABridgeToAPeerNotParkedSaysSoByItsCode) {
   // pp-browser#416: the operator sees this refusal by name, not hidden in the admitted count.
   auto& not_reserved = pp::MetricsRegistry::Global().Counter(
       "pp_circuit_relay_bridge_failures_total",
-      "Admitted circuit relay bridges that failed, by the refusal the dialer heard.", {{"reason", "target_not_reserved"}});
+      "Admitted circuit relay bridges that failed, by the refusal the dialer heard.",
+      {{"reason", "target_not_reserved"}});
   const uint64_t not_reserved_before = not_reserved.Value();
   CircuitBridgeTarget target;
   target.target_peer_id = "12D3KooWNobodyParkedHere";
@@ -392,6 +392,31 @@ TEST_F(CircuitRelayServerClientTest, AParkReplySaysTheHopsGroupCallLevel) {
   EXPECT_EQ(book.Load("relay", MeshService::MediaRelay, now), ServiceLoad::Full);
 }
 
+// The last park held on a relay ended, not by our cancel (the relay crashed or restarted; here its link drops): what
+// the relay said of its park is forgotten — a restarted relay holds nothing, and a phone must not skip it for the
+// 2 min an old "full" stays fresh. A renewal overlaps the park it replaces, so it keeps the level.
+TEST_F(CircuitRelayServerClientTest, AParkLostWithItsLinkForgetsTheRelaysParkLevel) {
+  ServiceLoadMonitor load;
+  load.SetServed(MeshService::Park, true);
+  load.SetPressure(MeshService::Park, "cpu", 0.8); // busy: a level the client keeps
+  relay_->SetLoadMonitor(&load);
+  PeerLoadBook book;
+  client_b_->SetPeerLoadBook(&book);
+  for (int round = 0; round < 2; ++round) { // the second is a renewal on the live link
+    BridgeWait reserve;
+    ASSERT_TRUE(client_b_->StartReserve("relay", reserve.Fn(), 15000));
+    reserve.PumpUntilDone(*harness_);
+    ASSERT_TRUE(reserve.result) << reserve.result.error().message;
+    harness_->PumpAll();
+    EXPECT_EQ(book.Load("relay", MeshService::Park, PeerLoadBook::NowMs()), ServiceLoad::Busy) << "round " << round;
+  }
+  ASSERT_GT(harness_->mgr_b().RequestDropLink("relay"), 0u);
+  harness_->PumpUntil([&] { return client_b_->ParkedRelayCount() == 0; }, 400);
+  ASSERT_EQ(client_b_->ParkedRelayCount(), 0u);
+  EXPECT_EQ(book.Load("relay", MeshService::Park, PeerLoadBook::NowMs()), ServiceLoad::Unknown)
+      << "the park ended with its link: its level is from before";
+}
+
 // Dogfood 2026-09-24: a cold relay link idled past the 5 s ADP liveness window and was evicted
 // with the answerer's reservation ("Couldn't connect"). Held reservations keep the relay link hot.
 TEST_F(CircuitRelayServerClientTest, ReserveKeepsRelayLinkHotUntilReleased) {
@@ -447,8 +472,7 @@ TEST_F(CircuitRelayServerClientTest, ReserveThenBridgePeerIdOnly) {
     ASSERT_TRUE(reserve_wait.result) << reserve_wait.result.error().message;
   }
   // Link may be keyed as alias/inbound — IsConnected(peer_id) only checks exact key.
-  harness_->PumpUntil(
-      [this] { return harness_->mgr_r().CountConnectedLinksForPeerId(harness_->peer_id_b) > 0; });
+  harness_->PumpUntil([this] { return harness_->mgr_r().CountConnectedLinksForPeerId(harness_->peer_id_b) > 0; });
   ASSERT_GT(harness_->mgr_r().CountConnectedLinksForPeerId(harness_->peer_id_b), 0u);
   // Drop dial-book entry if any — peer-id-only must not depend on RegisterEndpoint.
   // PeerLinkManager has no Unregister; omit MA in the bridge request instead.
@@ -485,7 +509,8 @@ TEST_F(CircuitRelayServerClientTest, AbortInflightKeepsStartedAndAllowsNewReserv
   EXPECT_TRUE(client_->IsStarted());
 
   std::atomic<bool> finished{false};
-  CircuitClientCoordinator::BridgeRoe result = CircuitClientCoordinator::Failure::Of(CircuitTunnelErr::Generic, "unset");
+  CircuitClientCoordinator::BridgeRoe result =
+      CircuitClientCoordinator::Failure::Of(CircuitTunnelErr::Generic, "unset");
   auto id = client_->StartReserve(
       "relay",
       [&](CircuitClientCoordinator::BridgeRoe r) {
@@ -503,7 +528,8 @@ TEST_F(CircuitRelayServerClientTest, StopRejectsNewStartReserve) {
   client_->Stop();
   EXPECT_FALSE(client_->IsStarted());
   std::atomic<bool> finished{false};
-  CircuitClientCoordinator::BridgeRoe result = CircuitClientCoordinator::Failure::Of(CircuitTunnelErr::Generic, "unset");
+  CircuitClientCoordinator::BridgeRoe result =
+      CircuitClientCoordinator::Failure::Of(CircuitTunnelErr::Generic, "unset");
   auto id = client_->StartReserve(
       "relay",
       [&](CircuitClientCoordinator::BridgeRoe r) {

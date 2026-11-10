@@ -99,7 +99,7 @@ TEST(DhtRoutingTableTest, AFullBucketKeepsTheOldAndQueuesTheNew) {
   ASSERT_TRUE(pending.ping.has_value());
   EXPECT_EQ(pending.ping->peer_id, peers[0]) << "the oldest heard";
   EXPECT_FALSE(table.Contains(peers[3]));
-  table.Remove(peers[0]);  // its ping went unanswered
+  table.Remove(peers[0]); // its ping went unanswered
   EXPECT_FALSE(table.Contains(peers[0]));
   EXPECT_TRUE(table.Contains(peers[3]));
   EXPECT_EQ(table.Size(), 3u);

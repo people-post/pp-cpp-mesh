@@ -270,8 +270,8 @@ std::optional<std::string> ParseARecordIp(const std::vector<uint8_t>& rdata) {
   if (rdata.size() != 4) {
     return std::nullopt;
   }
-  return std::to_string(rdata[0]) + "." + std::to_string(rdata[1]) + "." + std::to_string(rdata[2]) +
-         "." + std::to_string(rdata[3]);
+  return std::to_string(rdata[0]) + "." + std::to_string(rdata[1]) + "." + std::to_string(rdata[2]) + "." +
+         std::to_string(rdata[3]);
 }
 
 } // namespace
@@ -311,8 +311,7 @@ Roe<std::vector<uint8_t>> LanMdnsDiscovery::EncodeDnsName(const std::string& fqd
   return out;
 }
 
-Roe<std::string> LanMdnsDiscovery::DecodeDnsName(const std::vector<uint8_t>& packet, size_t offset,
-                                                  size_t* out_next) {
+Roe<std::string> LanMdnsDiscovery::DecodeDnsName(const std::vector<uint8_t>& packet, size_t offset, size_t* out_next) {
   return ReadDnsName(packet, offset, out_next);
 }
 
@@ -443,8 +442,7 @@ std::vector<LanMdnsDiscoveredPeer> LanMdnsDiscovery::ParseAnnouncement(const uin
   uint16_t an = 0;
   uint16_t ns = 0;
   uint16_t ar = 0;
-  if (!ReadU16(packet, 4, &qd) || !ReadU16(packet, 6, &an) || !ReadU16(packet, 8, &ns) ||
-      !ReadU16(packet, 10, &ar)) {
+  if (!ReadU16(packet, 4, &qd) || !ReadU16(packet, 6, &an) || !ReadU16(packet, 8, &ns) || !ReadU16(packet, 10, &ar)) {
     return peers;
   }
   size_t offset = 12;

@@ -29,9 +29,8 @@ inline constexpr std::size_t kCircuitMaxStartBridgeAttempts = 4;
 inline constexpr int64_t kCircuitNestedEstablishBaseMs = 8000;
 
 /** Reorder: sticky first (if present), then Connected, then the rest — stable within bands. */
-inline std::vector<std::string> OrderCircuitRelayAttempts(
-    std::vector<std::string> relays, const std::string& sticky,
-    const std::function<bool(const std::string&)>& is_connected) {
+inline std::vector<std::string> OrderCircuitRelayAttempts(std::vector<std::string> relays, const std::string& sticky,
+                                                          const std::function<bool(const std::string&)>& is_connected) {
   if (relays.empty()) {
     return relays;
   }

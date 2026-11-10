@@ -90,7 +90,7 @@ TEST(ReachabilityTest, RankAmpDialMultiaddrsPrefersSameSubnetLanOverGlobalIpv6) 
 
   const auto ranked = pp::mesh::RankAmpDialMultiaddrs({other_lan, v6, pub4, same_lan}, ctx);
   ASSERT_EQ(ranked.size(), 4u);
-  EXPECT_EQ(ranked[0], same_lan);  // peer on our /24 beats everything else
+  EXPECT_EQ(ranked[0], same_lan); // peer on our /24 beats everything else
   EXPECT_EQ(ranked[1], v6);
   EXPECT_EQ(ranked[2], pub4);
   EXPECT_EQ(ranked[3], other_lan);
@@ -101,7 +101,7 @@ TEST(ReachabilityTest, RankAmpDialMultiaddrsDemotesIpv6WhenLocalHasNoGlobalIpv6)
   const std::string pub4 = "/ip4/203.0.113.10/udp/19001/adp/2/p2p/12D3KooWTest";
   const std::string lan4 = "/ip4/192.168.1.50/udp/19001/adp/2/p2p/12D3KooWTest";
   pp::mesh::AmpDialLocalContext ctx;
-  ctx.has_global_ipv6 = false;  // v4-only socket cannot send to /ip6 at all
+  ctx.has_global_ipv6 = false; // v4-only socket cannot send to /ip6 at all
 
   const auto ranked = pp::mesh::RankAmpDialMultiaddrs({lan4, v6, pub4}, ctx);
   ASSERT_EQ(ranked.size(), 3u);

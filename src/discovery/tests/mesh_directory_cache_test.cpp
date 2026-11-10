@@ -114,7 +114,7 @@ TEST(MeshDirectoryCacheTest, RefreshRunsAndLandsOnTheBlockingExecutor) {
       blocking);
   cache.SetOnUpdated([&updates]() { ++updates; });
   cache.RequestRefresh();
-  cache.RequestRefresh();  // in flight: no second fetch
+  cache.RequestRefresh(); // in flight: no second fetch
   EXPECT_EQ(fetches, 0) << "not on the caller";
   EXPECT_EQ(blocking->RunAll(), 1u);
   EXPECT_EQ(fetches, 1);
@@ -129,7 +129,7 @@ TEST(MeshDirectoryCacheTest, AsyncResultsAreAppliedOnTheBlockingExecutor) {
   cache.SetAsyncFetcher([&complete](auto done) { complete = std::move(done); });
   cache.RequestRefresh();
   ASSERT_TRUE(complete);
-  complete(OneNode());  // e.g. on the mesh's I/O lane
+  complete(OneNode()); // e.g. on the mesh's I/O lane
   EXPECT_TRUE(cache.Snapshot().empty()) << "applying persists to disk: not where the completion ran";
   blocking->RunAll();
   EXPECT_EQ(cache.Snapshot().size(), 1u);
@@ -147,15 +147,15 @@ TEST(MeshDirectoryCacheTest, AResultArrivingAfterDestructionIsDropped) {
         blocking);
     cache.RequestRefresh();
   }
-  EXPECT_EQ(blocking->RunAll(), 1u);  // the fetch still runs; its result touches nothing
+  EXPECT_EQ(blocking->RunAll(), 1u); // the fetch still runs; its result touches nothing
   EXPECT_EQ(fetches, 1);
 }
 
 TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
   const auto* info = ::testing::UnitTest::GetInstance();
-  const std::string path = (std::filesystem::temp_directory_path() /
-                            ("pp_mesh_dir_cache_" + std::to_string(info->random_seed()) + ".json"))
-                               .string();
+  const std::string path =
+      (std::filesystem::temp_directory_path() / ("pp_mesh_dir_cache_" + std::to_string(info->random_seed()) + ".json"))
+          .string();
   std::filesystem::remove(path);
 
   common::Object root;

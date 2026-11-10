@@ -24,20 +24,34 @@ uint32_t EmbeddedIPv4(const uint8_t* addr) {
 
 bool IsPublicIPv4(const uint32_t host_order_addr) {
   const uint32_t a = host_order_addr;
-  if ((a & 0xFF000000u) == 0x00000000u) return false;              // 0.0.0.0/8
-  if ((a & 0xFF000000u) == 0x0A000000u) return false;              // 10.0.0.0/8
-  if ((a & 0xFF000000u) == 0x7F000000u) return false;              // 127.0.0.0/8 loopback
-  if ((a & 0xFFC00000u) == 0x64400000u) return false;              // 100.64.0.0/10 CGNAT
-  if ((a & 0xFFFF0000u) == 0xA9FE0000u) return false;              // 169.254.0.0/16 link-local
-  if ((a & 0xFFF00000u) == 0xAC100000u) return false;              // 172.16.0.0/12
-  if ((a & 0xFFFF0000u) == 0xC0A80000u) return false;              // 192.168.0.0/16
-  if ((a & 0xFFFFFF00u) == 0xC0000000u) return false;              // 192.0.0.0/24 IETF
-  if ((a & 0xFFFFFF00u) == 0xC0000200u) return false;              // 192.0.2.0/24 TEST-NET-1
-  if ((a & 0xFFFE0000u) == 0xC6120000u) return false;              // 198.18.0.0/15 benchmark
-  if ((a & 0xFFFFFF00u) == 0xC6336400u) return false;              // 198.51.100.0/24 TEST-NET-2
-  if ((a & 0xFFFFFF00u) == 0xCB007100u) return false;              // 203.0.113.0/24 TEST-NET-3
-  if ((a & 0xF0000000u) == 0xE0000000u) return false;              // 224.0.0.0/4 multicast
-  if ((a & 0xF0000000u) == 0xF0000000u) return false;              // 240.0.0.0/4 reserved + broadcast
+  if ((a & 0xFF000000u) == 0x00000000u)
+    return false; // 0.0.0.0/8
+  if ((a & 0xFF000000u) == 0x0A000000u)
+    return false; // 10.0.0.0/8
+  if ((a & 0xFF000000u) == 0x7F000000u)
+    return false; // 127.0.0.0/8 loopback
+  if ((a & 0xFFC00000u) == 0x64400000u)
+    return false; // 100.64.0.0/10 CGNAT
+  if ((a & 0xFFFF0000u) == 0xA9FE0000u)
+    return false; // 169.254.0.0/16 link-local
+  if ((a & 0xFFF00000u) == 0xAC100000u)
+    return false; // 172.16.0.0/12
+  if ((a & 0xFFFF0000u) == 0xC0A80000u)
+    return false; // 192.168.0.0/16
+  if ((a & 0xFFFFFF00u) == 0xC0000000u)
+    return false; // 192.0.0.0/24 IETF
+  if ((a & 0xFFFFFF00u) == 0xC0000200u)
+    return false; // 192.0.2.0/24 TEST-NET-1
+  if ((a & 0xFFFE0000u) == 0xC6120000u)
+    return false; // 198.18.0.0/15 benchmark
+  if ((a & 0xFFFFFF00u) == 0xC6336400u)
+    return false; // 198.51.100.0/24 TEST-NET-2
+  if ((a & 0xFFFFFF00u) == 0xCB007100u)
+    return false; // 203.0.113.0/24 TEST-NET-3
+  if ((a & 0xF0000000u) == 0xE0000000u)
+    return false; // 224.0.0.0/4 multicast
+  if ((a & 0xF0000000u) == 0xF0000000u)
+    return false; // 240.0.0.0/4 reserved + broadcast
   return true;
 }
 
@@ -65,10 +79,14 @@ bool IsPublicIPv6(const uint8_t* b) {
   if (AllZero(b, 12)) {
     return IsPublicIPv4(EmbeddedIPv4(b + 12)); // ::a.b.c.d IPv4-compatible (deprecated)
   }
-  if ((b[0] & 0xFE) == 0xFC) return false;               // fc00::/7 unique local
-  if (b[0] == 0xFE && (b[1] & 0xC0) == 0x80) return false; // fe80::/10 link-local
-  if (b[0] == 0xFE && (b[1] & 0xC0) == 0xC0) return false; // fec0::/10 site-local (deprecated)
-  if (b[0] == 0xFF) return false;                          // ff00::/8 multicast
+  if ((b[0] & 0xFE) == 0xFC)
+    return false; // fc00::/7 unique local
+  if (b[0] == 0xFE && (b[1] & 0xC0) == 0x80)
+    return false; // fe80::/10 link-local
+  if (b[0] == 0xFE && (b[1] & 0xC0) == 0xC0)
+    return false; // fec0::/10 site-local (deprecated)
+  if (b[0] == 0xFF)
+    return false; // ff00::/8 multicast
   return true;
 }
 

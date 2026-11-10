@@ -86,7 +86,7 @@ auto LaneLog() {
 
 struct MediaRelayClientCoordinator::Impl {
   /** The hops' levels as they say them (MeshHost's); null: not kept. */
-  std::atomic<PeerLoadBook *> loads{nullptr};
+  std::atomic<PeerLoadBook*> loads{nullptr};
   pp::amp::MeshRuntime* runtime = nullptr;
   MediaRelayServer* local_server = nullptr;
   AmpCircuitHopRegistry* circuit_hops = nullptr;
@@ -183,8 +183,7 @@ struct MediaRelayClientCoordinator::Impl {
     if (!runtime || !task) {
       return;
     }
-    deferred.Post([rt = runtime](std::function<void()> t) { rt->PostToIo(std::move(t)); },
-                  std::move(task));
+    deferred.Post([rt = runtime](std::function<void()> t) { rt->PostToIo(std::move(t)); }, std::move(task));
   }
 
   Session* Find(const MediaRelaySessionId id) {
@@ -197,8 +196,8 @@ struct MediaRelayClientCoordinator::Impl {
     return it == sessions.end() ? nullptr : it->second.get();
   }
 
-  void ScheduleWhenChannelOpen(const std::string& peer_key, const uint32_t channel_id,
-                               const Clock::time_point deadline, std::function<void(bool open)> done) {
+  void ScheduleWhenChannelOpen(const std::string& peer_key, const uint32_t channel_id, const Clock::time_point deadline,
+                               std::function<void(bool open)> done) {
     if (!runtime || peer_key.empty()) {
       done(false);
       return;
@@ -503,7 +502,7 @@ struct MediaRelayClientCoordinator::Impl {
       TearDown(*session, false, Failure::Of(Err::BadReply, "invalid media-relay json"));
       return false;
     }
-    if (PeerLoadBook *book = loads.load(std::memory_order_acquire)) {
+    if (PeerLoadBook* book = loads.load(std::memory_order_acquire)) {
       NoteReplyLoads(*book, session->hop_peer_key, MeshService::MediaRelay, *root, PeerLoadBook::NowMs());
     }
     if (session->role == MediaRelayBundleRole::ClientQuote && session->phase == MediaRelayBundlePhase::WaitQuote) {
@@ -719,8 +718,7 @@ struct MediaRelayClientCoordinator::Impl {
   }
 };
 
-MediaRelayClientCoordinator::MediaRelayClientCoordinator(pp::amp::MeshRuntime& runtime,
-                                                         MediaRelayServer* local_server)
+MediaRelayClientCoordinator::MediaRelayClientCoordinator(pp::amp::MeshRuntime& runtime, MediaRelayServer* local_server)
     : impl_(std::make_unique<Impl>()), runtime_(runtime) {
   impl_->runtime = &runtime_;
   impl_->local_server = local_server;
@@ -752,7 +750,7 @@ bool MediaRelayClientCoordinator::IsStarted() const {
   return impl_->started.load(std::memory_order_acquire);
 }
 
-void MediaRelayClientCoordinator::SetPeerLoadBook(PeerLoadBook *book) {
+void MediaRelayClientCoordinator::SetPeerLoadBook(PeerLoadBook* book) {
   impl_->loads.store(book, std::memory_order_release);
 }
 
@@ -812,29 +810,30 @@ MediaRelaySessionId MediaRelayClientCoordinator::StartQuote(const std::string& h
     return {};
   }
   const MediaRelaySessionId id{impl_->next_id.fetch_add(1, std::memory_order_relaxed)};
-  impl_->PostIo([impl = impl_.get(), id, hop_peer_key, request, on_finished = std::move(on_finished),
-                 timeout_ms]() mutable {
-    Impl::Session* raw = nullptr;
-    {
-      std::lock_guard lock(impl->mu);
-      auto session = std::make_unique<Impl::Session>();
-      session->id = id;
-      session->role = MediaRelayBundleRole::ClientQuote;
-      session->hop_peer_key = hop_peer_key;
-      session->call_id = request.session_id;
-      session->on_quote = std::move(on_finished);
-      session->deadline = Clock::now() + std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 8000);
-      raw = session.get();
-      impl->sessions[id.value] = std::move(session);
-    }
-    impl->BeginQuote(*raw, request);
-  });
+  impl_->PostIo(
+      [impl = impl_.get(), id, hop_peer_key, request, on_finished = std::move(on_finished), timeout_ms]() mutable {
+        Impl::Session* raw = nullptr;
+        {
+          std::lock_guard lock(impl->mu);
+          auto session = std::make_unique<Impl::Session>();
+          session->id = id;
+          session->role = MediaRelayBundleRole::ClientQuote;
+          session->hop_peer_key = hop_peer_key;
+          session->call_id = request.session_id;
+          session->on_quote = std::move(on_finished);
+          session->deadline = Clock::now() + std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 8000);
+          raw = session.get();
+          impl->sessions[id.value] = std::move(session);
+        }
+        impl->BeginQuote(*raw, request);
+      });
   return id;
 }
 
-MediaRelaySessionId MediaRelayClientCoordinator::StartAttach(
-    const std::string& hop_peer_key, const std::string& quote_id, const std::string& call_id,
-    const std::string& auth_stub, FrameHandler on_frame, AttachFinished on_finished, const int timeout_ms) {
+MediaRelaySessionId MediaRelayClientCoordinator::StartAttach(const std::string& hop_peer_key,
+                                                             const std::string& quote_id, const std::string& call_id,
+                                                             const std::string& auth_stub, FrameHandler on_frame,
+                                                             AttachFinished on_finished, const int timeout_ms) {
   if (impl_->started.load(std::memory_order_acquire) && (quote_id.empty() || call_id.empty())) {
     if (on_finished) {
       runtime_.PostToIo([on_finished = std::move(on_finished)]() mutable {
@@ -847,9 +846,8 @@ MediaRelaySessionId MediaRelayClientCoordinator::StartAttach(
     return {};
   }
   const MediaRelaySessionId id{impl_->next_id.fetch_add(1, std::memory_order_relaxed)};
-  impl_->PostIo([impl = impl_.get(), id, hop_peer_key, quote_id, call_id, auth_stub,
-                 on_frame = std::move(on_frame), on_finished = std::move(on_finished),
-                 timeout_ms]() mutable {
+  impl_->PostIo([impl = impl_.get(), id, hop_peer_key, quote_id, call_id, auth_stub, on_frame = std::move(on_frame),
+                 on_finished = std::move(on_finished), timeout_ms]() mutable {
     Impl::Session* raw = nullptr;
     {
       std::lock_guard lock(impl->mu);
@@ -1032,21 +1030,24 @@ bool MediaRelayClientCoordinator::IsLocalHopAttached() const {
   return impl_->local_server && impl_->local_server->IsLocalAttached();
 }
 
-double MediaRelayClientCoordinator::PathPressure() const { return 0.0; }  // not reported yet (V032)
+double MediaRelayClientCoordinator::PathPressure() const {
+  return 0.0;
+} // not reported yet (V032)
 
 MediaRelayClientHealth MediaRelayClientCoordinator::HealthSnapshot() const {
   MediaRelayClientHealth health;
   std::string relay_key;
   {
     std::lock_guard lock(impl_->mu);
-    health.attached = impl_->client_.channel != nullptr || (impl_->local_server && impl_->local_server->IsLocalAttached());
+    health.attached =
+        impl_->client_.channel != nullptr || (impl_->local_server && impl_->local_server->IsLocalAttached());
     health.data_lane = impl_->client_.data_channel != nullptr;
     if (impl_->client_.channel) {
       relay_key = impl_->client_.hop_peer_key;
     }
   }
   if (relay_key.empty()) {
-    return health;  // detached, or on this device's own hop: no link to a relay
+    return health; // detached, or on this device's own hop: no link to a relay
   }
   // Under the link strand only (IO callbacks take `mu` inside it).
   pp::amp::LinkHandle link{};

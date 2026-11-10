@@ -72,9 +72,8 @@ TEST(AmpDirectoryProtocolTest, WrapLinkFailureMapsCodes) {
   using Mgr = pp::amp::PeerLinkManager;
   EXPECT_EQ(AmpDirectoryProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::DialTimeout, "slow")).GetCode(),
             AmpDirectoryProtocol::Err::Timeout);
-  EXPECT_EQ(
-      AmpDirectoryProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux")).GetCode(),
-      AmpDirectoryProtocol::Err::ChannelFailed);
+  EXPECT_EQ(AmpDirectoryProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux")).GetCode(),
+            AmpDirectoryProtocol::Err::ChannelFailed);
 }
 
 // The owner's chooser decides which query peers a list asks; none worth asking answers at once.

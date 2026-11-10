@@ -19,8 +19,7 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-ReachabilitySignals AnalyzeAmpListen(const std::string& amp_listen,
-                                     const std::vector<std::string>& ipv6_addrs) {
+ReachabilitySignals AnalyzeAmpListen(const std::string& amp_listen, const std::vector<std::string>& ipv6_addrs) {
   ReachabilitySignals signals;
   if (auto parsed = pp::amp::ParseAdpMultiaddr(amp_listen)) {
     const std::string ip = IpHostFromMultiaddrPrefix(amp_listen);
@@ -34,8 +33,8 @@ ReachabilitySignals AnalyzeAmpListen(const std::string& amp_listen,
       }
     }
   } else {
-    signals.listen_is_wildcard = amp_listen.find("/ip4/0.0.0.0/") != std::string::npos ||
-                                 amp_listen.find("/ip6/::/") != std::string::npos;
+    signals.listen_is_wildcard =
+        amp_listen.find("/ip4/0.0.0.0/") != std::string::npos || amp_listen.find("/ip6/::/") != std::string::npos;
   }
   for (const std::string& addr : ipv6_addrs) {
     if (IsGlobalIpv6(addr)) {
@@ -123,9 +122,9 @@ void ReachabilityEngine::RunProbeBlocking(AmpReachabilityProbeDeps deps) {
   StartProbe(std::move(deps));
   while (probing_.load()) {
     if (io_pump) {
-      io_pump();  // the caller drives Amp: the lane runs here
+      io_pump(); // the caller drives Amp: the lane runs here
     } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));  // MeshPump drives the lane
+      std::this_thread::sleep_for(std::chrono::milliseconds(50)); // MeshPump drives the lane
     }
   }
 }
@@ -151,8 +150,7 @@ void ReachabilityEngine::RunProbe(AmpReachabilityProbeDeps deps) {
     return;
   }
 
-  result.signals = AnalyzeAmpListen(deps.amp_listen_multiaddr,
-                                  reachability_netif::GlobalIpv6Addresses());
+  result.signals = AnalyzeAmpListen(deps.amp_listen_multiaddr, reachability_netif::GlobalIpv6Addresses());
 
   const auto udp_port = UdpPortFromMultiaddr(deps.amp_listen_multiaddr);
   // N013: prefer IPv6 advertise over UPnP when a global address is already present.
@@ -232,10 +230,10 @@ void ReachabilityEngine::ProbeSeed(AmpReachabilityProbeDeps deps, ReachabilitySn
   auto seed_settled = std::make_shared<std::atomic<bool>>(false);
   const auto seed_deadline = Clock::now() + std::chrono::milliseconds(10000);
   deps.links->EnsureAssociation(
-      seed_key, [deps, result, seed_key, seed_settled, finish_once, upnp_ip = upnp_external_ip_](
-                    pp::amp::PeerLinkManager::LinkRoe dial_result) mutable {
+      seed_key, [deps, result, seed_key, seed_settled, finish_once,
+                 upnp_ip = upnp_external_ip_](pp::amp::PeerLinkManager::LinkRoe dial_result) mutable {
         if (seed_settled->exchange(true, std::memory_order_acq_rel)) {
-          return;  // seed dial already timed out
+          return; // seed dial already timed out
         }
         if (!dial_result) {
           result.signals.seed_dial_ok = false;
@@ -251,8 +249,7 @@ void ReachabilityEngine::ProbeSeed(AmpReachabilityProbeDeps deps, ReachabilitySn
           return;
         }
 
-        const auto targets =
-            BuildAmpReachabilityProbeTargets(deps.amp_listen_multiaddr, deps.local_peer_id, upnp_ip);
+        const auto targets = BuildAmpReachabilityProbeTargets(deps.amp_listen_multiaddr, deps.local_peer_id, upnp_ip);
         deps.dial_back->ProbeAsync(
             seed_key, targets,
             [result = std::move(result), finish_once](DialBackClient::ProbeRoe probed) mutable {

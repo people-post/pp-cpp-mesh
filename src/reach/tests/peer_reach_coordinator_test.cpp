@@ -48,7 +48,7 @@ public:
     {
       std::lock_guard lock(mu);
       if (ensure_hangs) {
-        held = std::move(on_done);  // no answer: it answers when aborted
+        held = std::move(on_done); // no answer: it answers when aborted
         return;
       }
       ok = ensure_connects;
@@ -57,7 +57,7 @@ public:
       }
     }
     if (const int delay = miss_delay_ms.load(); !ok && delay > 0) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(delay));  // a slow miss
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay)); // a slow miss
     }
     on_done(ok ? IChatPeerLinks::LinkRoe()
                : IChatPeerLinks::LinkRoe(IChatPeerLinks::Failure::Of(miss_code, "amp link: dial missed")));
@@ -134,7 +134,7 @@ public:
     return CircuitReachFailure::Of(CircuitReachErr::Generic, "sync not used");
   }
   void TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done,
-                                        const bool allow_circuit) override {
+                                   const bool allow_circuit) override {
     calls.fetch_add(1);
     last_allow_circuit.store(allow_circuit);
     if (connects) {
@@ -149,7 +149,7 @@ public:
   std::atomic<int> calls{0};
   std::atomic<bool> last_allow_circuit{false};
   bool connects = true;
-  std::vector<std::string> last_advertised;  // read after the reach settles
+  std::vector<std::string> last_advertised; // read after the reach settles
 
   void TryEnsurePeerReachableViaAsync(const std::string& peer_key, CircuitReachDone on_done, const bool allow_circuit,
                                       std::vector<std::string> advertised_relays) override {
@@ -174,7 +174,7 @@ protected:
 
   void TearDown() override {
     reach_->CancelAll();
-    lane_->Stop();  // joined: no step runs past here
+    lane_->Stop(); // joined: no step runs past here
     reach_.reset();
     circuit_.reset();
     dial_.reset();
@@ -283,7 +283,7 @@ TEST_F(PeerReachCoordinatorTest, ReachPivotsToCircuitAfterDialBudget) {
 // no circuit tried yet pivots, however late the poll runs.
 TEST_F(PeerReachCoordinatorTest, MissAfterTheBudgetStillPivotsToCircuit) {
   dial_->endpoints[kPeer] = kPublicMa;
-  dial_->miss_delay_ms = 400;  // past the 300 ms test budget
+  dial_->miss_delay_ms = 400; // past the 300 ms test budget
   auto out = Run(Request(PeerReachMode::Reach));
   ASSERT_TRUE(WaitDone(out, std::chrono::seconds(10)));
   ASSERT_TRUE(*out->result) << out->result->error().message;
@@ -325,7 +325,7 @@ TEST_F(PeerReachCoordinatorTest, APeerConnectingDuringTheSeedParkSettlesTheReach
   std::function<void(bool)> park_done;
   reach_->SetSeedParkAwait([&](std::function<void(bool)> done, int /*timeout_ms*/) {
     std::lock_guard lock(park_mu);
-    park_done = std::move(done);  // a park that has not answered yet
+    park_done = std::move(done); // a park that has not answered yet
   });
   reach_->SetDialBudgetMsForTest(10000);
   dial_->endpoints[kPeer] = kPrivateMa;
@@ -348,7 +348,7 @@ TEST_F(PeerReachCoordinatorTest, APeerConnectingDuringTheSeedParkSettlesTheReach
       late = std::move(park_done);
     }
     if (late) {
-      late(false);  // the park gives up afterwards: harmless
+      late(false); // the park gives up afterwards: harmless
     }
   }
 }
@@ -358,7 +358,7 @@ TEST_F(PeerReachCoordinatorTest, APeerConnectingDuringTheSeedParkSettlesTheReach
 TEST_F(PeerReachCoordinatorTest, ReachDialsASameLanPeerBeforeTheSeedPark) {
   std::atomic<int> parks{0};
   reach_->SetSeedParkAwait([&parks](std::function<void(bool)> /*done*/, int /*timeout_ms*/) {
-    parks.fetch_add(1);  // a park that never answers (the seed is gone)
+    parks.fetch_add(1); // a park that never answers (the seed is gone)
   });
   reach_->SetDeps(PeerReachPorts{dial_.get(), circuit_.get(), lane_, [] {
                                    return std::vector<std::string>{"/ip4/10.0.0.9/udp/5/adp/1.0.0/p2p/12D3KooWSelf"};
@@ -426,13 +426,13 @@ TEST_F(PeerReachCoordinatorTest, APeerConnectingDuringTheParkBeforeTheCircuitSet
   std::atomic<int> parks{0};
   reach_->SetSeedParkAwait([&](std::function<void(bool)> done, int /*timeout_ms*/) {
     if (parks.fetch_add(1) == 0) {
-      done(false);  // the park before the private dial: the seed is gone
+      done(false); // the park before the private dial: the seed is gone
       return;
     }
     std::lock_guard lock(park_mu);
-    park_done = std::move(done);  // the park before the circuit has not answered yet
+    park_done = std::move(done); // the park before the circuit has not answered yet
   });
-  dial_->endpoints[kPeer] = kPrivateMa;  // the dial misses (ensure_connects is false)
+  dial_->endpoints[kPeer] = kPrivateMa; // the dial misses (ensure_connects is false)
   auto out = Run(Request(PeerReachMode::Reach));
   std::thread peer([this, &parks] {
     while (parks.load() < 2) {
@@ -452,7 +452,7 @@ TEST_F(PeerReachCoordinatorTest, APeerConnectingDuringTheParkBeforeTheCircuitSet
     late = std::move(park_done);
   }
   if (late) {
-    late(true);  // the park answers afterwards: the circuit is not started for a settled reach
+    late(true); // the park answers afterwards: the circuit is not started for a settled reach
   }
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
   EXPECT_EQ(circuit_->calls.load(), 0);
@@ -498,7 +498,7 @@ TEST_F(PeerReachCoordinatorTest, AnAwaitsHoldKeepsWaitingForThePeer) {
   dial_->endpoints[kPeer] = kPrivateMa;
   auto req = Request(PeerReachMode::Await);
   req.allow_punch = false;
-  req.await_hold_ms = 1500;  // the fixture's dial budget is 300 ms
+  req.await_hold_ms = 1500; // the fixture's dial budget is 300 ms
   const auto began = std::chrono::steady_clock::now();
   auto out = Run(req);
   std::thread peer([this] {
@@ -579,7 +579,7 @@ TEST_F(PeerReachCoordinatorTest, ReachWaitsForThePeersLinkAfterItsCircuitMisses)
 // A relay standby (exclude_direct) whose circuit misses must fail — never "succeed" by dialing the
 // peer directly: that only reaches the direct link the call is already on (hard-lab flip).
 TEST_F(PeerReachCoordinatorTest, ExcludeDirectNeverSettlesOnADirectDial) {
-  dial_->Connect(kPeer);  // the call's direct link
+  dial_->Connect(kPeer); // the call's direct link
   dial_->endpoints[kPeer] = kPublicMa;
   dial_->ensure_connects = true;
   circuit_->connects = false;
@@ -611,20 +611,18 @@ TEST_F(PeerReachCoordinatorTest, ADialFailureIsTheReachsCode) {
   auto out = Run(Request(PeerReachMode::Reach));
   ASSERT_TRUE(WaitDone(out, std::chrono::seconds(10)));
   ASSERT_FALSE(*out->result);
-  EXPECT_EQ(out->result->error().GetCode(), PeerReachCoordinator::Err::TransportFailed)
-      << out->result->error().message;
+  EXPECT_EQ(out->result->error().GetCode(), PeerReachCoordinator::Err::TransportFailed) << out->result->error().message;
 }
 
 TEST_F(PeerReachCoordinatorTest, CancelCompletesInlineOnce) {
-  dial_->endpoints[kPeer] = kPublicMa;  // never connects: dial misses, circuit stays pending
+  dial_->endpoints[kPeer] = kPublicMa; // never connects: dial misses, circuit stays pending
   circuit_->connects = false;
   std::atomic<int> completions{0};
-  const PeerReachId id =
-      reach_->Ensure(Request(), [&completions](PeerReachCoordinator::ReachRoe r) {
-        ASSERT_FALSE(r);
-        EXPECT_EQ(r.error().GetCode(), PeerReachCoordinator::Err::Cancelled);
-        completions.fetch_add(1);
-      });
+  const PeerReachId id = reach_->Ensure(Request(), [&completions](PeerReachCoordinator::ReachRoe r) {
+    ASSERT_FALSE(r);
+    EXPECT_EQ(r.error().GetCode(), PeerReachCoordinator::Err::Cancelled);
+    completions.fetch_add(1);
+  });
   reach_->Cancel(id);
   EXPECT_EQ(completions.load(), 1) << "Cancel completes inline";
   reach_->Cancel(id);
@@ -653,7 +651,7 @@ TEST_F(PeerReachCoordinatorTest, NoLaneFailsAtOnce) {
 // of leaving it waiting on a timer that will never fire.
 TEST_F(PeerReachCoordinatorTest, AnotherLaneFailsTheReachesInFlight) {
   reach_->SetDeps({dial_.get(), nullptr, lane_});
-  auto out = Run(Request());  // nothing dialable or connected, no circuit: it polls out its budget
+  auto out = Run(Request()); // nothing dialable or connected, no circuit: it polls out its budget
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
   ASSERT_FALSE(out->done.load());
   auto other = std::make_shared<pp::ThreadExecutor>();
@@ -714,7 +712,7 @@ TEST_F(PeerReachCoordinatorTest, AvailabilityFollowsDeps) {
   EXPECT_FALSE(reach_->HasCircuitReach());
   EXPECT_FALSE(reach_->HasRelayHop(kPeer));
   EXPECT_EQ(reach_->PreferDialKey("account:peer", kPeer), kPeer);
-  reach_->ForgetPath(kPeer);   // no-ops without deps
+  reach_->ForgetPath(kPeer); // no-ops without deps
   reach_->ReleasePeer(kPeer);
   reach_->AbortCircuitAttempts();
 }

@@ -71,21 +71,21 @@ enum class PunchRefusal : int32_t {
 
 inline const char* PunchRefusalWire(const PunchRefusal refusal) {
   switch (refusal) {
-  case PunchRefusal::TargetUnknown:
-    return "target_unknown";
-  case PunchRefusal::Declined:
-    return "declined";
-  case PunchRefusal::NoCandidates:
-    return "no_candidates";
-  case PunchRefusal::SendFailed:
-    return "send_failed";
-  case PunchRefusal::BadRequest:
-    return "bad_request";
-  case PunchRefusal::NoPath:
-    return "no_path";
-  case PunchRefusal::Ok:
-  case PunchRefusal::Generic:
-    break;
+    case PunchRefusal::TargetUnknown:
+      return "target_unknown";
+    case PunchRefusal::Declined:
+      return "declined";
+    case PunchRefusal::NoCandidates:
+      return "no_candidates";
+    case PunchRefusal::SendFailed:
+      return "send_failed";
+    case PunchRefusal::BadRequest:
+      return "bad_request";
+    case PunchRefusal::NoPath:
+      return "no_path";
+    case PunchRefusal::Ok:
+    case PunchRefusal::Generic:
+      break;
   }
   return "";
 }
@@ -99,7 +99,7 @@ inline PunchRefusal PunchRefusalFromResult(const std::string_view code, const st
     }
   }
   if (!code.empty()) {
-    return PunchRefusal::Generic;  // a code from a newer peer
+    return PunchRefusal::Generic; // a code from a newer peer
   }
   const auto has = [legacy_text](const char* needle) { return legacy_text.find(needle) != std::string_view::npos; };
   if (has("declines")) {
@@ -123,7 +123,7 @@ inline PunchRefusal PunchRefusalFromResult(const std::string_view code, const st
 struct PunchResult {
   std::string epoch_id;
   bool ok = false;
-  std::string winner_multiaddr;  // ADP multiaddr of winning path when ok
+  std::string winner_multiaddr; // ADP multiaddr of winning path when ok
   /** Not ok: why (its wire `code`), and text for logs. */
   PunchRefusal refusal = PunchRefusal::Ok;
   std::string error;

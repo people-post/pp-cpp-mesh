@@ -27,7 +27,6 @@ enum class MediaRelayClientLoss : uint8_t {
   Detached,
 };
 
-
 /** The client's view of its relay session, in the relay's own terms (the app maps it for its chrome). */
 struct MediaRelayClientHealth {
   bool attached = false;
@@ -55,8 +54,7 @@ public:
   virtual Roe<std::string> LocalPeerIdBase58() const = 0;
   virtual bool IsStarted() const = 0;
   virtual MediaRelayRoe<MediaRelayQuote> RequestQuote(const std::string& hop_peer_key,
-                                            const MediaRelayQuoteRequest& request,
-                                            int timeout_ms = 8000) = 0;
+                                                      const MediaRelayQuoteRequest& request, int timeout_ms = 8000) = 0;
   /** Prefer over sync RequestQuote when MeshPump + PostToIo are available. */
   virtual void RequestQuoteAsync(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,
                                  std::function<void(MediaRelayRoe<MediaRelayQuote>)> on_done, int timeout_ms = 8000) {
@@ -66,8 +64,7 @@ public:
   }
   virtual MediaRelayRoe<MediaRelayAttachResult> AcceptAndAttach(
       const std::string& hop_peer_key, const std::string& quote_id, const std::string& session_id,
-      const std::string& auth_stub, std::function<void(MediaDataFrame)> on_frame,
-      int timeout_ms = 8000) = 0;
+      const std::string& auth_stub, std::function<void(MediaDataFrame)> on_frame, int timeout_ms = 8000) = 0;
   virtual void AcceptAndAttachAsync(const std::string& hop_peer_key, const std::string& quote_id,
                                     const std::string& session_id, const std::string& auth_stub,
                                     std::function<void(MediaDataFrame)> on_frame,
@@ -86,13 +83,11 @@ public:
    * TransportLost only). Returns a token for Remove (0 = unsupported). Delivered on the mesh io
    * thread, never under the client's lock; a notice already queued may still arrive after Remove.
    */
-  virtual uint64_t AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> /*observer*/) {
-    return 0;
-  }
+  virtual uint64_t AddClientTransportLostObserver(std::function<void(MediaRelayClientLoss)> /*observer*/) { return 0; }
   virtual void RemoveClientTransportLostObserver(uint64_t /*token*/) {}
   /** In-call hop: join local HostSession without dialing self. */
-  virtual MediaRelayRoe<MediaRelayAttachResult> AttachAsLocalHop(
-      const std::string& session_id, std::function<void(MediaDataFrame)> on_frame) = 0;
+  virtual MediaRelayRoe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& session_id,
+                                                                 std::function<void(MediaDataFrame)> on_frame) = 0;
   virtual MediaRelayRoe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) = 0;
   virtual MediaRelayRoe<void> SendFrame(const MediaDataFrame& frame) = 0;
   virtual void Detach() = 0;

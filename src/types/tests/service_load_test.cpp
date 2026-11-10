@@ -26,9 +26,7 @@ TEST(ServiceLoadTest, ALevelTurnsOnAtItsLineAndOffBelowIt) {
   EXPECT_EQ(level, ServiceLoad::Busy);
   level = NextServiceLoad(level, 0.10, false);
   EXPECT_EQ(level, ServiceLoad::Open);
-  EXPECT_EQ(NextServiceLoad(ServiceLoad::Open, 0.0, true),
-            ServiceLoad::Draining)
-      << "draining whatever the pressure";
+  EXPECT_EQ(NextServiceLoad(ServiceLoad::Open, 0.0, true), ServiceLoad::Draining) << "draining whatever the pressure";
 }
 
 // The worst source sets a service's level; draining sets every service's, and
@@ -38,15 +36,12 @@ TEST(ServiceLoadTest, TheWorstSourceSetsTheLevelAndDrainingSetsAll) {
   monitor.SetPressure(MeshService::Park, "reservations", 0.20);
   monitor.SetPressure(MeshService::Park, "links", 0.97);
   EXPECT_EQ(monitor.Level(MeshService::Park), ServiceLoad::Full);
-  EXPECT_EQ(monitor.Level(MeshService::Relay), ServiceLoad::Open)
-      << "its own pressure";
+  EXPECT_EQ(monitor.Level(MeshService::Relay), ServiceLoad::Open) << "its own pressure";
   monitor.SetPressure(MeshService::Park, "links", 0.30);
   EXPECT_EQ(monitor.Level(MeshService::Park), ServiceLoad::Open);
   monitor.SetDraining(true);
-  for (const MeshService service :
-       {MeshService::Park, MeshService::Relay, MeshService::MediaRelay}) {
-    EXPECT_EQ(monitor.Level(service), ServiceLoad::Draining)
-        << MeshServiceName(service);
+  for (const MeshService service : {MeshService::Park, MeshService::Relay, MeshService::MediaRelay}) {
+    EXPECT_EQ(monitor.Level(service), ServiceLoad::Draining) << MeshServiceName(service);
   }
   monitor.SetDraining(false);
   EXPECT_EQ(monitor.Level(MeshService::Park), ServiceLoad::Open);
@@ -56,8 +51,7 @@ TEST(ServiceLoadTest, TheWorstSourceSetsTheLevelAndDrainingSetsAll) {
 
 // The wire words round-trip; a word from a newer node reads Unknown.
 TEST(ServiceLoadTest, TheWireWordsRoundTrip) {
-  for (const ServiceLoad load : {ServiceLoad::Open, ServiceLoad::Busy,
-                                 ServiceLoad::Full, ServiceLoad::Draining}) {
+  for (const ServiceLoad load : {ServiceLoad::Open, ServiceLoad::Busy, ServiceLoad::Full, ServiceLoad::Draining}) {
     EXPECT_EQ(ServiceLoadFromWire(ServiceLoadWire(load)), load);
   }
   EXPECT_EQ(ServiceLoadFromWire("overloaded"), ServiceLoad::Unknown);
@@ -69,24 +63,18 @@ TEST(ServiceLoadTest, TheWireWordsRoundTrip) {
 TEST(ServiceLoadTest, TheBookKeepsWhatANodeSaidForAWhile) {
   PeerLoadBook book;
   book.Note("a", MeshService::Park, ServiceLoad::Full, 1000);
-  EXPECT_TRUE(
-      book.RefusesNew("a", MeshService::Park, 1000 + PeerLoadBook::kFreshMs));
-  EXPECT_EQ(book.Load("a", MeshService::Relay, 1000), ServiceLoad::Unknown)
-      << "per service";
-  EXPECT_EQ(book.Load("a", MeshService::Park, 1001 + PeerLoadBook::kFreshMs),
-            ServiceLoad::Unknown)
-      << "stale";
+  EXPECT_TRUE(book.RefusesNew("a", MeshService::Park, 1000 + PeerLoadBook::kFreshMs));
+  EXPECT_EQ(book.Load("a", MeshService::Relay, 1000), ServiceLoad::Unknown) << "per service";
+  EXPECT_EQ(book.Load("a", MeshService::Park, 1001 + PeerLoadBook::kFreshMs), ServiceLoad::Unknown) << "stale";
   book.Note("a", MeshService::Park, ServiceLoad::Unknown, 2000);
-  EXPECT_EQ(book.Load("a", MeshService::Park, 2000), ServiceLoad::Full)
-      << "silence is not news";
+  EXPECT_EQ(book.Load("a", MeshService::Park, 2000), ServiceLoad::Full) << "silence is not news";
 
   book.Note("busy", MeshService::Relay, ServiceLoad::Busy, 5000);
   book.Note("open", MeshService::Relay, ServiceLoad::Open, 5000);
   book.Note("full", MeshService::Relay, ServiceLoad::Full, 5000);
   std::vector<std::string> order = {"full", "busy", "unknown", "open"};
   book.OrderBest(order, MeshService::Relay, 5000);
-  EXPECT_EQ(order,
-            (std::vector<std::string>{"open", "unknown", "busy", "full"}));
+  EXPECT_EQ(order, (std::vector<std::string>{"open", "unknown", "busy", "full"}));
 }
 
 // Kernel drops a second as a pressure: none is idle, kDropsPerSecondFull and more is full.
@@ -123,6 +111,21 @@ TEST(ServiceLoadTest, AReplySaysEveryServiceTheNodeServes) {
   NoteReplyLoads(book, "old", MeshService::Relay, older, now);
   EXPECT_EQ(book.Load("old", MeshService::Relay, now), ServiceLoad::Busy);
   EXPECT_EQ(book.Load("old", MeshService::MediaRelay, now), ServiceLoad::Unknown);
+}
+
+// Forgetting one service of one peer (a park lost with its link): its other levels and the other peers' stay.
+TEST(ServiceLoadTest, ForgettingAPeerDropsOnlyWhatItSaid) {
+  PeerLoadBook book;
+  const int64_t now = 1000;
+  book.Note("seed", MeshService::Park, ServiceLoad::Full, now);
+  book.Note("seed", MeshService::MediaRelay, ServiceLoad::Full, now);
+  book.Note("other", MeshService::Park, ServiceLoad::Busy, now);
+  ASSERT_TRUE(book.RefusesNew("seed", MeshService::Park, now));
+  book.Forget("seed", MeshService::Park);
+  EXPECT_EQ(book.Load("seed", MeshService::Park, now), ServiceLoad::Unknown);
+  EXPECT_FALSE(book.RefusesNew("seed", MeshService::Park, now));
+  EXPECT_EQ(book.Load("seed", MeshService::MediaRelay, now), ServiceLoad::Full);
+  EXPECT_EQ(book.Load("other", MeshService::Park, now), ServiceLoad::Busy);
 }
 
 } // namespace

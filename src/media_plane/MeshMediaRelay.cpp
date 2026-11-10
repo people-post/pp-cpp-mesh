@@ -14,7 +14,7 @@ MeshMediaRelay::~MeshMediaRelay() {
 
 void MeshMediaRelay::Wire() {
   connectivity_.RunEdge([&]() {
-    connectivity_.InvalidateObjects();  // rewire replaces the client earlier ports point at
+    connectivity_.InvalidateObjects(); // rewire replaces the client earlier ports point at
     MeshHost* m = connectivity_.Mesh();
     if (!m || !AmpRelayAvailable()) {
       media_relay_client_.reset();

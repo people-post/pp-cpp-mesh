@@ -8,12 +8,12 @@ namespace {
 
 PeerLinkKind PathOf(const pp::amp::LinkPathKind kind) {
   switch (kind) {
-  case pp::amp::LinkPathKind::Direct:
-    return PeerLinkKind::Direct;
-  case pp::amp::LinkPathKind::Punched:
-    return PeerLinkKind::Punched;
-  case pp::amp::LinkPathKind::Carrier:
-    return PeerLinkKind::Relayed;
+    case pp::amp::LinkPathKind::Direct:
+      return PeerLinkKind::Direct;
+    case pp::amp::LinkPathKind::Punched:
+      return PeerLinkKind::Punched;
+    case pp::amp::LinkPathKind::Carrier:
+      return PeerLinkKind::Relayed;
   }
   return PeerLinkKind::Unknown;
 }
@@ -28,16 +28,16 @@ std::string FailedPeer(const pp::amp::LinkEvent& event) {
 
 PeerReachFailure DialFailure(const pp::amp::LinkDropReason reason) {
   switch (reason) {
-  case pp::amp::LinkDropReason::HandshakeFailed:
-    return PeerReachFailure::Refused;
-  case pp::amp::LinkDropReason::TransportFailed:
-    return PeerReachFailure::Unreachable;
-  case pp::amp::LinkDropReason::DualDialLost:
-    return PeerReachFailure::None;  // the peer answered on the other dial
-  case pp::amp::LinkDropReason::VersionMismatch:
-    return PeerReachFailure::VersionMismatch;
-  default:
-    return PeerReachFailure::NoAnswer;
+    case pp::amp::LinkDropReason::HandshakeFailed:
+      return PeerReachFailure::Refused;
+    case pp::amp::LinkDropReason::TransportFailed:
+      return PeerReachFailure::Unreachable;
+    case pp::amp::LinkDropReason::DualDialLost:
+      return PeerReachFailure::None; // the peer answered on the other dial
+    case pp::amp::LinkDropReason::VersionMismatch:
+      return PeerReachFailure::VersionMismatch;
+    default:
+      return PeerReachFailure::NoAnswer;
   }
 }
 
@@ -50,7 +50,7 @@ PeerReachFailure LossFailure(const pp::amp::LinkEvent& event) {
     return PeerReachFailure::Unreachable;
   }
   if (event.reason == pp::amp::LinkDropReason::Unresponsive) {
-    return PeerReachFailure::NoAnswer;  // asked to prove it is alive, it did not answer
+    return PeerReachFailure::NoAnswer; // asked to prove it is alive, it did not answer
   }
   return PeerReachFailure::None;
 }
@@ -59,30 +59,30 @@ PeerReachFailure LossFailure(const pp::amp::LinkEvent& event) {
 
 const char* PeerReachStateName(const PeerReachState state) {
   switch (state) {
-  case PeerReachState::Unknown:
-    return "unknown";
-  case PeerReachState::Live:
-    return "live";
-  case PeerReachState::Down:
-    return "down";
+    case PeerReachState::Unknown:
+      return "unknown";
+    case PeerReachState::Live:
+      return "live";
+    case PeerReachState::Down:
+      return "down";
   }
   return "unknown";
 }
 
 const char* PeerReachFailureName(const PeerReachFailure failure) {
   switch (failure) {
-  case PeerReachFailure::None:
-    return "none";
-  case PeerReachFailure::NoAnswer:
-    return "no-answer";
-  case PeerReachFailure::Refused:
-    return "refused";
-  case PeerReachFailure::KeepaliveLost:
-    return "keepalive-lost";
-  case PeerReachFailure::Unreachable:
-    return "unreachable";
-  case PeerReachFailure::VersionMismatch:
-    return "version-mismatch";
+    case PeerReachFailure::None:
+      return "none";
+    case PeerReachFailure::NoAnswer:
+      return "no-answer";
+    case PeerReachFailure::Refused:
+      return "refused";
+    case PeerReachFailure::KeepaliveLost:
+      return "keepalive-lost";
+    case PeerReachFailure::Unreachable:
+      return "unreachable";
+    case PeerReachFailure::VersionMismatch:
+      return "version-mismatch";
   }
   return "none";
 }
@@ -150,26 +150,26 @@ void PeerReachRecord::NoteFailed(const std::string& peer_id, const PeerReachFail
 
 void PeerReachRecord::OnLinkEvent(const pp::amp::LinkEvent& event, const int64_t now_ms, const uint64_t network_gen) {
   switch (event.kind) {
-  case pp::amp::LinkEvent::Kind::Connected:
-    NoteConnected(event.peer_id, PathOf(event.path_kind), now_ms);
-    return;
-  case pp::amp::LinkEvent::Kind::DialFailed:
-    NoteFailed(FailedPeer(event), DialFailure(event.reason), now_ms, network_gen);
-    return;
-  case pp::amp::LinkEvent::Kind::Dropped:
-    if (event.was_connected) {
-      NoteFailed(event.peer_id, LossFailure(event), now_ms, network_gen);
-    }
-    return;
-  case pp::amp::LinkEvent::Kind::PathChanged:
-    return;
+    case pp::amp::LinkEvent::Kind::Connected:
+      NoteConnected(event.peer_id, PathOf(event.path_kind), now_ms);
+      return;
+    case pp::amp::LinkEvent::Kind::DialFailed:
+      NoteFailed(FailedPeer(event), DialFailure(event.reason), now_ms, network_gen);
+      return;
+    case pp::amp::LinkEvent::Kind::Dropped:
+      if (event.was_connected) {
+        NoteFailed(event.peer_id, LossFailure(event), now_ms, network_gen);
+      }
+      return;
+    case pp::amp::LinkEvent::Kind::PathChanged:
+      return;
   }
 }
 
 PeerReachFacts PeerReachRecord::AsOf(const Entry& entry, const uint64_t network_gen) {
   PeerReachFacts f = entry.facts;
   if (f.state == PeerReachState::Down && entry.down_network_gen != network_gen) {
-    f.state = PeerReachState::Unknown;  // judged on another network
+    f.state = PeerReachState::Unknown; // judged on another network
     f.retry_at_ms = 0;
   }
   return f;

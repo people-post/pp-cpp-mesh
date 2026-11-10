@@ -90,9 +90,9 @@ std::vector<std::string> BuildAmpLanAdvertisedAddrs(const std::string& amp_liste
  * Global (non-link-local, non-ULA) `/ip6/.../adp/...` ADP multiaddrs for the Amp UDP port.
  * Uses `hosts` when provided; otherwise enumerates via `GlobalIpv6Addresses()`.
  */
-std::vector<std::string> BuildAmpGlobalIpv6AdvertisedAddrs(
-    const std::string& amp_listen_multiaddr, const std::string& local_peer_id,
-    const std::vector<std::string>& hosts = {});
+std::vector<std::string> BuildAmpGlobalIpv6AdvertisedAddrs(const std::string& amp_listen_multiaddr,
+                                                           const std::string& local_peer_id,
+                                                           const std::vector<std::string>& hosts = {});
 
 /** Dialable LAN IPv4 host strings (same filters as call-scoped advertise). */
 std::vector<std::string> EnumerateDialableLanIpv4Hosts();
@@ -105,8 +105,8 @@ std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiadd
 
 /** What the local host can actually dial; feeds RankAmpDialMultiaddrs(multiaddrs, ctx). */
 struct AmpDialLocalContext {
-  std::vector<std::string> lan_ipv4_hosts;  // dialable local LAN IPv4 hosts (same filters as advertise)
-  bool has_global_ipv6 = false;             // false → Amp socket is v4-only; /ip6 peers are unsendable
+  std::vector<std::string> lan_ipv4_hosts; // dialable local LAN IPv4 hosts (same filters as advertise)
+  bool has_global_ipv6 = false;            // false → Amp socket is v4-only; /ip6 peers are unsendable
 };
 
 /** Snapshot of the local interfaces for AmpDialLocalContext. */
@@ -117,8 +117,7 @@ AmpDialLocalContext CollectAmpDialLocalContext();
  * (same-LAN call), and /ip6 is demoted below IPv4 when we have no global IPv6 to send from.
  * Ties fall back to AmpDialMultiaddrRank.
  */
-std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiaddrs,
-                                               const AmpDialLocalContext& ctx);
+std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiaddrs, const AmpDialLocalContext& ctx);
 
 /** Rank key for tests (lower is preferred). */
 int AmpDialMultiaddrRank(const std::string& multiaddr);

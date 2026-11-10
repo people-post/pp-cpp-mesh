@@ -1,0 +1,4 @@
+# Formatting-only commits: git blame skips them (git config blame.ignoreRevsFile .git-blame-ignore-revs;
+# GitHub reads this file by default).
+# clang-format the whole tree (clang-format 23.1.5)
+bc08d856d4d7a9d1e3f62a81ce279c1b4f5f0a06

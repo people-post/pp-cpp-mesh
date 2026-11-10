@@ -44,7 +44,7 @@ public:
    * new while a level refuses it. Null: no levels said, the counts' hard limits
    * only.
    */
-  void SetLoadMonitor(ServiceLoadMonitor *monitor);
+  void SetLoadMonitor(ServiceLoadMonitor* monitor);
   /** Tunnels bridged / still in setup, and parked reservations (aggregates only). Any thread. */
   CircuitRelayRuntimeStats RuntimeStats() const;
 

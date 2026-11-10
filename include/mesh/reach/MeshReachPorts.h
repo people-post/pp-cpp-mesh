@@ -29,8 +29,7 @@ public:
    * Best-first candidate list (B28). Default reverse-registers so Preferred =
    * multiaddrs.front(); PeerSessionDialRegistry uses Amp RegisterEndpoints atomically.
    */
-  virtual Roe<void> RegisterEndpoints(const std::string& peer_key,
-                                      const std::vector<std::string>& multiaddrs) {
+  virtual Roe<void> RegisterEndpoints(const std::string& peer_key, const std::vector<std::string>& multiaddrs) {
     if (multiaddrs.empty()) {
       return Error("dial registry: no multiaddrs");
     }
@@ -134,8 +133,8 @@ public:
    * it holds reservations on, best first — a circuit tries them before its own ranking, and only they
    * earn a same-relay retry on `not registered`. A reach that cannot use them ignores them.
    */
-  virtual void TryEnsurePeerReachableViaAsync(const std::string& peer_key, CircuitReachDone on_done,
-                                              bool allow_circuit, std::vector<std::string> advertised_relays) {
+  virtual void TryEnsurePeerReachableViaAsync(const std::string& peer_key, CircuitReachDone on_done, bool allow_circuit,
+                                              std::vector<std::string> advertised_relays) {
     (void)advertised_relays;
     TryEnsurePeerReachableAsync(peer_key, std::move(on_done), allow_circuit);
   }
@@ -198,8 +197,7 @@ public:
     return {};
   }
 
-  Roe<void> RegisterEndpoints(const std::string& peer_key,
-                              const std::vector<std::string>& multiaddrs) override {
+  Roe<void> RegisterEndpoints(const std::string& peer_key, const std::vector<std::string>& multiaddrs) override {
     if (!amp_links_) {
       return Error("dial registry not available");
     }
@@ -257,8 +255,7 @@ public:
     }
     // By PeerId: presence prefers the ADP link when both ADP and carrier exist (A024/A026).
     const pp::amp::LinkSnapshotEx by_peer = amp_links_->SnapshotByPeerId(peer_key);
-    if (by_peer.transport == pp::amp::TransportClass::Adp &&
-        by_peer.base.phase == pp::amp::PeerLinkPhase::Connected) {
+    if (by_peer.transport == pp::amp::TransportClass::Adp && by_peer.base.phase == pp::amp::PeerLinkPhase::Connected) {
       return true;
     }
     // Dial alias (account: …): its own link must not be a carrier.
@@ -274,8 +271,8 @@ public:
         return;
       }
       // An adapter: the link's codes, as they are.
-      amp_links_->EnsureAssociation(peer_key, on_done ? std::move(on_done)
-                                                      : IChatPeerLinks::LinkCb([](IChatPeerLinks::LinkRoe) {}));
+      amp_links_->EnsureAssociation(
+          peer_key, on_done ? std::move(on_done) : IChatPeerLinks::LinkCb([](IChatPeerLinks::LinkRoe) {}));
     };
     PostAmpIo(std::move(run));
   }
@@ -320,9 +317,8 @@ public:
   }
 
   bool HasPeerCircuitHop(const std::string& peer_key) const override {
-    return amp_hops_ &&
-           (static_cast<bool>(amp_hops_->Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId)) ||
-            amp_hops_->HasAny(peer_key));
+    return amp_hops_ && (static_cast<bool>(amp_hops_->Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId)) ||
+                         amp_hops_->HasAny(peer_key));
   }
 
 private:

@@ -25,8 +25,7 @@ struct MediaRelayClientPhaseOutcome {
 };
 
 /** Pure client-phase table (N026). Logging / SetPhase stay in MediaRelayRuntime. */
-MediaRelayClientPhaseOutcome DecideMediaRelayClientPhase(MediaRelayClientPhase phase,
-                                                         MediaRelayClientEvent ev);
+MediaRelayClientPhaseOutcome DecideMediaRelayClientPhase(MediaRelayClientPhase phase, MediaRelayClientEvent ev);
 
 /** auth stub: non-empty and equals call_id (v1 dogfood). */
 bool MediaRelayAuthStubOk(const std::string& auth, const std::string& call_id);

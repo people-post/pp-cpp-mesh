@@ -14,7 +14,6 @@
 
 namespace pp::mesh {
 
-
 /** V032 host load limits (also documented in HOST_RECEIVE_POLICY). */
 inline constexpr size_t kMediaRelayMaxHostSessions = 4;
 inline constexpr size_t kMediaRelayMaxParticipantsPerSession = 8;

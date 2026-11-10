@@ -114,7 +114,7 @@ TEST(SignalingPunchExchangeTest, DeclinedPeerGetsNoAnswerAndNoBurst) {
 TEST(SignalingPunchExchangeTest, AClaimedPeerIdDoesNotGetAStrangerAnAnswer) {
   Side stranger;
   Side b;
-  stranger.peer_id = "12D3friend";  // the contact's PeerId, claimed
+  stranger.peer_id = "12D3friend"; // the contact's PeerId, claimed
   b.peer_id = "12D3b";
   b.candidates = {"/ip4/2.2.2.2/tcp/2"};
   b.may_answer = [](const std::string& sender_key) { return sender_key == "account:friend"; };

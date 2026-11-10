@@ -33,10 +33,10 @@ pp::Roe<std::unique_ptr<AmpMeshHarness>> AmpMeshHarness::Create() {
   harness->peer_id_b = *bob_id;
 
   const auto link_config = AmpMeshTestLinkConfig();
-  harness->runtime_a = std::make_unique<pp::amp::MeshRuntime>(*harness->ep_a, harness->alice, harness->peer_id_a,
-                                                          link_config);
-  harness->runtime_b = std::make_unique<pp::amp::MeshRuntime>(*harness->ep_b, harness->bob, harness->peer_id_b,
-                                                          link_config);
+  harness->runtime_a =
+      std::make_unique<pp::amp::MeshRuntime>(*harness->ep_a, harness->alice, harness->peer_id_a, link_config);
+  harness->runtime_b =
+      std::make_unique<pp::amp::MeshRuntime>(*harness->ep_b, harness->bob, harness->peer_id_b, link_config);
   harness->runtime_a->Start();
   harness->runtime_b->Start();
   harness->chat_links_a = pp::mesh::NewAmpChatPeerLinks(*harness->runtime_a);

@@ -13,18 +13,18 @@ std::size_t Index(const MeshService service) {
 
 } // namespace
 
-const char *ServiceLoadWire(const ServiceLoad load) {
+const char* ServiceLoadWire(const ServiceLoad load) {
   switch (load) {
-  case ServiceLoad::Open:
-    return "open";
-  case ServiceLoad::Busy:
-    return "busy";
-  case ServiceLoad::Full:
-    return "full";
-  case ServiceLoad::Draining:
-    return "draining";
-  case ServiceLoad::Unknown:
-    break;
+    case ServiceLoad::Open:
+      return "open";
+    case ServiceLoad::Busy:
+      return "busy";
+    case ServiceLoad::Full:
+      return "full";
+    case ServiceLoad::Draining:
+      return "draining";
+    case ServiceLoad::Unknown:
+      break;
   }
   return "";
 }
@@ -45,35 +45,35 @@ ServiceLoad ServiceLoadFromWire(const std::string_view wire) {
   return ServiceLoad::Unknown;
 }
 
-const char *MeshServiceName(const MeshService service) {
+const char* MeshServiceName(const MeshService service) {
   switch (service) {
-  case MeshService::Park:
-    return "park";
-  case MeshService::Relay:
-    return "relay";
-  case MeshService::MediaRelay:
-    return "media_relay";
+    case MeshService::Park:
+      return "park";
+    case MeshService::Relay:
+      return "relay";
+    case MeshService::MediaRelay:
+      return "media_relay";
   }
   return "";
 }
 
 int ServiceLoadRank(const ServiceLoad load) {
   switch (load) {
-  case ServiceLoad::Open:
-    return 0;
-  case ServiceLoad::Unknown:
-    return 1;
-  case ServiceLoad::Busy:
-    return 2;
-  case ServiceLoad::Full:
-  case ServiceLoad::Draining:
-    return 3;
+    case ServiceLoad::Open:
+      return 0;
+    case ServiceLoad::Unknown:
+      return 1;
+    case ServiceLoad::Busy:
+      return 2;
+    case ServiceLoad::Full:
+    case ServiceLoad::Draining:
+      return 3;
   }
   return 1;
 }
 
-void SetLoadField(common::Object &reply, const ServiceLoad load) {
-  if (const char *word = ServiceLoadWire(load); *word != '\0') {
+void SetLoadField(common::Object& reply, const ServiceLoad load) {
+  if (const char* word = ServiceLoadWire(load); *word != '\0') {
     reply.set("load", std::string(word));
   }
 }
@@ -127,7 +127,7 @@ void NoteReplyLoads(PeerLoadBook& book, const std::string& peer_id, const MeshSe
   }
 }
 
-ServiceLoad LoadField(const common::Object &reply) {
+ServiceLoad LoadField(const common::Object& reply) {
   return ServiceLoadFromWire(reply.getString("load").value_or(""));
 }
 
@@ -135,9 +135,8 @@ double DropRatePressure(const double drops_per_second) {
   return std::clamp(drops_per_second / kDropsPerSecondFull, 0.0, 1.0);
 }
 
-ServiceLoad NextServiceLoad(const ServiceLoad prev, const double pressure,
-                            const bool draining,
-                            const ServiceLoadThresholds &t) {
+ServiceLoad NextServiceLoad(const ServiceLoad prev, const double pressure, const bool draining,
+                            const ServiceLoadThresholds& t) {
   if (draining) {
     return ServiceLoad::Draining;
   }
@@ -152,11 +151,9 @@ ServiceLoad NextServiceLoad(const ServiceLoad prev, const double pressure,
   return ServiceLoad::Open;
 }
 
-void ServiceLoadMonitor::SetPressure(const MeshService service,
-                                     const std::string_view source,
-                                     const double pressure) {
+void ServiceLoadMonitor::SetPressure(const MeshService service, const std::string_view source, const double pressure) {
   std::lock_guard lock(mu_);
-  Service &s = services_[Index(service)];
+  Service& s = services_[Index(service)];
   s.sources[std::string(source)] = std::clamp(pressure, 0.0, 1.0);
   RecomputeLocked(s);
 }
@@ -164,7 +161,7 @@ void ServiceLoadMonitor::SetPressure(const MeshService service,
 void ServiceLoadMonitor::SetDraining(const bool draining) {
   std::lock_guard lock(mu_);
   draining_ = draining;
-  for (Service &s : services_) {
+  for (Service& s : services_) {
     if (!draining && s.level == ServiceLoad::Draining) {
       s.level = ServiceLoad::Open; // back to the pressure's own level
     }
@@ -197,63 +194,62 @@ bool ServiceLoadMonitor::Served(const MeshService service) const {
   return services_[Index(service)].served;
 }
 
-double ServiceLoadMonitor::WorstLocked(const Service &service) {
+double ServiceLoadMonitor::WorstLocked(const Service& service) {
   double worst = 0.0;
-  for (const auto &[source, pressure] : service.sources) {
+  for (const auto& [source, pressure] : service.sources) {
     worst = std::max(worst, pressure);
   }
   return worst;
 }
 
-void ServiceLoadMonitor::RecomputeLocked(Service &service) {
-  service.level = NextServiceLoad(service.level, WorstLocked(service),
-                                  draining_, thresholds_);
+void ServiceLoadMonitor::RecomputeLocked(Service& service) {
+  service.level = NextServiceLoad(service.level, WorstLocked(service), draining_, thresholds_);
 }
 
 int64_t PeerLoadBook::NowMs() {
-  return std::chrono::duration_cast<std::chrono::milliseconds>(
-             std::chrono::steady_clock::now().time_since_epoch())
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
       .count();
 }
 
-void PeerLoadBook::Note(const std::string &peer_id, const MeshService service,
-                        const ServiceLoad load, const int64_t now_ms) {
+void PeerLoadBook::Note(const std::string& peer_id, const MeshService service, const ServiceLoad load,
+                        const int64_t now_ms) {
   if (peer_id.empty() || load == ServiceLoad::Unknown) {
     return; // an older node says nothing: keep what a newer reply said
   }
   std::lock_guard lock(mu_);
   if (!entries_.contains(peer_id) && entries_.size() >= kMaxPeers) {
-    auto oldest = std::min_element(
-        entries_.begin(), entries_.end(), [](const auto &a, const auto &b) {
-          return a.second.touched_ms < b.second.touched_ms;
-        });
+    auto oldest = std::min_element(entries_.begin(), entries_.end(), [](const auto& a, const auto& b) {
+      return a.second.touched_ms < b.second.touched_ms;
+    });
     entries_.erase(oldest);
   }
-  Entry &entry = entries_[peer_id];
+  Entry& entry = entries_[peer_id];
   entry.said[Index(service)] = Said{load, now_ms};
   entry.touched_ms = now_ms;
 }
 
-ServiceLoad PeerLoadBook::Load(const std::string &peer_id,
-                               const MeshService service,
-                               const int64_t now_ms) const {
+ServiceLoad PeerLoadBook::Load(const std::string& peer_id, const MeshService service, const int64_t now_ms) const {
   std::lock_guard lock(mu_);
   const auto it = entries_.find(peer_id);
   if (it == entries_.end()) {
     return ServiceLoad::Unknown;
   }
-  const Said &said = it->second.said[Index(service)];
+  const Said& said = it->second.said[Index(service)];
   return now_ms - said.at_ms <= kFreshMs ? said.load : ServiceLoad::Unknown;
 }
 
-void PeerLoadBook::OrderBest(std::vector<std::string> &peer_ids,
-                             const MeshService service,
+void PeerLoadBook::Forget(const std::string& peer_id, const MeshService service) {
+  std::lock_guard lock(mu_);
+  if (auto it = entries_.find(peer_id); it != entries_.end()) {
+    it->second.said[Index(service)] = {};
+  }
+}
+
+void PeerLoadBook::OrderBest(std::vector<std::string>& peer_ids, const MeshService service,
                              const int64_t now_ms) const {
-  std::stable_sort(peer_ids.begin(), peer_ids.end(),
-                   [&](const std::string &a, const std::string &b) {
-                     return ServiceLoadRank(Load(a, service, now_ms)) <
-                            ServiceLoadRank(Load(b, service, now_ms));
-                   });
+  std::stable_sort(peer_ids.begin(), peer_ids.end(), [&](const std::string& a, const std::string& b) {
+    return ServiceLoadRank(Load(a, service, now_ms)) < ServiceLoadRank(Load(b, service, now_ms));
+  });
 }
 
 } // namespace pp::mesh

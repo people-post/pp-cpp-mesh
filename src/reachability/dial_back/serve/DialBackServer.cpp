@@ -118,7 +118,7 @@ void DialNextTarget(std::shared_ptr<DialTargetsWalk> walk) {
       out.dialed = ma;
       continue;
     }
-    auto settled = std::make_shared<bool>(false);  // IO strand only
+    auto settled = std::make_shared<bool>(false); // IO strand only
     auto finish = [walk, settled, ma](Roe<void> dialed) {
       if (std::exchange(*settled, true)) {
         return;
@@ -149,7 +149,8 @@ void DialAmpTargetsAsync(pp::amp::MeshRuntime& runtime, std::vector<std::string>
   auto walk = std::make_shared<DialTargetsWalk>();
   walk->runtime = &runtime;
   walk->targets = std::move(targets);
-  const int clamped_timeout = std::clamp(timeout_ms > 0 ? timeout_ms : 8000, kMinDialBackTimeoutMs, kMaxDialBackTimeoutMs);
+  const int clamped_timeout =
+      std::clamp(timeout_ms > 0 ? timeout_ms : 8000, kMinDialBackTimeoutMs, kMaxDialBackTimeoutMs);
   walk->timeout = std::chrono::milliseconds(clamped_timeout);
   walk->remote_peer_id = std::move(remote_peer_id);
   walk->observed_host = observed_host;
@@ -225,8 +226,7 @@ struct DialBackServer::Impl {
   }
 
   /** Frame handler (IO): parse, then walk the targets from a fresh IO task (mux stack unwound). */
-  void ServeProbe(std::shared_ptr<InboundReply> reply, const std::string& remote_peer_id,
-                  std::vector<uint8_t> body) {
+  void ServeProbe(std::shared_ptr<InboundReply> reply, const std::string& remote_peer_id, std::vector<uint8_t> body) {
     DialBackProbeResult result;
     result.observed = ObservedMultiaddrOnIo(remote_peer_id);
     const std::string json_utf8(body.begin(), body.end());
@@ -290,8 +290,7 @@ struct DialBackServer::Impl {
     });
   }
 
-  void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id,
-                           const uint32_t channel_id) {
+  void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id, const uint32_t channel_id) {
     if (stopped.load(std::memory_order_acquire) || !runtime || remote_peer_id.empty()) {
       return;
     }
@@ -314,7 +313,9 @@ DialBackServer::DialBackServer(pp::amp::MeshRuntime& runtime) : impl_(std::make_
   impl_->runtime = &runtime_;
 }
 
-DialBackServer::~DialBackServer() { Stop(); }
+DialBackServer::~DialBackServer() {
+  Stop();
+}
 
 void DialBackServer::Start() {
   if (started_) {

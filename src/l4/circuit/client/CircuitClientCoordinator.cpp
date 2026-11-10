@@ -52,33 +52,33 @@ CircuitClientCoordinator::Failure CircuitClientCoordinator::FromRefusal(const Ci
                                                                         const std::string& relay_text) {
   Err code = Err::RelayRefused;
   switch (refusal) {
-  case CircuitRefusal::TargetNotReserved:
-    code = Err::TargetNotReserved;
-    break;
-  case CircuitRefusal::TargetUnreachable:
-    code = Err::TargetUnreachable;
-    break;
-  case CircuitRefusal::Busy:
-    code = Err::RelayBusy;
-    break;
-  case CircuitRefusal::Refused:
-  case CircuitRefusal::NotReady:
-  case CircuitRefusal::BadRequest:
-  case CircuitRefusal::Generic:
-  case CircuitRefusal::Ok:
-    code = Err::RelayRefused;
-    break;
+    case CircuitRefusal::TargetNotReserved:
+      code = Err::TargetNotReserved;
+      break;
+    case CircuitRefusal::TargetUnreachable:
+      code = Err::TargetUnreachable;
+      break;
+    case CircuitRefusal::Busy:
+      code = Err::RelayBusy;
+      break;
+    case CircuitRefusal::Refused:
+    case CircuitRefusal::NotReady:
+    case CircuitRefusal::BadRequest:
+    case CircuitRefusal::Generic:
+    case CircuitRefusal::Ok:
+      code = Err::RelayRefused;
+      break;
   }
-  return Failure::Of(code, detail::AppendFrom("circuit-relay: refused", "relay",
-                                              relay_text.empty() ? std::string("circuit-relay bridge refused")
-                                                                 : relay_text));
+  return Failure::Of(code,
+                     detail::AppendFrom("circuit-relay: refused", "relay",
+                                        relay_text.empty() ? std::string("circuit-relay bridge refused") : relay_text));
 }
 
 struct CircuitClientCoordinator::Impl {
   pp::amp::MeshRuntime* runtime = nullptr;
   mutable std::mutex mu;
   /** The relays' levels as they say them (MeshHost's); null: not kept. */
-  std::atomic<PeerLoadBook *> loads{nullptr};
+  std::atomic<PeerLoadBook*> loads{nullptr};
   std::atomic<bool> started{false};
   std::atomic<bool> stopped{true};
   std::atomic<uint64_t> next_id{1};
@@ -240,7 +240,7 @@ struct CircuitClientCoordinator::Impl {
     }
   }
 
-  void NoteReserveReleased(Tunnel& tunnel) {
+  void NoteReserveReleased(Tunnel& tunnel, const bool local_cancel) {
     if (!tunnel.is_reserve || tunnel.phase != CircuitTunnelPhase::Reserved) {
       return;
     }
@@ -250,6 +250,14 @@ struct CircuitClientCoordinator::Impl {
     }
     if (--it->second <= 0) {
       reserved_relays.erase(it);
+      // The last park held here ended, not by our cancel (a renewal overlaps the one it replaces, so the count stays
+      // above 0): the relay lost us — crashed or restarted. What it said of its park is from before, and a restarted
+      // relay holds nothing: forget it, so the next round asks again instead of skipping an old "full" for 2 min.
+      if (!local_cancel) {
+        if (PeerLoadBook* book = loads.load(std::memory_order_acquire)) {
+          book->Forget(tunnel.relay_peer_key, MeshService::Park);
+        }
+      }
       runtime->Links().ClearWarm(tunnel.relay_peer_key);
       PostFinishCb(on_parked_changed);
     }
@@ -260,7 +268,7 @@ struct CircuitClientCoordinator::Impl {
    * consumer that adopted it (AmpCircuitHopRegistry). Otherwise close the near channel and report.
    */
   void TearDown(Tunnel& tunnel, const bool suppress_notify, const bool local_cancel, Failure failure) {
-    NoteReserveReleased(tunnel);
+    NoteReserveReleased(tunnel, local_cancel || tunnel.local_cancel);
     if (tunnel.finished) {
       tunnels.erase(tunnel.id.value);
       return;
@@ -283,7 +291,7 @@ struct CircuitClientCoordinator::Impl {
       return false;
     }
     const bool ack_ok = root->getIf<bool>("ok").value_or(false);
-    if (PeerLoadBook *book = loads.load(std::memory_order_acquire)) {
+    if (PeerLoadBook* book = loads.load(std::memory_order_acquire)) {
       NoteReplyLoads(*book, tunnel.relay_peer_key, tunnel.is_reserve ? MeshService::Park : MeshService::Relay, *root,
                      PeerLoadBook::NowMs());
     }
@@ -403,7 +411,8 @@ struct CircuitClientCoordinator::Impl {
     // Must not hold mu across OpenChannel — callback may run synchronously.
     runtime->Links().OpenChannel(
         relay_key, kCircuitRelayProtocolId,
-        tunnel.is_reserve ? pp::amp::CircuitTunnelChannelPolicy() : CircuitTargetChannelPolicy(tunnel.target.target_protocol),
+        tunnel.is_reserve ? pp::amp::CircuitTunnelChannelPolicy()
+                          : CircuitTargetChannelPolicy(tunnel.target.target_protocol),
         [this, id, relay_key, deadline, request_json](pp::amp::PeerLinkManager::ChannelRoe channel) {
           uint32_t channel_id = 0;
           {
@@ -417,39 +426,41 @@ struct CircuitClientCoordinator::Impl {
               return;
             }
             if (!runtime->Links().FindLink(relay_key)) {
-              TearDown(*tunnel, false, false, Failure::Of(Err::ChannelFailed, "amp circuit-relay: channel open failed"));
+              TearDown(*tunnel, false, false,
+                       Failure::Of(Err::ChannelFailed, "amp circuit-relay: channel open failed"));
               return;
             }
             channel_id = *channel;
           }
-          ScheduleWhenChannelOpen(relay_key, channel_id, deadline, [this, id, relay_key, channel_id, request_json](const bool open) {
-            std::shared_ptr<pp::amp::ChannelSession> near;
-            {
-              std::lock_guard lock(mu);
-              auto* tunnel = Find(id);
-              if (!tunnel) {
-                return;
-              }
-              auto* link = open ? runtime->Links().FindLink(relay_key) : nullptr;
-              if (!link || !link->Mux()) {
-                TearDown(*tunnel, false, false,
-                         Failure::Of(Err::ChannelFailed, "amp circuit-relay: channel open failed"));
-                return;
-              }
-              BindNear(*tunnel, *link, channel_id);
-              tunnel->phase = CircuitTunnelPhase::WaitAck;
-              near = tunnel->near_session;
-            }
-            // Not under mu: a write that fails at once closes the channel inline, and its closed
-            // callback (BindNear) takes mu — the I/O thread deadlocked on itself (hard-lab flip).
-            if (!near->EnqueueOutbound(JsonToBody(request_json))) {
-              std::lock_guard lock(mu);
-              if (auto* tunnel = Find(id)) {
-                TearDown(*tunnel, false, false,
-                         Failure::Of(Err::ChannelFailed, "failed to send circuit-relay bridge request"));
-              }
-            }
-          });
+          ScheduleWhenChannelOpen(
+              relay_key, channel_id, deadline, [this, id, relay_key, channel_id, request_json](const bool open) {
+                std::shared_ptr<pp::amp::ChannelSession> near;
+                {
+                  std::lock_guard lock(mu);
+                  auto* tunnel = Find(id);
+                  if (!tunnel) {
+                    return;
+                  }
+                  auto* link = open ? runtime->Links().FindLink(relay_key) : nullptr;
+                  if (!link || !link->Mux()) {
+                    TearDown(*tunnel, false, false,
+                             Failure::Of(Err::ChannelFailed, "amp circuit-relay: channel open failed"));
+                    return;
+                  }
+                  BindNear(*tunnel, *link, channel_id);
+                  tunnel->phase = CircuitTunnelPhase::WaitAck;
+                  near = tunnel->near_session;
+                }
+                // Not under mu: a write that fails at once closes the channel inline, and its closed
+                // callback (BindNear) takes mu — the I/O thread deadlocked on itself (hard-lab flip).
+                if (!near->EnqueueOutbound(JsonToBody(request_json))) {
+                  std::lock_guard lock(mu);
+                  if (auto* tunnel = Find(id)) {
+                    TearDown(*tunnel, false, false,
+                             Failure::Of(Err::ChannelFailed, "failed to send circuit-relay bridge request"));
+                  }
+                }
+              });
         });
   }
 
@@ -516,8 +527,7 @@ void CircuitClientCoordinator::Stop() {
   impl_->lifetime.Invalidate();
 }
 
-bool CircuitClientCoordinator::HoldsReservation(
-    const std::string &relay_peer_key) const {
+bool CircuitClientCoordinator::HoldsReservation(const std::string& relay_peer_key) const {
   std::lock_guard lock(impl_->mu);
   return impl_->reserved_relays.contains(relay_peer_key);
 }
@@ -579,7 +589,7 @@ CircuitTunnelId CircuitClientCoordinator::StartBridge(const std::string& relay_p
   return impl_->Launch(std::move(tunnel));
 }
 
-void CircuitClientCoordinator::SetPeerLoadBook(PeerLoadBook *book) {
+void CircuitClientCoordinator::SetPeerLoadBook(PeerLoadBook* book) {
   impl_->loads.store(book, std::memory_order_release);
 }
 

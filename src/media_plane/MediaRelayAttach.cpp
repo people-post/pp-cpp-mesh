@@ -1,6 +1,5 @@
 #include "mesh/media_plane/MediaRelayAttach.h"
 
-
 #include "common/Logger.h"
 
 #include <memory>
@@ -83,8 +82,7 @@ void QuoteThenAttach(MediaRelayAttachPorts ports, MediaRelayAttachRequest reques
                 on_done(Failure::Of(Err::BadReply, result->error.empty() ? "attach not ok" : result->error));
                 return;
               }
-              AttachLog().info << "AcceptAndAttach ok hop=" << attached.hop_peer_id
-                               << " quote=" << attached.quote_id;
+              AttachLog().info << "AcceptAndAttach ok hop=" << attached.hop_peer_id << " quote=" << attached.quote_id;
               on_done(std::move(attached));
             },
             kAttachTimeoutMs);
@@ -130,10 +128,11 @@ void AttachToMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttac
     return;
   }
   const MediaRelayAttachRequest reach_request = request;
-  ReachHopService(ports, reach_request, [ports, request = std::move(request), hooks = std::move(hooks),
-                                         on_done = std::move(on_done)]() mutable {
-    QuoteThenAttach(ports, std::move(request), std::move(hooks), std::move(on_done));
-  });
+  ReachHopService(
+      ports, reach_request,
+      [ports, request = std::move(request), hooks = std::move(hooks), on_done = std::move(on_done)]() mutable {
+        QuoteThenAttach(ports, std::move(request), std::move(hooks), std::move(on_done));
+      });
 }
 
 void QuoteMediaRelayAsync(const MediaRelayAttachPorts& ports, MediaRelayAttachRequest request,

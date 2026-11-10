@@ -22,8 +22,7 @@ inline bool CircuitPeerIdOnlyHasLiveFarLeg(const std::size_t connected_links_for
   return connected_links_for_peer_id > 0;
 }
 
-inline constexpr std::string_view kCircuitTargetPeerNotRegistered =
-    "circuit target peer endpoint not registered";
+inline constexpr std::string_view kCircuitTargetPeerNotRegistered = "circuit target peer endpoint not registered";
 
 /**
  * Max ServeDial wait for far PeerLink when arming an event waiter (capped by tunnel deadline).
@@ -41,16 +40,14 @@ inline constexpr int64_t kCircuitServeDialFarLegDeadlineSlackMs = 750;
  * Absolute steady-clock ms deadline for event-driven ServeDial far-leg wait.
  * Cap at tunnel deadline − slack when a tunnel deadline is set.
  */
-inline int64_t CircuitServeDialArmFarLegWaitDeadlineMs(const int64_t now_ms,
-                                                       const int64_t tunnel_deadline_ms) {
+inline int64_t CircuitServeDialArmFarLegWaitDeadlineMs(const int64_t now_ms, const int64_t tunnel_deadline_ms) {
   const int64_t armed = now_ms + kCircuitServeDialFarLegWaitMs;
   if (tunnel_deadline_ms <= 0) {
     return armed;
   }
-  const int64_t capped =
-      tunnel_deadline_ms > now_ms + kCircuitServeDialFarLegDeadlineSlackMs
-          ? tunnel_deadline_ms - kCircuitServeDialFarLegDeadlineSlackMs
-          : tunnel_deadline_ms;
+  const int64_t capped = tunnel_deadline_ms > now_ms + kCircuitServeDialFarLegDeadlineSlackMs
+                             ? tunnel_deadline_ms - kCircuitServeDialFarLegDeadlineSlackMs
+                             : tunnel_deadline_ms;
   return std::min(armed, capped);
 }
 
@@ -58,8 +55,7 @@ inline int64_t CircuitServeDialArmFarLegWaitDeadlineMs(const int64_t now_ms,
  * When the hop holds a live op=reserve for the target, clear an explicit target_multiaddr
  * so ServeDial takes the peer-id-only Connected path (avoids RegisterEndpoint private MA).
  */
-inline bool CircuitServeDialClearTargetMaWhenReserved(const bool has_live_reservation,
-                                                     const bool target_ma_nonempty) {
+inline bool CircuitServeDialClearTargetMaWhenReserved(const bool has_live_reservation, const bool target_ma_nonempty) {
   return has_live_reservation && target_ma_nonempty;
 }
 
@@ -75,8 +71,7 @@ inline bool CircuitServeDialOpenOnLiveLink(const bool resolved_multiaddr_empty) 
  * After a seed park, skip EnsureAssociation of a non-public Preferred to the peer being
  * reached — that UDP dial can drop the hop PeerLink (dogfood 39412f).
  */
-inline bool ShouldSkipPrivatePreferredDialAfterSeedPark(const bool seed_park_ok,
-                                                         const bool dial_public_direct) {
+inline bool ShouldSkipPrivatePreferredDialAfterSeedPark(const bool seed_park_ok, const bool dial_public_direct) {
   return seed_park_ok && !dial_public_direct;
 }
 

@@ -23,8 +23,8 @@ Roe<void> AmpCircuitHopRegistry::Install(const std::string& peer_key, const std:
   return {};
 }
 
-std::optional<AmpCircuitHopRegistry::Hop> AmpCircuitHopRegistry::Find(
-    const std::string& peer_key, const std::string& target_protocol) const {
+std::optional<AmpCircuitHopRegistry::Hop> AmpCircuitHopRegistry::Find(const std::string& peer_key,
+                                                                      const std::string& target_protocol) const {
   std::lock_guard lock(mu_);
   const auto it = hops_.find(Key(peer_key, target_protocol));
   if (it == hops_.end()) {

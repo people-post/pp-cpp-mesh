@@ -94,8 +94,7 @@ std::optional<uint16_t> UdpPortFromAdpMultiaddr(const std::string& multiaddr) {
  */
 class AmpChatPeerLinks final : public IChatPeerLinks {
 public:
-  explicit AmpChatPeerLinks(pp::amp::MeshRuntime& runtime)
-      : runtime_(runtime), links_(runtime.Links()) {}
+  explicit AmpChatPeerLinks(pp::amp::MeshRuntime& runtime) : runtime_(runtime), links_(runtime.Links()) {}
 
   std::optional<std::string> PreferredMultiaddr(const std::string& peer_id) const override {
     return runtime_.WithIoLock([&] { return links_.PreferredMultiaddr(peer_id); });
@@ -105,17 +104,16 @@ public:
     return runtime_.WithIoLock([&] { return links_.RegisterEndpoint(peer_key, multiaddr); });
   }
 
-  Roe<void> RegisterEndpoints(const std::string& peer_key,
-                              const std::vector<std::string>& multiaddrs) override {
+  Roe<void> RegisterEndpoints(const std::string& peer_key, const std::vector<std::string>& multiaddrs) override {
     return runtime_.WithIoLock([&] { return links_.RegisterEndpoints(peer_key, multiaddrs); });
   }
 
   void EnsureAssociation(const std::string& peer_key, LinkCb on_complete) override {
     runtime_.WithIoLock([&] {
-      links_.EnsureAssociation(peer_key, [on_complete = std::move(on_complete)](
-                                             pp::amp::PeerLinkManager::LinkRoe result) {
-        on_complete(ToLinkRoe(result));
-      });
+      links_.EnsureAssociation(peer_key,
+                               [on_complete = std::move(on_complete)](pp::amp::PeerLinkManager::LinkRoe result) {
+                                 on_complete(ToLinkRoe(result));
+                               });
     });
   }
 
@@ -149,8 +147,7 @@ public:
   }
 
   MeshPeerLinkSnapshot GetLinkSnapshot(const std::string& peer_key) const override {
-    return runtime_.WithIoLock(
-        [&] { return ToMeshPeerLinkSnapshot(links_.GetLinkSnapshot(peer_key)); });
+    return runtime_.WithIoLock([&] { return ToMeshPeerLinkSnapshot(links_.GetLinkSnapshot(peer_key)); });
   }
 
   pp::amp::LinkSnapshotEx SnapshotByPeerId(const std::string& peer_id) const override {
@@ -164,8 +161,7 @@ public:
   bool IsConnectedRelayed(const std::string& peer_id) const override {
     return runtime_.WithIoLock([&] {
       const auto snap = links_.GetSnapshotByPeerId(peer_id, pp::amp::TransportClass::Carrier);
-      return snap.transport == pp::amp::TransportClass::Carrier &&
-             snap.base.phase == pp::amp::PeerLinkPhase::Connected;
+      return snap.transport == pp::amp::TransportClass::Carrier && snap.base.phase == pp::amp::PeerLinkPhase::Connected;
     });
   }
 
@@ -202,8 +198,7 @@ public:
                        std::function<void(bool ok)> done) override {
     // IChatPeerLinks contract: steady_clock epoch ms. Amp WhenChannelOpen wants Amp clock.
     runtime_.WithIoLock([&] {
-      const auto steady_deadline =
-          std::chrono::steady_clock::time_point(std::chrono::milliseconds(deadline_ms));
+      const auto steady_deadline = std::chrono::steady_clock::time_point(std::chrono::milliseconds(deadline_ms));
       AmpWhenChannelOpen(links_, peer_key, channel_id, steady_deadline, std::move(done));
     });
   }
@@ -213,15 +208,13 @@ public:
                                                        pp::amp::ChannelSession::FrameHandler on_frame,
                                                        pp::amp::ChannelSession::ClosedCallback on_closed) override {
     return runtime_.WithIoLock([&] {
-      return links_.BindChannel(peer_key, channel_id, std::move(policy), std::move(on_frame),
-                                std::move(on_closed));
+      return links_.BindChannel(peer_key, channel_id, std::move(policy), std::move(on_frame), std::move(on_closed));
     });
   }
 
-  std::shared_ptr<pp::amp::ChannelSession> BindChannelOnLink(pp::amp::LinkHandle link, uint32_t channel_id,
-                                                             pp::amp::ChannelPolicy policy,
-                                                             pp::amp::ChannelSession::FrameHandler on_frame,
-                                                             pp::amp::ChannelSession::ClosedCallback on_closed) override {
+  std::shared_ptr<pp::amp::ChannelSession> BindChannelOnLink(
+      pp::amp::LinkHandle link, uint32_t channel_id, pp::amp::ChannelPolicy policy,
+      pp::amp::ChannelSession::FrameHandler on_frame, pp::amp::ChannelSession::ClosedCallback on_closed) override {
     return runtime_.WithIoLock([&] {
       return links_.BindChannelOnLink(link, channel_id, std::move(policy), std::move(on_frame), std::move(on_closed));
     });

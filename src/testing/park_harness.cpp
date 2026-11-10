@@ -87,12 +87,12 @@ pp::Roe<std::unique_ptr<MeshHost>> ParkHarness::MakeHost(const pp::adp::IpEndpoi
   if (!stack) {
     return stack.error();
   }
-  (*stack)->GetEndpoint().SetAcceptEnabled(true);  // a relay takes inbound associations (the phone's too: harmless)
+  (*stack)->GetEndpoint().SetAcceptEnabled(true); // a relay takes inbound associations (the phone's too: harmless)
   auto ma = pp::amp::FormatAdpMultiaddr(addr, *id);
   if (!ma) {
     return ma.error();
   }
-  auto host = std::make_unique<MeshHost>(MeshExecutors{}, MetricsRegistry::Global());  // manual drive
+  auto host = std::make_unique<MeshHost>(MeshExecutors{}, MetricsRegistry::Global()); // manual drive
   if (auto attached = host->AttachAmpStack(std::move(*stack), *ma); !attached) {
     return attached.error();
   }
@@ -106,14 +106,13 @@ pp::Roe<std::string> ParkHarness::AddRelay(const RelayKind kind, const bool seed
   Relay relay;
   relay.seed = seed;
   if (kind == RelayKind::Answers || kind == RelayKind::Slow) {
-    auto host = MakeHost(BenchAddress(index), &relay.peer_id, &relay.multiaddr,
-                         kind == RelayKind::Slow ? rtt_ms : 0);
+    auto host = MakeHost(BenchAddress(index), &relay.peer_id, &relay.multiaddr, kind == RelayKind::Slow ? rtt_ms : 0);
     if (!host) {
       return host.error();
     }
     relay.host = std::move(*host);
     if (auto* server = relay.host->AmpCircuitServer()) {
-      server->SetServeInbound(true);  // a relay node (AttachAmpStack hosts no relay services on its own)
+      server->SetServeInbound(true); // a relay node (AttachAmpStack hosts no relay services on its own)
     }
   } else {
     // An identity nobody holds, at an address nothing reads: the phone's handshakes go unanswered.

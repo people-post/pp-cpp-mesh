@@ -30,8 +30,8 @@ TEST(DhtRateLimiterTest, IdlePeersAreDropped) {
   for (int i = 0; i < 300; ++i) {
     EXPECT_TRUE(limiter.Allow("peer-" + std::to_string(i)));
   }
-  EXPECT_GE(limiter.TrackedPeers(), 44u);  // the first sweep ran at 256 grants, all still in window
-  std::this_thread::sleep_for(std::chrono::milliseconds(1100));  // everyone leaves the window
+  EXPECT_GE(limiter.TrackedPeers(), 44u); // the first sweep ran at 256 grants, all still in window
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100)); // everyone leaves the window
   for (size_t i = 0; i < DhtRateLimiter::kSweepEveryGrants; ++i) {
     EXPECT_TRUE(limiter.Allow("active"));
   }

@@ -39,14 +39,13 @@ public:
   void DropLink(const std::string& peer_key) override;
   void WhenChannelOpen(const std::string& peer_key, uint32_t channel_id, int64_t deadline_ms,
                        std::function<void(bool ok)> done) override;
-  std::shared_ptr<pp::amp::ChannelSession> BindChannelOnLink(pp::amp::LinkHandle link, uint32_t channel_id,
-                                                             pp::amp::ChannelPolicy policy,
-                                                             pp::amp::ChannelSession::FrameHandler on_frame,
-                                                             pp::amp::ChannelSession::ClosedCallback on_closed = {}) override;
+  std::shared_ptr<pp::amp::ChannelSession> BindChannelOnLink(
+      pp::amp::LinkHandle link, uint32_t channel_id, pp::amp::ChannelPolicy policy,
+      pp::amp::ChannelSession::FrameHandler on_frame, pp::amp::ChannelSession::ClosedCallback on_closed = {}) override;
   std::shared_ptr<pp::amp::ChannelSession> BindChannel(const std::string& peer_key, uint32_t channel_id,
-                                                        pp::amp::ChannelPolicy policy,
-                                                        pp::amp::ChannelSession::FrameHandler on_frame,
-                                                        pp::amp::ChannelSession::ClosedCallback on_closed) override;
+                                                       pp::amp::ChannelPolicy policy,
+                                                       pp::amp::ChannelSession::FrameHandler on_frame,
+                                                       pp::amp::ChannelSession::ClosedCallback on_closed) override;
 
   /** A new dial to `peer_key` is allowed: in the audience, or a link to it is already up. */
   bool MayDial(const std::string& peer_key) const;

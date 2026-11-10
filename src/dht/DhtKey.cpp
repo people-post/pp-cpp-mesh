@@ -11,12 +11,12 @@ namespace pp::mesh {
 namespace {
 
 constexpr std::string_view kBase58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-constexpr char kKeyDomain[] = "pp-mesh/dht/peer-routing/v1";  // followed by its NUL
+constexpr char kKeyDomain[] = "pp-mesh/dht/peer-routing/v1"; // followed by its NUL
 
 } // namespace
 
 std::optional<std::vector<uint8_t>> Base58Decode(const std::string_view text) {
-  std::vector<uint8_t> bytes;  // little-endian accumulator
+  std::vector<uint8_t> bytes; // little-endian accumulator
   for (const char c : text) {
     const size_t digit = kBase58Alphabet.find(c);
     if (digit == std::string_view::npos) {
@@ -33,7 +33,7 @@ std::optional<std::vector<uint8_t>> Base58Decode(const std::string_view text) {
       carry >>= 8;
     }
   }
-  for (const char c : text) {  // each leading '1' is a leading zero byte
+  for (const char c : text) { // each leading '1' is a leading zero byte
     if (c != '1') {
       break;
     }
@@ -52,7 +52,7 @@ std::optional<DhtKey> DhtKeyOfPeerId(const std::string_view peer_id) {
     return std::nullopt;
   }
   EnsureSodiumInit();
-  std::vector<uint8_t> input(kKeyDomain, kKeyDomain + sizeof(kKeyDomain));  // includes the NUL
+  std::vector<uint8_t> input(kKeyDomain, kKeyDomain + sizeof(kKeyDomain)); // includes the NUL
   input.insert(input.end(), multihash->begin(), multihash->end());
   DhtKey key{};
   crypto_generichash(key.data(), key.size(), input.data(), input.size(), nullptr, 0);

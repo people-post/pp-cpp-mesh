@@ -148,24 +148,30 @@ TEST_F(MediaRelayServerClientTest, AnAttachNeedsTheTokenThisChannelsAcceptIssued
     return session->EnqueueOutbound(std::vector<uint8_t>(json.begin(), json.end()));
   };
 
-  {  // No quote, no accept: an attach naming a call and a guessed token.
+  { // No quote, no accept: an attach naming a call and a guessed token.
     std::mutex mu;
     std::vector<std::string> replies;
     auto session = open_raw(replies, mu);
     ASSERT_NE(session, nullptr);
     ASSERT_TRUE(send(session, R"({"v":1,"op":"attach","session_token":"s1","call_id":"call-x","auth":"call-x"})"));
-    harness_->PumpUntil([&] { std::lock_guard lock(mu); return !replies.empty(); });
+    harness_->PumpUntil([&] {
+      std::lock_guard lock(mu);
+      return !replies.empty();
+    });
     std::lock_guard lock(mu);
     ASSERT_FALSE(replies.empty());
     EXPECT_EQ(replies.front().find(R"("ok":true)"), std::string::npos) << replies.front();
   }
-  {  // Quote and accept, then attach with another token.
+  { // Quote and accept, then attach with another token.
     std::mutex mu;
     std::vector<std::string> replies;
     auto session = open_raw(replies, mu);
     ASSERT_NE(session, nullptr);
     ASSERT_TRUE(send(session, R"({"v":1,"op":"quote","call_id":"call-y","participants":2})"));
-    harness_->PumpUntil([&] { std::lock_guard lock(mu); return !replies.empty(); });
+    harness_->PumpUntil([&] {
+      std::lock_guard lock(mu);
+      return !replies.empty();
+    });
     std::string quote_id;
     {
       std::lock_guard lock(mu);
@@ -176,7 +182,10 @@ TEST_F(MediaRelayServerClientTest, AnAttachNeedsTheTokenThisChannelsAcceptIssued
     }
     ASSERT_FALSE(quote_id.empty());
     ASSERT_TRUE(send(session, R"({"v":1,"op":"accept","quote_id":")" + quote_id + R"("})"));
-    harness_->PumpUntil([&] { std::lock_guard lock(mu); return replies.size() >= 2; });
+    harness_->PumpUntil([&] {
+      std::lock_guard lock(mu);
+      return replies.size() >= 2;
+    });
     {
       std::lock_guard lock(mu);
       ASSERT_GE(replies.size(), 2u);
@@ -185,7 +194,10 @@ TEST_F(MediaRelayServerClientTest, AnAttachNeedsTheTokenThisChannelsAcceptIssued
       EXPECT_EQ(accept->getString("session_token").value_or("").rfind("s-", 0), 0u) << "an unguessable token";
     }
     ASSERT_TRUE(send(session, R"({"v":1,"op":"attach","session_token":"s-guess","call_id":"call-y","auth":"call-y"})"));
-    harness_->PumpUntil([&] { std::lock_guard lock(mu); return replies.size() >= 3; });
+    harness_->PumpUntil([&] {
+      std::lock_guard lock(mu);
+      return replies.size() >= 3;
+    });
     std::lock_guard lock(mu);
     ASSERT_GE(replies.size(), 3u);
     EXPECT_EQ(replies.back().find(R"("ok":true)"), std::string::npos) << replies.back();
@@ -226,16 +238,16 @@ TEST_F(MediaRelayServerClientTest, ChannelEndingAfterTheServerIsFreedDoesNotTouc
   });
   ASSERT_TRUE(channel.has_value());
 
-  hop_client_->Stop();  // holds the server (local hop)
+  hop_client_->Stop(); // holds the server (local hop)
   hop_client_.reset();
   hop_->Stop();
-  hop_.reset();  // the hop's inbound channel is still bound, mid-handshake
+  hop_.reset(); // the hop's inbound channel is still bound, mid-handshake
 
   auto* link = harness_->mgr_a().FindLink("hop");
   ASSERT_TRUE(link && link->Mux());
   ASSERT_TRUE(static_cast<bool>(link->Mux()->CloseChannel(*channel)));
   for (int i = 0; i < 50; ++i) {
-    harness_->PumpBoth();  // the hop sees the CLOSE: its closed callback runs
+    harness_->PumpBoth(); // the hop sees the CLOSE: its closed callback runs
   }
 }
 
@@ -253,9 +265,9 @@ TEST_F(MediaRelayServerClientTest, LocalHopFanoutRoundTrip) {
 
   std::atomic<int> guest_frames{0};
   Wait<MediaRelayAttachResult> attach_wait;
-  ASSERT_TRUE(client_->StartAttach("hop", quote_wait.result->quote_id, call_id, call_id,
-                                   [&guest_frames](MediaDataFrame) { guest_frames.fetch_add(1); },
-                                   attach_wait.Fn(), 8000));
+  ASSERT_TRUE(client_->StartAttach(
+      "hop", quote_wait.result->quote_id, call_id, call_id,
+      [&guest_frames](MediaDataFrame) { guest_frames.fetch_add(1); }, attach_wait.Fn(), 8000));
   attach_wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(attach_wait.result);
 
@@ -509,7 +521,7 @@ TEST_F(AmpMediaRelayClientLossTest, ObserverStaysRegisteredAcrossAttaches) {
   });
   Attach("session-1");
   Attach("session-2");
-  hop_->Stop();  // hop goes away: the client channel dies
+  hop_->Stop(); // hop goes away: the client channel dies
   harness_->PumpUntil([&lost] { return lost.load() > 0; }, 800);
   EXPECT_EQ(lost.load(), 1);
   client_->RemoveClientTransportLostObserver(token);
@@ -569,9 +581,9 @@ TEST_F(AmpMediaRelayClientLossTest, EmptiedSessionAdmitsNonContactsOnlyWithinIts
   contacts_only.serve_scope_mask = kRelayScopeLinkSiteSocial;
   contacts_only.contact_peer_ids = {harness_->peer_id_a};
   hop_->SetAdmissionPolicy(contacts_only);
-  Attach("scoped-call");  // a contact opens the session
+  Attach("scoped-call"); // a contact opens the session
 
-  contacts_only.contact_peer_ids = {"someone-else"};  // the client is now a non-contact
+  contacts_only.contact_peer_ids = {"someone-else"}; // the client is now a non-contact
   hop_->SetAdmissionPolicy(contacts_only);
   auto quote = [this]() {
     MediaRelayQuoteRequest req;
@@ -606,7 +618,7 @@ TEST_F(AmpMediaRelayClientLossTest, PublishOnlyClientSurvivesLongSilenceFromTheH
     }
   });
   Attach("publish-only");
-  for (int i = 0; i < 12000; ++i) {  // 12 s of virtual time, nothing received from the hop
+  for (int i = 0; i < 12000; ++i) { // 12 s of virtual time, nothing received from the hop
     harness_->PumpBoth();
   }
   EXPECT_EQ(lost.load(), 0);
@@ -630,7 +642,7 @@ TEST_F(AmpMediaRelayClientLossTest, AWriteThatFailsTheChannelDoesNotDeadlockTheS
   oversized.payload.assign(32u * 1024u * 1024u, 0xAB);
   auto sent = std::async(std::launch::async, [&]() { return client_->SendFrame(oversized); });
   ASSERT_EQ(sent.wait_for(std::chrono::seconds(5)), std::future_status::ready) << "sender deadlocked";
-  (void)sent.get();  // queued, then the mux refused it and failed the channel
+  (void)sent.get(); // queued, then the mux refused it and failed the channel
   harness_->PumpUntil([&lost] { return lost.load() > 0; }, 200);
   EXPECT_EQ(lost.load(), 1);
   EXPECT_FALSE(client_->IsAttached());
@@ -650,8 +662,7 @@ TEST_F(MediaRelayServerClientTest, AQuoteSaysTheHopsLevel) {
   ASSERT_TRUE(client_->StartQuote("hop", req, wait.Fn(), 8000));
   wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(wait.result) << wait.result.error().message;
-  EXPECT_EQ(book.Load("hop", MeshService::MediaRelay, PeerLoadBook::NowMs()),
-            ServiceLoad::Open);
+  EXPECT_EQ(book.Load("hop", MeshService::MediaRelay, PeerLoadBook::NowMs()), ServiceLoad::Open);
 }
 
 // A full hop opens no new call: busy, and the refusal says full.
@@ -667,10 +678,8 @@ TEST_F(MediaRelayServerClientTest, AFullHopRefusesANewCallAndSaysSo) {
   ASSERT_TRUE(client_->StartQuote("hop", req, wait.Fn(), 8000));
   wait.PumpUntilDone(*harness_);
   ASSERT_FALSE(wait.result);
-  EXPECT_EQ(wait.result.error().GetCode(), MediaRelayErr::HopBusy)
-      << wait.result.error().message;
-  EXPECT_EQ(book.Load("hop", MeshService::MediaRelay, PeerLoadBook::NowMs()),
-            ServiceLoad::Full);
+  EXPECT_EQ(wait.result.error().GetCode(), MediaRelayErr::HopBusy) << wait.result.error().message;
+  EXPECT_EQ(book.Load("hop", MeshService::MediaRelay, PeerLoadBook::NowMs()), ServiceLoad::Full);
 }
 
 // A call the hop already hosts still takes its members when the hop is full:
@@ -685,8 +694,7 @@ TEST_F(MediaRelayServerClientTest, AFullHopStillTakesAMemberOfACallItHosts) {
   quote_wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(quote_wait.result) << quote_wait.result.error().message;
   Wait<MediaRelayAttachResult> attach_wait;
-  ASSERT_TRUE(client_->StartAttach("hop", quote_wait.result->quote_id,
-                                   req.session_id, req.session_id, {},
+  ASSERT_TRUE(client_->StartAttach("hop", quote_wait.result->quote_id, req.session_id, req.session_id, {},
                                    attach_wait.Fn(), 8000));
   attach_wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(attach_wait.result) << attach_wait.result.error().message;
@@ -695,8 +703,7 @@ TEST_F(MediaRelayServerClientTest, AFullHopStillTakesAMemberOfACallItHosts) {
   Wait<MediaRelayQuote> again;
   ASSERT_TRUE(client_->StartQuote("hop", req, again.Fn(), 8000));
   again.PumpUntilDone(*harness_);
-  EXPECT_TRUE(again.result)
-      << (again.result ? "" : again.result.error().message);
+  EXPECT_TRUE(again.result) << (again.result ? "" : again.result.error().message);
   MediaRelayQuoteRequest other;
   other.session_id = "call-other";
   Wait<MediaRelayQuote> refused;

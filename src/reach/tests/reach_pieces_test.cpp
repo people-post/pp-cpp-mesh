@@ -17,7 +17,8 @@ TEST(PunchIntroducerWalkTest, WithoutAMeshPunchesFailAtOnce) {
   ASSERT_TRUE(cold.has_value());
   EXPECT_FALSE(*cold);
   std::optional<PunchIntroducerWalk::WalkRoe> upgrade;
-  walk.TryUpgradePunchAsync("12D3KooWIntro", "12D3KooWTarget", [&](PunchIntroducerWalk::WalkRoe r) { upgrade = std::move(r); });
+  walk.TryUpgradePunchAsync("12D3KooWIntro", "12D3KooWTarget",
+                            [&](PunchIntroducerWalk::WalkRoe r) { upgrade = std::move(r); });
   ASSERT_TRUE(upgrade.has_value());
   EXPECT_FALSE(*upgrade);
 }

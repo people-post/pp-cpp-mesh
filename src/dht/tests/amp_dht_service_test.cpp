@@ -48,12 +48,11 @@ TEST(AmpDhtProtocolTest, FindPeerReturnsBootstrapRecord) {
   seed.Tick();
 
   SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait;
-  client.FindPeer(harness->peer_id_b,
-                  [&wait](AmpDhtProtocol::FindPeerRoe result) { wait.Finish(std::move(result)); });
+  client.FindPeer(harness->peer_id_b, [&wait](AmpDhtProtocol::FindPeerRoe result) { wait.Finish(std::move(result)); });
   harness->PumpUntil([&]() { return wait.IsSettled(); }, 1000);
 
-  auto found =
-      wait.Wait(std::chrono::seconds(5), AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "find_peer timed out"));
+  auto found = wait.Wait(std::chrono::seconds(5),
+                         AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "find_peer timed out"));
   ASSERT_TRUE(static_cast<bool>(found)) << found.error().message;
   EXPECT_EQ(found->peer_id, harness->peer_id_b);
   EXPECT_FALSE(found->record.multiaddrs.empty());
@@ -93,14 +92,13 @@ TEST(AmpDhtProtocolTest, LookupToASilentPeerSettlesAndFreesItsSlot) {
   client.Configure(client_cfg);
   client.Start();
 
-  for (int i = 0; i < 6; ++i) {  // more than the default 4 concurrent lookups
+  for (int i = 0; i < 6; ++i) { // more than the default 4 concurrent lookups
     SettledWait<DhtFindPeerResult, AmpDhtProtocol::Failure> wait;
-    client.FindPeer("QmSomeoneElse",
-                    [&wait](AmpDhtProtocol::FindPeerRoe result) { wait.Finish(std::move(result)); });
+    client.FindPeer("QmSomeoneElse", [&wait](AmpDhtProtocol::FindPeerRoe result) { wait.Finish(std::move(result)); });
     harness->PumpUntil([&]() { return wait.IsSettled(); }, 30000);
     ASSERT_TRUE(wait.IsSettled()) << "lookup " << i << " never settled";
-    auto found = wait.Wait(std::chrono::seconds(1),
-                           AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "unsettled"));
+    auto found =
+        wait.Wait(std::chrono::seconds(1), AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "unsettled"));
     ASSERT_FALSE(static_cast<bool>(found));
     EXPECT_NE(found.error().GetCode(), AmpDhtProtocol::Err::ConcurrencyLimit) << "lookup " << i;
   }
@@ -137,10 +135,12 @@ TEST(AmpDhtProtocolTest, ParticipantsEnterTheRoutingTable) {
   configure(node_b, h->peer_id_b, h->ma_b, h->bob, {h->peer_id_r});
 
   // Each publishes to R (a store) and looks R up (R answers with its own record).
-  h->PumpUntil([&]() {
-    return node_r.RoutingTable().Contains(h->peer_id_a) && node_r.RoutingTable().Contains(h->peer_id_b) &&
-           node_a.RoutingTable().Contains(h->peer_id_r) && node_b.RoutingTable().Contains(h->peer_id_r);
-  }, 4000);
+  h->PumpUntil(
+      [&]() {
+        return node_r.RoutingTable().Contains(h->peer_id_a) && node_r.RoutingTable().Contains(h->peer_id_b) &&
+               node_a.RoutingTable().Contains(h->peer_id_r) && node_b.RoutingTable().Contains(h->peer_id_r);
+      },
+      4000);
   EXPECT_TRUE(node_r.RoutingTable().Contains(h->peer_id_a));
   EXPECT_TRUE(node_r.RoutingTable().Contains(h->peer_id_b));
   ASSERT_TRUE(node_a.RoutingTable().Contains(h->peer_id_r));
@@ -181,10 +181,12 @@ TEST(AmpDhtProtocolTest, ALookupFollowsCloserPeersAndCachesTheMiss) {
   configure(node_r, h->peer_id_r, h->ma_r, h->relay, {});
   configure(node_a, h->peer_id_a, h->ma_a, h->alice, {h->peer_id_r});
   configure(node_b, h->peer_id_b, h->ma_b, h->bob, {h->peer_id_r});
-  h->PumpUntil([&]() {
-    return node_r.RoutingTable().Contains(h->peer_id_a) && node_r.RoutingTable().Contains(h->peer_id_b) &&
-           node_a.RoutingTable().Contains(h->peer_id_r);
-  }, 4000);
+  h->PumpUntil(
+      [&]() {
+        return node_r.RoutingTable().Contains(h->peer_id_a) && node_r.RoutingTable().Contains(h->peer_id_b) &&
+               node_a.RoutingTable().Contains(h->peer_id_r);
+      },
+      4000);
   ASSERT_TRUE(node_r.RoutingTable().Contains(h->peer_id_b));
   ASSERT_FALSE(node_a.RoutingTable().Contains(h->peer_id_b));
 
@@ -219,7 +221,7 @@ TEST(AmpDhtProtocolTest, ARecordIsPublishedAtTheClosestBehindTheGate) {
   auto created = pp::mesh::test::AmpMeshTripleHarness::Create();
   ASSERT_TRUE(static_cast<bool>(created)) << created.error().message;
   auto h = std::move(*created);
-  h->ep_a->SetAcceptEnabled(true);  // A takes part: it is dialled at its published address
+  h->ep_a->SetAcceptEnabled(true); // A takes part: it is dialled at its published address
   ASSERT_TRUE(static_cast<bool>(h->mgr_a().RegisterEndpoint(h->peer_id_r, h->ma_r)));
   ASSERT_TRUE(static_cast<bool>(h->mgr_b().RegisterEndpoint(h->peer_id_r, h->ma_r)));
 
@@ -263,8 +265,9 @@ TEST(AmpDhtProtocolTest, ARecordIsPublishedAtTheClosestBehindTheGate) {
   open = true;
   std::this_thread::sleep_for(std::chrono::milliseconds(DhtClient::kGateCheckMs + 50));
   node_b.Tick();
-  h->PumpUntil([&]() { return node_a.LocalRecord(h->peer_id_b).has_value() && node_r.LocalRecord(h->peer_id_b).has_value(); },
-               4000);
+  h->PumpUntil(
+      [&]() { return node_a.LocalRecord(h->peer_id_b).has_value() && node_r.LocalRecord(h->peer_id_b).has_value(); },
+      4000);
   ASSERT_TRUE(node_a.LocalRecord(h->peer_id_b).has_value()) << "stored at A, found by B's walk via R";
   ASSERT_TRUE(node_r.LocalRecord(h->peer_id_b).has_value());
   EXPECT_EQ(node_b.Stats().last_publish_targets, 2u);
@@ -390,8 +393,8 @@ TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
   node_a.FindPeer(harness->peer_id_b,
                   [&wait_a](AmpDhtProtocol::FindPeerRoe result) { wait_a.Finish(std::move(result)); });
   harness->PumpUntil([&]() { return wait_a.IsSettled(); }, 2000);
-  auto found_b = wait_a.Wait(std::chrono::seconds(5), AmpDhtProtocol::Failure::Of(
-                                                          AmpDhtProtocol::Err::Timeout, "find_peer A→B timed out"));
+  auto found_b = wait_a.Wait(std::chrono::seconds(5),
+                             AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "find_peer A→B timed out"));
   ASSERT_TRUE(static_cast<bool>(found_b)) << found_b.error().message;
 
   node_b.Tick();
@@ -399,8 +402,8 @@ TEST(AmpDhtProtocolTest, MutualDiscoverViaStoreAndWarmFindPeer) {
   node_b.FindPeer(harness->peer_id_a,
                   [&wait_b](AmpDhtProtocol::FindPeerRoe result) { wait_b.Finish(std::move(result)); });
   harness->PumpUntil([&]() { return wait_b.IsSettled(); }, 2000);
-  auto found_a = wait_b.Wait(std::chrono::seconds(5), AmpDhtProtocol::Failure::Of(
-                                                          AmpDhtProtocol::Err::Timeout, "find_peer B→A timed out"));
+  auto found_a = wait_b.Wait(std::chrono::seconds(5),
+                             AmpDhtProtocol::Failure::Of(AmpDhtProtocol::Err::Timeout, "find_peer B→A timed out"));
   ASSERT_TRUE(static_cast<bool>(found_a)) << found_a.error().message;
 
   auto a_has_b = node_a.LocalRecord(harness->peer_id_b);
@@ -435,8 +438,7 @@ TEST(AmpDhtProtocolTest, WrapLinkFailureMapsCodes) {
             AmpDhtProtocol::Err::Timeout);
   EXPECT_EQ(AmpDhtProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux")).GetCode(),
             AmpDhtProtocol::Err::ChannelFailed);
-  const auto wrapped =
-      AmpDhtProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::AssociationNotReady, "not ready"));
+  const auto wrapped = AmpDhtProtocol::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::AssociationNotReady, "not ready"));
   EXPECT_EQ(wrapped.GetCode(), AmpDhtProtocol::Err::LinkFailed);
   EXPECT_NE(wrapped.message.find("[link:"), std::string::npos);
 }

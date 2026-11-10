@@ -19,8 +19,7 @@ using MeshIoAfter = std::function<void(std::chrono::milliseconds, std::function<
  * Tick/Drive from L4 SM / PostToIo work — nested Drive is refused.
  * Harness sync facades may pass PumpAll only when the waiter thread *is* the sole Amp driver.
  */
-inline void AmpParkUntil(const std::function<bool()>& done,
-                         const std::chrono::steady_clock::time_point deadline,
+inline void AmpParkUntil(const std::function<bool()>& done, const std::chrono::steady_clock::time_point deadline,
                          const std::function<void()>& io_pump = {}) {
   while (!done() && std::chrono::steady_clock::now() < deadline) {
     if (io_pump) {
@@ -36,11 +35,9 @@ inline void AmpParkUntil(const std::function<bool()>& done,
  * When `post_io` is set (MeshRuntime::PostToIo), poll via io queue. Otherwise AmpParkUntil.
  */
 inline void AmpScheduleWhenChannelOpen(const std::function<void(std::function<void()>)>& post_io,
-                                       const std::function<void()>& io_pump,
-                                       const std::function<bool()>& is_open,
+                                       const std::function<void()>& io_pump, const std::function<bool()>& is_open,
                                        const std::chrono::steady_clock::time_point deadline,
-                                       std::function<void(bool open)> done,
-                                       const std::function<bool()>& aborted = {}) {
+                                       std::function<void(bool open)> done, const std::function<bool()>& aborted = {}) {
   if (!done) {
     return;
   }
@@ -49,8 +46,7 @@ inline void AmpScheduleWhenChannelOpen(const std::function<void(std::function<vo
       done(false);
       return;
     }
-    AmpParkUntil(
-        [&] { return (aborted && aborted()) || is_open(); }, deadline, io_pump);
+    AmpParkUntil([&] { return (aborted && aborted()) || is_open(); }, deadline, io_pump);
     if (aborted && aborted()) {
       done(false);
       return;
@@ -89,8 +85,7 @@ inline void AmpScheduleUntilSettled(const std::function<void(std::function<void(
                                     const std::function<void()>& /*io_pump*/,
                                     const std::shared_ptr<std::atomic<bool>>& settled,
                                     const std::chrono::steady_clock::time_point deadline,
-                                    std::function<void()> on_timeout,
-                                    const MeshIoAfter& io_after = {}) {
+                                    std::function<void()> on_timeout, const MeshIoAfter& io_after = {}) {
   if (!settled) {
     return;
   }

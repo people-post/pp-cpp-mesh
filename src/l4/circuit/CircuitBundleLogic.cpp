@@ -71,15 +71,15 @@ CircuitTunnelCloseDecision DecideCircuitTunnelClose(const CircuitTunnelCloseCont
 
 bool CircuitTunnelPhaseIsActive(const CircuitTunnelPhase phase) {
   switch (phase) {
-  case CircuitTunnelPhase::OutboundOpen:
-  case CircuitTunnelPhase::WaitAck:
-  case CircuitTunnelPhase::Reserved:
-  case CircuitTunnelPhase::ServeDial:
-  case CircuitTunnelPhase::Bridging:
-    return true;
-  case CircuitTunnelPhase::Idle:
-  case CircuitTunnelPhase::Closing:
-    return false;
+    case CircuitTunnelPhase::OutboundOpen:
+    case CircuitTunnelPhase::WaitAck:
+    case CircuitTunnelPhase::Reserved:
+    case CircuitTunnelPhase::ServeDial:
+    case CircuitTunnelPhase::Bridging:
+      return true;
+    case CircuitTunnelPhase::Idle:
+    case CircuitTunnelPhase::Closing:
+      return false;
   }
   return false;
 }

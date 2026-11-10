@@ -31,8 +31,7 @@ MediaRelayOpAdmitDecision DecideMediaRelayOpAdmit(const MediaRelayOpAdmitContext
   if (ctx.op != "quote" && ctx.op != "accept" && ctx.op != "attach") {
     return MediaRelayOpAdmitDecision::RefuseBadOp;
   }
-  const bool contact_ok =
-      RelayAdmissionAllowsDialer(ctx.serve_scope_mask, ctx.dialer_peer_id, ctx.contact_peer_ids);
+  const bool contact_ok = RelayAdmissionAllowsDialer(ctx.serve_scope_mask, ctx.dialer_peer_id, ctx.contact_peer_ids);
   if (!MediaRelayCallScopedAdmit(ctx.session_exists_for_call, contact_ok)) {
     return MediaRelayOpAdmitDecision::RefuseStranger;
   }
@@ -54,8 +53,7 @@ MediaRelayAttachAckDecision DecideMediaRelayAttachAck(const MediaRelayAttachAckC
 }
 
 MediaRelayBundleCloseDecision DecideMediaRelayBundleClose(const MediaRelayBundleCloseContext& ctx) {
-  if (ctx.finished || ctx.phase == MediaRelayBundlePhase::Idle ||
-      ctx.phase == MediaRelayBundlePhase::Closing) {
+  if (ctx.finished || ctx.phase == MediaRelayBundlePhase::Idle || ctx.phase == MediaRelayBundlePhase::Closing) {
     return MediaRelayBundleCloseDecision::Ignore;
   }
   if (ctx.local_cancel) {
@@ -69,18 +67,18 @@ MediaRelayBundleCloseDecision DecideMediaRelayBundleClose(const MediaRelayBundle
 
 bool MediaRelayBundlePhaseIsActive(const MediaRelayBundlePhase phase) {
   switch (phase) {
-  case MediaRelayBundlePhase::OutboundQuote:
-  case MediaRelayBundlePhase::WaitQuote:
-  case MediaRelayBundlePhase::OutboundAccept:
-  case MediaRelayBundlePhase::WaitAccept:
-  case MediaRelayBundlePhase::OutboundAttach:
-  case MediaRelayBundlePhase::WaitAttachAck:
-  case MediaRelayBundlePhase::Attached:
-  case MediaRelayBundlePhase::HostServe:
-    return true;
-  case MediaRelayBundlePhase::Idle:
-  case MediaRelayBundlePhase::Closing:
-    return false;
+    case MediaRelayBundlePhase::OutboundQuote:
+    case MediaRelayBundlePhase::WaitQuote:
+    case MediaRelayBundlePhase::OutboundAccept:
+    case MediaRelayBundlePhase::WaitAccept:
+    case MediaRelayBundlePhase::OutboundAttach:
+    case MediaRelayBundlePhase::WaitAttachAck:
+    case MediaRelayBundlePhase::Attached:
+    case MediaRelayBundlePhase::HostServe:
+      return true;
+    case MediaRelayBundlePhase::Idle:
+    case MediaRelayBundlePhase::Closing:
+      return false;
   }
   return false;
 }
@@ -113,8 +111,7 @@ bool MediaRelayQuoteBook::Add(const MediaRelayQuote& quote, const std::string& c
   if (entries_.size() >= capacity_) {
     return false;
   }
-  if (auto held = per_requester_.find(requester);
-      held != per_requester_.end() && held->second >= per_peer_capacity_) {
+  if (auto held = per_requester_.find(requester); held != per_requester_.end() && held->second >= per_peer_capacity_) {
     return false;
   }
   if (auto existing = entries_.find(quote.quote_id); existing != entries_.end()) {
@@ -133,7 +130,8 @@ const MediaRelayQuoteBook::Entry* MediaRelayQuoteBook::Find(const std::string& q
   return &it->second;
 }
 
-std::optional<MediaRelayQuoteBook::Entry> MediaRelayQuoteBook::Take(const std::string& quote_id, Clock::time_point now) {
+std::optional<MediaRelayQuoteBook::Entry> MediaRelayQuoteBook::Take(const std::string& quote_id,
+                                                                    Clock::time_point now) {
   auto it = entries_.find(quote_id);
   if (it == entries_.end()) {
     return std::nullopt;
@@ -162,4 +160,3 @@ MediaRelayQuoteBook::Entries::iterator MediaRelayQuoteBook::Erase(Entries::itera
 }
 
 } // namespace pp::mesh
-

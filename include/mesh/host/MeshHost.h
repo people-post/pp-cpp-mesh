@@ -147,11 +147,11 @@ public:
    * set the pressures they see, a tick adds the link table's, and an operator
    * adds more (CPU, uplink) or drains it. They say the level in their replies.
    */
-  ServiceLoadMonitor &OwnLoad() { return own_load_; }
+  ServiceLoadMonitor& OwnLoad() { return own_load_; }
   /** What other nodes said about their own load, as this host's clients heard
    * it. */
-  PeerLoadBook &PeerLoads() { return peer_loads_; }
-  const PeerLoadBook &PeerLoads() const { return peer_loads_; }
+  PeerLoadBook& PeerLoads() { return peer_loads_; }
+  const PeerLoadBook& PeerLoads() const { return peer_loads_; }
   /** Amp dial-back for reachability chrome (D8); null when Amp is down. */
   DialBackClient* AmpDialBack();
   /** Amp coordinated punch (H009 / L3.25a); null when Amp is down. */
@@ -289,6 +289,10 @@ private:
   /** Samples the link table's pressure into own_load_ (once a second). */
   pp::amp::MeshRuntime::IoTickId load_tick_ = 0;
   size_t max_links_ = 0;
+  /** This host serves others (seed, relay, DHT, directory): its link table and the admission gate are a server's. */
+  bool serves_others_ = false;
+  /** The pump's busy share reached full (load tick): new inbound links are refused before their handshake. */
+  std::atomic<bool> pump_saturated_{false};
   /** The bound socket (shared with the stack), for its buffers and kernel drops. */
   std::shared_ptr<pp::adp::DatagramIo> io_;
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;

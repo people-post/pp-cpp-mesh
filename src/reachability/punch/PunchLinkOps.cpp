@@ -62,9 +62,7 @@ void PublishIfPunchConnected(pp::amp::PeerLinkManager& links, const std::string&
   burst.dialed = winner;
 }
 
-
-PunchFailure WrapPunchLinkFailure(
-    const pp::amp::PeerLinkManager::Failure& child) {
+PunchFailure WrapPunchLinkFailure(const pp::amp::PeerLinkManager::Failure& child) {
   using Err = PunchErr;
   using Failure = PunchFailure;
   switch (child.GetCode()) {
@@ -74,8 +72,7 @@ PunchFailure WrapPunchLinkFailure(
     case pp::amp::PeerLinkManager::Err::DialTimeout:
       return Failure::Of(Err::Timeout, detail::AppendFrom("punch: dial timed out", "link", child.message));
     case pp::amp::PeerLinkManager::Err::ChannelOpenFailed:
-      return Failure::Of(Err::ChannelFailed,
-                         detail::AppendFrom("punch: channel open failed", "link", child.message));
+      return Failure::Of(Err::ChannelFailed, detail::AppendFrom("punch: channel open failed", "link", child.message));
     case pp::amp::PeerLinkManager::Err::DualDialLost:
       return Failure::Of(Err::PunchFailed, detail::AppendFrom("punch: dual-dial lost", "link", child.message));
     case pp::amp::PeerLinkManager::Err::DialInBackoff:

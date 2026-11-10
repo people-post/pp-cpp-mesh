@@ -10,9 +10,8 @@
 TEST(CircuitHopAttemptBudgetTest, OrderStickyThenConnectedThenRest) {
   const std::vector<std::string> in = {"a", "b", "c", "d"};
   const std::unordered_set<std::string> connected = {"c", "d"};
-  const auto out = pp::mesh::OrderCircuitRelayAttempts(in, "b", [&](const std::string& key) {
-    return connected.count(key) > 0;
-  });
+  const auto out =
+      pp::mesh::OrderCircuitRelayAttempts(in, "b", [&](const std::string& key) { return connected.count(key) > 0; });
   ASSERT_EQ(out.size(), 4u);
   EXPECT_EQ(out[0], "b");
   EXPECT_EQ(out[1], "c");
@@ -22,9 +21,7 @@ TEST(CircuitHopAttemptBudgetTest, OrderStickyThenConnectedThenRest) {
 
 TEST(CircuitHopAttemptBudgetTest, OrderWithoutStickyKeepsConnectedFirst) {
   const std::vector<std::string> in = {"a", "b", "c"};
-  const auto out = pp::mesh::OrderCircuitRelayAttempts(in, "", [](const std::string& key) {
-    return key == "c";
-  });
+  const auto out = pp::mesh::OrderCircuitRelayAttempts(in, "", [](const std::string& key) { return key == "c"; });
   ASSERT_EQ(out.size(), 3u);
   EXPECT_EQ(out[0], "c");
   EXPECT_EQ(out[1], "a");
@@ -85,8 +82,8 @@ TEST(CircuitHopAttemptBudgetTest, StickyRetryOnceOnFastFail) {
   EXPECT_FALSE(pp::mesh::CircuitShouldRetryStickyOnce("seed", "seed", true, true, 2));
   EXPECT_FALSE(pp::mesh::CircuitShouldRetryStickyOnce("other", "seed", false, true, 1));
   EXPECT_FALSE(pp::mesh::CircuitShouldRetryStickyOnce("seed", "seed", false, false, 1));
-  EXPECT_FALSE(pp::mesh::CircuitShouldRetryStickyOnce("seed", "seed", false, true,
-                                                 pp::mesh::kCircuitMaxStartBridgeAttempts));
+  EXPECT_FALSE(
+      pp::mesh::CircuitShouldRetryStickyOnce("seed", "seed", false, true, pp::mesh::kCircuitMaxStartBridgeAttempts));
 }
 
 // pp-browser #379: a peer that refused a circuit goes behind the others until its hold ends or it

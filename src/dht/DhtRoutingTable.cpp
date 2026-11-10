@@ -39,8 +39,7 @@ DhtKey DhtRoutingTable::SelfKey() const {
   return self_key_.value_or(DhtKey{});
 }
 
-DhtRoutingTable::Bucket* DhtRoutingTable::BucketOfLocked(const std::string& peer_id,
-                                                         std::optional<DhtKey>* key_out) {
+DhtRoutingTable::Bucket* DhtRoutingTable::BucketOfLocked(const std::string& peer_id, std::optional<DhtKey>* key_out) {
   if (!self_key_ || peer_id.empty() || peer_id == self_peer_id_) {
     return nullptr;
   }
@@ -84,7 +83,7 @@ std::string DhtRoutingTable::SubnetOf(const std::string& multiaddr) {
 }
 
 DhtRoutingTable::HeardResult DhtRoutingTable::NoteHeard(const std::string& peer_id, const std::string& multiaddr,
-                                                    const int64_t now_ms) {
+                                                        const int64_t now_ms) {
   HeardResult result;
   std::lock_guard lock(mutex_);
   std::optional<DhtKey> key;
@@ -101,7 +100,7 @@ DhtRoutingTable::HeardResult DhtRoutingTable::NoteHeard(const std::string& peer_
       contact.multiaddr = multiaddr;
     }
     bucket.contacts.erase(it);
-    bucket.contacts.push_back(std::move(contact));  // most recently heard last
+    bucket.contacts.push_back(std::move(contact)); // most recently heard last
     result.heard = Heard::Updated;
     return result;
   }
@@ -110,7 +109,7 @@ DhtRoutingTable::HeardResult DhtRoutingTable::NoteHeard(const std::string& peer_
     const auto same_subnet = std::count_if(bucket.contacts.begin(), bucket.contacts.end(),
                                            [&](const DhtContact& c) { return SubnetOf(c.multiaddr) == subnet; });
     if (static_cast<size_t>(same_subnet) >= kMaxPerSubnet) {
-      return result;  // Rejected: that subnet holds its share of this bucket
+      return result; // Rejected: that subnet holds its share of this bucket
     }
   }
   DhtContact contact{peer_id, *key, multiaddr, now_ms};
@@ -180,8 +179,8 @@ std::vector<int> DhtRoutingTable::StaleBuckets(const int64_t older_than_ms) cons
   std::vector<int> stale;
   for (size_t i = 0; i < buckets_.size(); ++i) {
     const auto& contacts = buckets_[i].contacts;
-    if (!contacts.empty() &&
-        std::all_of(contacts.begin(), contacts.end(), [&](const DhtContact& c) { return c.last_heard_ms < older_than_ms; })) {
+    if (!contacts.empty() && std::all_of(contacts.begin(), contacts.end(),
+                                         [&](const DhtContact& c) { return c.last_heard_ms < older_than_ms; })) {
       stale.push_back(static_cast<int>(i));
     }
   }
@@ -197,7 +196,9 @@ size_t DhtRoutingTable::Size() const {
   return n;
 }
 
-bool DhtRoutingTable::Contains(const std::string& peer_id) const { return Find(peer_id).has_value(); }
+bool DhtRoutingTable::Contains(const std::string& peer_id) const {
+  return Find(peer_id).has_value();
+}
 
 std::optional<DhtContact> DhtRoutingTable::Find(const std::string& peer_id) const {
   std::lock_guard lock(mutex_);

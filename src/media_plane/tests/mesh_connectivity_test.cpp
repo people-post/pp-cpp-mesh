@@ -23,7 +23,9 @@ TEST(MeshConnectivityTest, ListenBookMergesAndRegistersDirectEndpointsWithoutADi
   MeshConnectivity connectivity;
   std::vector<std::pair<std::string, std::string>> registered;
   MeshConnectivityDeps deps;
-  deps.register_direct_endpoint = [&](const std::string& key, const std::string& ma) { registered.emplace_back(key, ma); };
+  deps.register_direct_endpoint = [&](const std::string& key, const std::string& ma) {
+    registered.emplace_back(key, ma);
+  };
   connectivity.SetDeps(std::move(deps));
 
   const std::string pub = Ma("203.0.113.7", 4001);
@@ -44,7 +46,8 @@ TEST(MeshConnectivityTest, ListenBookMergesAndRegistersDirectEndpointsWithoutADi
 TEST(MeshConnectivityTest, EmptyInputsRegisterNothing) {
   MeshConnectivity connectivity;
   std::string peer_id = "unset";
-  connectivity.RegisterPeerListenMultiaddrs("", {Ma("203.0.113.7", 4001)}, [&peer_id](const std::string& id) { peer_id = id; });
+  connectivity.RegisterPeerListenMultiaddrs("", {Ma("203.0.113.7", 4001)},
+                                            [&peer_id](const std::string& id) { peer_id = id; });
   EXPECT_TRUE(peer_id.empty());
   peer_id = "unset";
   connectivity.RegisterPeerListenMultiaddrs("account:bob", {}, [&peer_id](const std::string& id) { peer_id = id; });
@@ -80,7 +83,7 @@ TEST(MeshConnectivityTest, HopPolicyIsTheAppsPushedSnapshot) {
     ASSERT_EQ(connectivity.HopPolicy()->Seeds().size(), 1u);
     EXPECT_EQ(connectivity.HopPolicy()->Seeds().front().peer_id, "12D3KooWSeedA");
 
-    connectivity.Wire();  // no mesh: nothing wired; the pushed policy stays
+    connectivity.Wire(); // no mesh: nothing wired; the pushed policy stays
     ASSERT_EQ(connectivity.HopPolicy()->Seeds().size(), 1u);
     connectivity.Clear();
     EXPECT_TRUE(connectivity.HopPolicy()->Seeds().empty()) << "teardown drops it";

@@ -62,7 +62,7 @@ TEST(MeshHostThreadingTest, AttachInstallsControlWithoutPump) {
   auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
-  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()};  // manual drive: L4 work inline
+  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()}; // manual drive: L4 work inline
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
   EXPECT_FALSE(host.MeshPumpRunning());
 
@@ -100,7 +100,7 @@ TEST(MeshHostThreadingTest, MeshPumpIsTheOnlyDriver) {
   EXPECT_TRUE(ran.get()) << "the lane's work runs on the pump";
 
   const uint64_t refused = runtime.RefusedDrives();
-  host.Tick();  // a second driver
+  host.Tick(); // a second driver
   EXPECT_EQ(runtime.RefusedDrives(), refused + 1);
   host.Stop();
 }
@@ -110,10 +110,12 @@ TEST(MeshHostThreadingTest, MeshPumpIsTheOnlyDriver) {
 TEST(MeshPumpThreadTest, AFullDrainIsFollowedAtOnce) {
   std::atomic<int> ticks{0};
   MeshPumpThread pump;
-  pump.Start([&ticks]() {
-    ++ticks;
-    return true;  // always more waiting
-  }, std::chrono::milliseconds(50));
+  pump.Start(
+      [&ticks]() {
+        ++ticks;
+        return true; // always more waiting
+      },
+      std::chrono::milliseconds(50));
   std::this_thread::sleep_for(std::chrono::milliseconds(120));
   pump.Stop();
   EXPECT_GT(ticks.load(), 20) << "an idle pump would have ticked about 3 times";
@@ -122,14 +124,16 @@ TEST(MeshPumpThreadTest, AFullDrainIsFollowedAtOnce) {
 // The busy share is the part of a second spent in ticks: near 1 for a pump that never catches up, near 0 when idle.
 TEST(MeshPumpThreadTest, TheBusyShareFollowsTheTicks) {
   MeshPumpThread busy;
-  busy.Start([]() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    return true;
-  }, std::chrono::milliseconds(5));
+  busy.Start(
+      []() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return true;
+      },
+      std::chrono::milliseconds(5));
   MeshPumpThread idle;
   idle.Start([]() { return false; }, std::chrono::milliseconds(5));
   std::this_thread::sleep_for(std::chrono::milliseconds(2300));
-  EXPECT_GT(busy.BusyFraction(), 0.8);  // near 1; a scheduler's yield takes its share (0.89 on macos-15)
+  EXPECT_GT(busy.BusyFraction(), 0.8); // near 1; a scheduler's yield takes its share (0.89 on macos-15)
   EXPECT_LT(idle.BusyFraction(), 0.2);
   busy.Stop();
   idle.Stop();
@@ -138,10 +142,12 @@ TEST(MeshPumpThreadTest, TheBusyShareFollowsTheTicks) {
 TEST(MeshPumpThreadTest, StartStopJoins) {
   std::atomic<int> ticks{0};
   MeshPumpThread pump;
-  pump.Start([&ticks]() {
-    ++ticks;
-    return false;
-  }, std::chrono::milliseconds(5));
+  pump.Start(
+      [&ticks]() {
+        ++ticks;
+        return false;
+      },
+      std::chrono::milliseconds(5));
   EXPECT_TRUE(pump.IsRunning());
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
   while (ticks.load(std::memory_order_acquire) < 3 && std::chrono::steady_clock::now() < deadline) {

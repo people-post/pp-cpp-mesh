@@ -87,7 +87,9 @@ std::string EncodePunchResult(const PunchResult& msg) {
   return common::DumpJson(o);
 }
 
-std::optional<std::string> PunchOp(const common::Object& root) { return root.getString("op"); }
+std::optional<std::string> PunchOp(const common::Object& root) {
+  return root.getString("op");
+}
 
 int PunchWindowMs(const common::Object& root) {
   // PB-019: the burst runs for the window the peer names; a peer cannot make it run for hours.
@@ -141,7 +143,7 @@ std::optional<PunchSync> DecodePunchSync(const common::Object& root) {
   }
   PunchSync msg;
   msg.epoch_id = root.getString("epoch_id").value_or("");
-  msg.peer_addrs = DialablePunchAddrs(ReadAddrs(root, "peer_addrs"));  // burst + registered as endpoints
+  msg.peer_addrs = DialablePunchAddrs(ReadAddrs(root, "peer_addrs")); // burst + registered as endpoints
   msg.window_ms = PunchWindowMs(root);
   if (msg.epoch_id.empty()) {
     return std::nullopt;
@@ -243,11 +245,12 @@ void PublishPunchWinnerAddrs(pp::amp::PeerLinkManager& links, const std::string&
   }
 }
 
-std::optional<std::string> PickPunchIntroducer(
-    const std::vector<std::string>& contact_peer_ids, const std::vector<std::string>& seed_peer_ids,
-    const std::string& exclude_peer_id, const std::function<bool(const std::string&)>& has_endpoint,
-    const std::function<bool(const std::string&)>& is_connected,
-    const std::unordered_set<std::string>& also_exclude) {
+std::optional<std::string> PickPunchIntroducer(const std::vector<std::string>& contact_peer_ids,
+                                               const std::vector<std::string>& seed_peer_ids,
+                                               const std::string& exclude_peer_id,
+                                               const std::function<bool(const std::string&)>& has_endpoint,
+                                               const std::function<bool(const std::string&)>& is_connected,
+                                               const std::unordered_set<std::string>& also_exclude) {
   auto pick = [&](const std::vector<std::string>& ids, bool require_connected) -> std::optional<std::string> {
     for (const std::string& id : ids) {
       if (id.empty() || id == exclude_peer_id || also_exclude.count(id) > 0) {

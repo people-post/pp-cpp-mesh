@@ -9,9 +9,8 @@
 TEST(CircuitRendezvousPolicyTest, ParkOrderConnectedFirstStable) {
   const std::vector<std::string> in = {"a", "b", "c", "d"};
   const std::unordered_set<std::string> connected = {"c", "a"};
-  const auto out = pp::mesh::OrderRendezvousParkAttempts(in, [&](const std::string& key) {
-    return connected.count(key) > 0;
-  });
+  const auto out =
+      pp::mesh::OrderRendezvousParkAttempts(in, [&](const std::string& key) { return connected.count(key) > 0; });
   ASSERT_EQ(out.size(), 4u);
   EXPECT_EQ(out[0], "a");
   EXPECT_EQ(out[1], "c");
@@ -22,9 +21,8 @@ TEST(CircuitRendezvousPolicyTest, ParkOrderConnectedFirstStable) {
 TEST(CircuitRendezvousPolicyTest, ParkOrderStickyThenConnected) {
   const std::vector<std::string> in = {"a", "b", "c", "d"};
   const std::unordered_set<std::string> connected = {"c"};
-  const auto out = pp::mesh::OrderRendezvousParkAttempts(in, "b", [&](const std::string& key) {
-    return connected.count(key) > 0;
-  });
+  const auto out =
+      pp::mesh::OrderRendezvousParkAttempts(in, "b", [&](const std::string& key) { return connected.count(key) > 0; });
   ASSERT_EQ(out.size(), 4u);
   EXPECT_EQ(out[0], "b");
   EXPECT_EQ(out[1], "c");

@@ -3,14 +3,14 @@ namespace pp::mesh {
 
 const char* DirectAudienceName(const DirectAudience audience) {
   switch (audience) {
-  case DirectAudience::Everyone:
-    return "everyone";
-  case DirectAudience::Contacts:
-    return "contacts";
-  case DirectAudience::Friendly:
-    return "friendly";
-  case DirectAudience::Nobody:
-    return "nobody";
+    case DirectAudience::Everyone:
+      return "everyone";
+    case DirectAudience::Contacts:
+      return "contacts";
+    case DirectAudience::Friendly:
+      return "friendly";
+    case DirectAudience::Nobody:
+      return "nobody";
   }
   return "contacts";
 }
@@ -33,12 +33,12 @@ std::optional<DirectAudience> DirectAudienceFromName(const std::string_view name
 
 const char* InboundAudienceName(const InboundAudience audience) {
   switch (audience) {
-  case InboundAudience::Everyone:
-    return "everyone";
-  case InboundAudience::ContactsOnly:
-    return "contacts_only";
-  case InboundAudience::Nobody:
-    return "nobody";
+    case InboundAudience::Everyone:
+      return "everyone";
+    case InboundAudience::ContactsOnly:
+      return "contacts_only";
+    case InboundAudience::Nobody:
+      return "nobody";
   }
   return "everyone";
 }
@@ -61,14 +61,14 @@ bool AddressDisclosurePolicy::AllowsDirect(const std::string& peer_key) const {
     return false;
   }
   switch (audience) {
-  case DirectAudience::Everyone:
-    return true;
-  case DirectAudience::Contacts:
-    return contacts.contains(peer_key);
-  case DirectAudience::Friendly:
-    return friendly.contains(peer_key);
-  case DirectAudience::Nobody:
-    return false;
+    case DirectAudience::Everyone:
+      return true;
+    case DirectAudience::Contacts:
+      return contacts.contains(peer_key);
+    case DirectAudience::Friendly:
+      return friendly.contains(peer_key);
+    case DirectAudience::Nobody:
+      return false;
   }
   return false;
 }

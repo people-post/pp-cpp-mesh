@@ -73,8 +73,7 @@ TEST(CircuitBundleLogicTest, AdmitAllowsStrangerWhenPublicScope) {
   ctx.op = "bridge";
   ctx.dialer_peer_id = "stranger";
   ctx.contact_peer_ids = {"friend"};
-  ctx.serve_scope_mask =
-      kRelayScopeShortTerm | static_cast<RelayScopeMask>(RelayScope::Public);
+  ctx.serve_scope_mask = kRelayScopeShortTerm | static_cast<RelayScopeMask>(RelayScope::Public);
   EXPECT_EQ(DecideCircuitAdmit(ctx), CircuitAdmitDecision::Allow);
 }
 

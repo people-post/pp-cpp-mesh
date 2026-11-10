@@ -15,8 +15,7 @@ TEST(MeshHopDialTest, RelayAdmissionAllowsContactOrPublicStrangers) {
   EXPECT_TRUE(RelayAdmissionAllowsDialer(kRelayScopeVolunteerServe, "friend", contacts));
   EXPECT_FALSE(RelayAdmissionAllowsDialer(kRelayScopeVolunteerServe, "stranger", contacts));
   EXPECT_TRUE(RelayAdmissionAllowsDialer(kRelayScopeVolunteerServe, "stranger", {}));
-  const RelayScopeMask with_public =
-      kRelayScopeVolunteerServe | static_cast<RelayScopeMask>(RelayScope::Public);
+  const RelayScopeMask with_public = kRelayScopeVolunteerServe | static_cast<RelayScopeMask>(RelayScope::Public);
   EXPECT_TRUE(RelayAdmissionAllowsDialer(with_public, "stranger", contacts));
 }
 

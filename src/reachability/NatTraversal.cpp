@@ -64,8 +64,8 @@ UpnpMappingResult TryUpnpPortMapping(int internal_port, int external_port, const
   snprintf(int_port_str, sizeof(int_port_str), "%d", internal_port);
   snprintf(ext_port_str, sizeof(ext_port_str), "%d", external_port);
 
-  const int map_rc = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, ext_port_str, int_port_str,
-                                         lanaddr, "pp-mesh", protocol, nullptr, "86400");
+  const int map_rc = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, ext_port_str, int_port_str, lanaddr,
+                                         "pp-mesh", protocol, nullptr, "86400");
   FreeUPNPUrls(&urls);
   freeUPNPDevlist(devlist);
 
@@ -132,6 +132,8 @@ UpnpMappingResult TryUpnpUdpPortMapping(int internal_port, int external_port) {
   return TryUpnpPortMapping(internal_port, external_port, "UDP");
 }
 
-void ReleaseUpnpUdpPortMapping(int external_port) { ReleaseUpnpPortMapping(external_port, "UDP"); }
+void ReleaseUpnpUdpPortMapping(int external_port) {
+  ReleaseUpnpPortMapping(external_port, "UDP");
+}
 
 } // namespace pp::mesh
