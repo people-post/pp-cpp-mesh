@@ -289,6 +289,10 @@ private:
   /** Samples the link table's pressure into own_load_ (once a second). */
   pp::amp::MeshRuntime::IoTickId load_tick_ = 0;
   size_t max_links_ = 0;
+  /** This host serves others (seed, relay, DHT, directory): its link table and the admission gate are a server's. */
+  bool serves_others_ = false;
+  /** The pump's busy share reached full (load tick): new inbound links are refused before their handshake. */
+  std::atomic<bool> pump_saturated_{false};
   /** The bound socket (shared with the stack), for its buffers and kernel drops. */
   std::shared_ptr<pp::adp::DatagramIo> io_;
   std::unique_ptr<AmpDirectoryProtocol> amp_directory_;

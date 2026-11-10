@@ -240,7 +240,7 @@ struct CircuitClientCoordinator::Impl {
     }
   }
 
-  void NoteReserveReleased(Tunnel& tunnel) {
+  void NoteReserveReleased(Tunnel& tunnel, const bool local_cancel) {
     if (!tunnel.is_reserve || tunnel.phase != CircuitTunnelPhase::Reserved) {
       return;
     }
@@ -250,6 +250,14 @@ struct CircuitClientCoordinator::Impl {
     }
     if (--it->second <= 0) {
       reserved_relays.erase(it);
+      // The last park held here ended, not by our cancel (a renewal overlaps the one it replaces, so the count stays
+      // above 0): the relay lost us — crashed or restarted. What it said of its park is from before, and a restarted
+      // relay holds nothing: forget it, so the next round asks again instead of skipping an old "full" for 2 min.
+      if (!local_cancel) {
+        if (PeerLoadBook* book = loads.load(std::memory_order_acquire)) {
+          book->Forget(tunnel.relay_peer_key, MeshService::Park);
+        }
+      }
       runtime->Links().ClearWarm(tunnel.relay_peer_key);
       PostFinishCb(on_parked_changed);
     }
@@ -260,7 +268,7 @@ struct CircuitClientCoordinator::Impl {
    * consumer that adopted it (AmpCircuitHopRegistry). Otherwise close the near channel and report.
    */
   void TearDown(Tunnel& tunnel, const bool suppress_notify, const bool local_cancel, Failure failure) {
-    NoteReserveReleased(tunnel);
+    NoteReserveReleased(tunnel, local_cancel || tunnel.local_cancel);
     if (tunnel.finished) {
       tunnels.erase(tunnel.id.value);
       return;

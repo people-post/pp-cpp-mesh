@@ -113,5 +113,20 @@ TEST(ServiceLoadTest, AReplySaysEveryServiceTheNodeServes) {
   EXPECT_EQ(book.Load("old", MeshService::MediaRelay, now), ServiceLoad::Unknown);
 }
 
+// Forgetting one service of one peer (a park lost with its link): its other levels and the other peers' stay.
+TEST(ServiceLoadTest, ForgettingAPeerDropsOnlyWhatItSaid) {
+  PeerLoadBook book;
+  const int64_t now = 1000;
+  book.Note("seed", MeshService::Park, ServiceLoad::Full, now);
+  book.Note("seed", MeshService::MediaRelay, ServiceLoad::Full, now);
+  book.Note("other", MeshService::Park, ServiceLoad::Busy, now);
+  ASSERT_TRUE(book.RefusesNew("seed", MeshService::Park, now));
+  book.Forget("seed", MeshService::Park);
+  EXPECT_EQ(book.Load("seed", MeshService::Park, now), ServiceLoad::Unknown);
+  EXPECT_FALSE(book.RefusesNew("seed", MeshService::Park, now));
+  EXPECT_EQ(book.Load("seed", MeshService::MediaRelay, now), ServiceLoad::Full);
+  EXPECT_EQ(book.Load("other", MeshService::Park, now), ServiceLoad::Busy);
+}
+
 } // namespace
 } // namespace pp::mesh

@@ -157,6 +157,12 @@ public:
   /** `peer_ids` best first for `service` (ServiceLoadRank), keeping their order
    * within a rank. */
   void OrderBest(std::vector<std::string>& peer_ids, MeshService service, int64_t now_ms) const;
+  /**
+   * What `peer_id` said of `service` is forgotten; its next reply says it again. The circuit client does it when a
+   * park it held on `peer_id` ended with the link: a phone whose seed was full and then crashed skipped the restarted,
+   * empty seed for the 2 min the old "full" stayed fresh (pp-browser STRESS_LAB, 2026-11-10).
+   */
+  void Forget(const std::string& peer_id, MeshService service);
 
 private:
   struct Said {

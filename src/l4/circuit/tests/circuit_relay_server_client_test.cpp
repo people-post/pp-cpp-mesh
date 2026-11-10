@@ -392,6 +392,31 @@ TEST_F(CircuitRelayServerClientTest, AParkReplySaysTheHopsGroupCallLevel) {
   EXPECT_EQ(book.Load("relay", MeshService::MediaRelay, now), ServiceLoad::Full);
 }
 
+// The last park held on a relay ended, not by our cancel (the relay crashed or restarted; here its link drops): what
+// the relay said of its park is forgotten — a restarted relay holds nothing, and a phone must not skip it for the
+// 2 min an old "full" stays fresh. A renewal overlaps the park it replaces, so it keeps the level.
+TEST_F(CircuitRelayServerClientTest, AParkLostWithItsLinkForgetsTheRelaysParkLevel) {
+  ServiceLoadMonitor load;
+  load.SetServed(MeshService::Park, true);
+  load.SetPressure(MeshService::Park, "cpu", 0.8); // busy: a level the client keeps
+  relay_->SetLoadMonitor(&load);
+  PeerLoadBook book;
+  client_b_->SetPeerLoadBook(&book);
+  for (int round = 0; round < 2; ++round) { // the second is a renewal on the live link
+    BridgeWait reserve;
+    ASSERT_TRUE(client_b_->StartReserve("relay", reserve.Fn(), 15000));
+    reserve.PumpUntilDone(*harness_);
+    ASSERT_TRUE(reserve.result) << reserve.result.error().message;
+    harness_->PumpAll();
+    EXPECT_EQ(book.Load("relay", MeshService::Park, PeerLoadBook::NowMs()), ServiceLoad::Busy) << "round " << round;
+  }
+  ASSERT_GT(harness_->mgr_b().RequestDropLink("relay"), 0u);
+  harness_->PumpUntil([&] { return client_b_->ParkedRelayCount() == 0; }, 400);
+  ASSERT_EQ(client_b_->ParkedRelayCount(), 0u);
+  EXPECT_EQ(book.Load("relay", MeshService::Park, PeerLoadBook::NowMs()), ServiceLoad::Unknown)
+      << "the park ended with its link: its level is from before";
+}
+
 // Dogfood 2026-09-24: a cold relay link idled past the 5 s ADP liveness window and was evicted
 // with the answerer's reservation ("Couldn't connect"). Held reservations keep the relay link hot.
 TEST_F(CircuitRelayServerClientTest, ReserveKeepsRelayLinkHotUntilReleased) {

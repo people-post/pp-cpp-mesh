@@ -238,6 +238,13 @@ ServiceLoad PeerLoadBook::Load(const std::string& peer_id, const MeshService ser
   return now_ms - said.at_ms <= kFreshMs ? said.load : ServiceLoad::Unknown;
 }
 
+void PeerLoadBook::Forget(const std::string& peer_id, const MeshService service) {
+  std::lock_guard lock(mu_);
+  if (auto it = entries_.find(peer_id); it != entries_.end()) {
+    it->second.said[Index(service)] = {};
+  }
+}
+
 void PeerLoadBook::OrderBest(std::vector<std::string>& peer_ids, const MeshService service,
                              const int64_t now_ms) const {
   std::stable_sort(peer_ids.begin(), peer_ids.end(), [&](const std::string& a, const std::string& b) {

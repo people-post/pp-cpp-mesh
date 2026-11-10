@@ -101,6 +101,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   // A host others connect to (seed / relay / DHT / directory) needs a link per client, and buffers for its bursts.
   const bool serves_others =
       config.host_circuit_relay || config.host_media_relay || config.host_dht || config.host_directory;
+  serves_others_ = serves_others;
   pp::adp::UdpSocketOptions socket_options;
   if (serves_others) {
     socket_options.receive_buffer_bytes = kServerUdpBufferBytes;
@@ -272,13 +273,25 @@ void MeshHost::EnsureAmpL4Coordinators() {
     MetricGauge* udp_drops =
         &metrics_.Gauge("pp_udp_receive_drops", "Datagrams the kernel dropped for want of receive buffer, since start");
     MetricGauge* udp_rcvbuf = &metrics_.Gauge("pp_udp_receive_buffer_bytes", "The socket's granted receive buffer");
+    MetricGauge* refused_busy =
+        &metrics_.Gauge("pp_link_inbound_refused_busy",
+                        "New inbound links refused before their handshake while the pump was saturated, since start");
     struct Sample {
       int64_t at_ms = 0;
       uint64_t drops = 0;
       double drop_pressure = 0.0; // smoothed: one burst is not a full node
+      ServiceLoad pump_level = ServiceLoad::Open;
     };
     auto sample = std::make_shared<Sample>();
-    load_tick_ = amp_->Runtime().AddIoTick([this, sample, gauges, io_busy, udp_drops, udp_rcvbuf]() {
+    if (serves_others_) {
+      // A saturated pump takes no newcomer: its handshake (an ML-DSA signature and checks) is refused before it
+      // starts, and the CPU stays with the links the node has — parked phones' keepalives and renewals. Clients
+      // that ignore "full" re-knocking every round saturated a node at the edge of losing them (pp-browser STRESS_LAB,
+      // 2026-11-09). The same lines as a level, with their gap: closed from 0.95 busy, open again below 0.90.
+      amp_->Runtime().Links().SetInboundAdmission(
+          [this]() { return !pump_saturated_.load(std::memory_order_relaxed); });
+    }
+    load_tick_ = amp_->Runtime().AddIoTick([this, sample, gauges, io_busy, udp_drops, udp_rcvbuf, refused_busy]() {
       const int64_t now = PeerLoadBook::NowMs();
       if (now - sample->at_ms < 1000 || !amp_) {
         return;
@@ -288,6 +301,9 @@ void MeshHost::EnsureAmpL4Coordinators() {
       const double links = static_cast<double>(amp_->Runtime().Links().CountLinks()) / static_cast<double>(max_links_);
       const double busy = pump_.IsRunning() ? pump_.BusyFraction() : 0.0;
       io_busy->Set(busy);
+      sample->pump_level = NextServiceLoad(sample->pump_level, busy, false);
+      pump_saturated_.store(serves_others_ && sample->pump_level == ServiceLoad::Full, std::memory_order_relaxed);
+      refused_busy->Set(static_cast<double>(amp_->Runtime().Links().InboundRefusedByAdmission()));
       if (const auto stats = io_ ? io_->Stats() : std::nullopt) {
         udp_rcvbuf->Set(static_cast<double>(stats->receive_buffer_bytes));
         if (stats->receive_drops) {
