@@ -64,3 +64,7 @@ scripts/check_layers.sh
 Dependencies are release tags fetched with FetchContent (`cmake/PpMeshDeps.cmake`); a consumer that
 already defines `pp_common`, `pp_crypto` and `pp_amp_link` keeps its own. Consumers fetch this repo the
 same way and link `pp_mesh` (and `pp_mesh_testing` in tests).
+
+## Formatting
+
+Every first-party C/C++ source is formatted with [`.clang-format`](.clang-format) by exactly clang-format 23.1.5 (`pip install clang-format==23.1.5`; other versions format differently). Run `./scripts/check_format.sh --fix` before committing; CI fails on an unformatted file. Vendored code is left as it came.
