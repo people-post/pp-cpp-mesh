@@ -111,7 +111,7 @@ struct MediaRelayServer::Impl {
   MediaRelayAdmissionPolicy admission;
   MediaRelayVideoPolicy video_policy;
   /** The node's service levels (MeshHost's); null: none said. */
-  std::atomic<ServiceLoadMonitor *> load{nullptr};
+  std::atomic<ServiceLoadMonitor*> load{nullptr};
   std::atomic<bool> started{false};
   std::atomic<bool> stopped{true};
   std::atomic<bool> serve_inbound{true};
@@ -161,8 +161,7 @@ struct MediaRelayServer::Impl {
     if (!runtime || !task) {
       return;
     }
-    deferred.Post([rt = runtime](std::function<void()> t) { rt->PostToIo(std::move(t)); },
-                  std::move(task));
+    deferred.Post([rt = runtime](std::function<void()> t) { rt->PostToIo(std::move(t)); }, std::move(task));
   }
 
   pp::amp::PeerLink* ResolveLink(const std::string& peer_key) const {
@@ -290,8 +289,7 @@ struct MediaRelayServer::Impl {
         if (frame.channel_type == MediaChannelType::LatestLossy) {
           auto it = part->last_lossy_seq.find(key);
           if (ShouldDropStaleLossyFrame(it != part->last_lossy_seq.end(),
-                                        it != part->last_lossy_seq.end() ? it->second : 0, frame.seq,
-                                        frame.mark)) {
+                                        it != part->last_lossy_seq.end() ? it->second : 0, frame.seq, frame.mark)) {
             metrics.dropped_stale.Inc();
             continue;
           }
@@ -335,7 +333,7 @@ struct MediaRelayServer::Impl {
     if (op == "subscribe") {
       if (part->subscriptions.size() >= kMediaRelayMaxSubscriptionsPerParticipant &&
           !part->subscriptions.contains(MediaRelaySubKey(stream_id, channel_id))) {
-        return true;  // full (PB-053): ignored, no ack
+        return true; // full (PB-053): ignored, no ack
       }
       part->subscriptions.insert(MediaRelaySubKey(stream_id, channel_id));
       if (part->channel) {
@@ -362,8 +360,8 @@ struct MediaRelayServer::Impl {
   }
 
   /** Must not be called with `mu` held (Fanout locks internally). */
-  bool HandleParticipantFrame(const std::shared_ptr<HostSession>& session,
-                              const std::shared_ptr<HostParticipant>& part, const std::vector<uint8_t>& body) {
+  bool HandleParticipantFrame(const std::shared_ptr<HostSession>& session, const std::shared_ptr<HostParticipant>& part,
+                              const std::vector<uint8_t>& body) {
     if (body.empty()) {
       return true;
     }
@@ -383,7 +381,7 @@ struct MediaRelayServer::Impl {
     metrics.bytes_received.Inc(body.size());
     if (!CarriesChannelOf(*part, frame->channel_id)) {
       metrics.dropped_not_carried.Inc();
-      return true;  // a channel this relay did not agree to carry for this participant (B009)
+      return true; // a channel this relay did not agree to carry for this participant (B009)
     }
     Fanout(session, part->peer_id, /*from_remote=*/true, *frame, body);
     return true;
@@ -427,7 +425,7 @@ struct MediaRelayServer::Impl {
   /** Requires `mu`. The group-call pressure this server sees (calls hosted, of
    * the limit), then the level. */
   ServiceLoad PublishLoadLocked() {
-    ServiceLoadMonitor *monitor = load.load(std::memory_order_acquire);
+    ServiceLoadMonitor* monitor = load.load(std::memory_order_acquire);
     if (!monitor) {
       return ServiceLoad::Unknown;
     }
@@ -437,9 +435,8 @@ struct MediaRelayServer::Impl {
   }
 
   ServiceLoad LevelNow() const {
-    ServiceLoadMonitor *monitor = load.load(std::memory_order_acquire);
-    return monitor ? monitor->Level(MeshService::MediaRelay)
-                   : ServiceLoad::Unknown;
+    ServiceLoadMonitor* monitor = load.load(std::memory_order_acquire);
+    return monitor ? monitor->Level(MeshService::MediaRelay) : ServiceLoad::Unknown;
   }
 
   /** A refusal: its code for the client's logic, its text for logs, the node's
@@ -641,11 +638,9 @@ struct MediaRelayServer::Impl {
     // Full or draining: no new call here (one it hosts still takes its members
     // — refusing them would split it).
     if (const ServiceLoad level = PublishLoadLocked();
-        ServiceLoadRefusesNew(level) &&
-        !hosts_by_call.contains(req.session_id)) {
+        ServiceLoadRefusesNew(level) && !hosts_by_call.contains(req.session_id)) {
       metrics.quotes_refused_busy.Inc();
-      Reject(channel, sm, MediaRelayRefusal::Busy,
-             std::string("media-relay busy: ") + ServiceLoadWire(level),
+      Reject(channel, sm, MediaRelayRefusal::Busy, std::string("media-relay busy: ") + ServiceLoadWire(level),
              MediaRelayAttachEvent::AdmitFail);
       return false;
     }
@@ -681,7 +676,8 @@ struct MediaRelayServer::Impl {
   bool HandleAccept(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const common::Object& root,
                     MediaRelayOpAdmitContext admit) {
     if (sm.phase != MediaRelayAttachPhase::Control && sm.phase != MediaRelayAttachPhase::Quoted) {
-      Reject(channel, sm, MediaRelayRefusal::BadRequest, "accept not allowed in phase", MediaRelayAttachEvent::OpAccept);
+      Reject(channel, sm, MediaRelayRefusal::BadRequest, "accept not allowed in phase",
+             MediaRelayAttachEvent::OpAccept);
       return false;
     }
     const std::string quote_id = root.getString("quote_id").value_or("");
@@ -695,7 +691,8 @@ struct MediaRelayServer::Impl {
     admit.call_id = pending->call_id;
     admit.session_exists_for_call = hosts_by_call.contains(admit.call_id);
     if (DecideMediaRelayOpAdmit(admit) != MediaRelayOpAdmitDecision::Allow) {
-      Reject(channel, sm, MediaRelayRefusal::Refused, "prefer contacts: stranger refused", MediaRelayAttachEvent::AdmitFail);
+      Reject(channel, sm, MediaRelayRefusal::Refused, "prefer contacts: stranger refused",
+             MediaRelayAttachEvent::AdmitFail);
       return false;
     }
     sm.call_id = pending->call_id;
@@ -720,7 +717,8 @@ struct MediaRelayServer::Impl {
                     const common::Object& root, MediaRelayOpAdmitContext admit) {
     if (!sm.Apply(MediaRelayAttachEvent::OpAttach)) {
       metrics.attaches_refused.Inc();
-      Reject(*channel, sm, MediaRelayRefusal::BadRequest, "attach not allowed in phase", MediaRelayAttachEvent::OpAttach);
+      Reject(*channel, sm, MediaRelayRefusal::BadRequest, "attach not allowed in phase",
+             MediaRelayAttachEvent::OpAttach);
       return false;
     }
     const std::string token = root.getString("session_token").value_or("");
@@ -753,18 +751,15 @@ struct MediaRelayServer::Impl {
       return false;
     }
     std::shared_ptr<HostSession> host = hosts_by_call.contains(call_id) ? hosts_by_call[call_id] : nullptr;
-    if (const ServiceLoad level = PublishLoadLocked();
-        !host && ServiceLoadRefusesNew(level)) {
+    if (const ServiceLoad level = PublishLoadLocked(); !host && ServiceLoadRefusesNew(level)) {
       metrics.attaches_refused.Inc();
-      Reject(*channel, sm, MediaRelayRefusal::Busy,
-             std::string("relay busy: ") + ServiceLoadWire(level),
+      Reject(*channel, sm, MediaRelayRefusal::Busy, std::string("relay busy: ") + ServiceLoadWire(level),
              MediaRelayAttachEvent::AttachFail);
       return false;
     }
     if (!host && !MediaRelayCanOpenHostSession(hosts_by_call.size(), max_sessions)) {
       metrics.attaches_refused.Inc();
-      Reject(*channel, sm, MediaRelayRefusal::Busy, "relay busy: too many sessions",
-             MediaRelayAttachEvent::AttachFail);
+      Reject(*channel, sm, MediaRelayRefusal::Busy, "relay busy: too many sessions", MediaRelayAttachEvent::AttachFail);
       return false;
     }
     if (host && !MediaRelayCanAddParticipant(host->participants.size(), kMediaRelayServeMaxParticipants)) {
@@ -861,9 +856,8 @@ struct MediaRelayServer::Impl {
         // callback can fire after this server is freed (MeshHost::Stop frees L4 before Amp tears
         // down channels still mid-handshake): reach Impl only through the lifetime token, which
         // outlives it and goes dead in Stop.
-        [release = lifetime.Bind([this](std::shared_ptr<pp::amp::ChannelSession> channel) {
-           ReleaseParticipantOf(std::move(channel));
-         }),
+        [release = lifetime.Bind(
+             [this](std::shared_ptr<pp::amp::ChannelSession> channel) { ReleaseParticipantOf(std::move(channel)); }),
          channel_holder](const char* /*reason*/) {
           release(*channel_holder);
           channel_holder->reset();
@@ -893,8 +887,10 @@ void MediaRelayServer::Start() {
   impl_->io_tick_id = runtime_.AddIoTick(impl_->lifetime.Bind([impl = impl_.get()] { impl->Tick(); }));
   runtime_.Links().SetProtocolHandler(
       kMediaRelayProtocolId,
-      impl_->lifetime.Bind([impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id,
-                                                const uint32_t ch) { impl->HandleInboundChannel(handle, remote_peer_id, ch); }));
+      impl_->lifetime.Bind(
+          [impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id, const uint32_t ch) {
+            impl->HandleInboundChannel(handle, remote_peer_id, ch);
+          }));
   runtime_.Links().SetProtocolHandler(
       kMediaRelayDataProtocolId,
       impl_->lifetime.Bind(
@@ -945,7 +941,7 @@ MediaRelayRuntimeStats MediaRelayServer::RuntimeStats() const {
   return stats;
 }
 
-void MediaRelayServer::SetLoadMonitor(ServiceLoadMonitor *monitor) {
+void MediaRelayServer::SetLoadMonitor(ServiceLoadMonitor* monitor) {
   impl_->load.store(monitor, std::memory_order_release);
 }
 

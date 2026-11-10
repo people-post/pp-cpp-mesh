@@ -121,7 +121,8 @@ void CircuitRendezvousCoordinator::Clear() {
   chosen_circuit_r1_.clear();
 }
 
-std::vector<MeshHopCandidate> CircuitRendezvousCoordinator::RendezvousCandidates(const std::string& exclude_peer_id) const {
+std::vector<MeshHopCandidate> CircuitRendezvousCoordinator::RendezvousCandidates(
+    const std::string& exclude_peer_id) const {
   std::vector<MeshHopCandidate> hops =
       deps_.rendezvous_candidates ? deps_.rendezvous_candidates() : std::vector<MeshHopCandidate>{};
   // B41: the merged surface can contain this node's own PeerId (and the target's); reserving on
@@ -131,7 +132,8 @@ std::vector<MeshHopCandidate> CircuitRendezvousCoordinator::RendezvousCandidates
     self_peer_id = m->Amp()->LocalPeerId();
   }
   std::erase_if(hops, [&](const MeshHopCandidate& hop) {
-    return hop.peer_id.empty() || hop.peer_id == exclude_peer_id || (!self_peer_id.empty() && hop.peer_id == self_peer_id);
+    return hop.peer_id.empty() || hop.peer_id == exclude_peer_id ||
+           (!self_peer_id.empty() && hop.peer_id == self_peer_id);
   });
   return hops;
 }
@@ -148,7 +150,7 @@ std::vector<std::string> CircuitRendezvousCoordinator::DialableRelayIds(const st
   const int64_t now = PeerReachRecord::NowMs();
   for (const MeshHopCandidate& hop : RendezvousCandidates(exclude_peer_id)) {
     if (!(links && links->IsConnected(hop.peer_id)) && ReachHeldDown(Facts(hop.peer_id), now)) {
-      continue;  // the record says it is gone: a StartBridge through it would only time out
+      continue; // the record says it is gone: a StartBridge through it would only time out
     }
     // Dogfood: directory/contact hop MAs are often RFC1918 advertise addrs. Unconditional
     // RegisterEndpoint overwrites a seed-warmed public PreferredMultiaddr and StartBridge
@@ -206,7 +208,7 @@ CircuitRendezvousCoordinator::ParkCount CircuitRendezvousCoordinator::CountParkO
       if (snap.transport != pp::amp::TransportClass::Carrier) {
         ++count.usable;
         if (verifying && verifying->count(seed) > 0) {
-          ++count.dials_in_flight;  // its verdict may still land it
+          ++count.dials_in_flight; // its verdict may still land it
         } else {
           ++count.connected;
         }
@@ -223,37 +225,30 @@ CircuitRendezvousCoordinator::ParkCount CircuitRendezvousCoordinator::CountParkO
   return count;
 }
 
-ServiceLoad
-CircuitRendezvousCoordinator::ParkLoad(const std::string &relay) const {
-  MeshHost *m = mesh();
-  return m ? m->PeerLoads().Load(relay, MeshService::Park,
-                                 PeerLoadBook::NowMs())
-           : ServiceLoad::Unknown;
+ServiceLoad CircuitRendezvousCoordinator::ParkLoad(const std::string& relay) const {
+  MeshHost* m = mesh();
+  return m ? m->PeerLoads().Load(relay, MeshService::Park, PeerLoadBook::NowMs()) : ServiceLoad::Unknown;
 }
 
-bool CircuitRendezvousCoordinator::ParkCountsOn(
-    const std::string &relay) const {
+bool CircuitRendezvousCoordinator::ParkCountsOn(const std::string& relay) const {
   const ServiceLoad load = ParkLoad(relay);
   if (load == ServiceLoad::Draining) {
     return false;
   }
   if (load == ServiceLoad::Full) {
-    MeshHost *m = mesh();
-    return m && m->AmpCircuitClient() &&
-           m->AmpCircuitClient()->HoldsReservation(relay);
+    MeshHost* m = mesh();
+    return m && m->AmpCircuitClient() && m->AmpCircuitClient()->HoldsReservation(relay);
   }
   return true;
 }
 
-void CircuitRendezvousCoordinator::ReplaceParkSoon(const std::string &relay,
-                                                   const ServiceLoad load) {
+void CircuitRendezvousCoordinator::ReplaceParkSoon(const std::string& relay, const ServiceLoad load) {
   const int64_t now = PeerReachRecord::NowMs();
   if (now < replace_park_at_ms_) {
     return;
   }
   replace_park_at_ms_ = now + kReplaceParkEveryMs;
-  log().info << "circuit rendezvous replace peer=" << relay
-             << " load=" << ServiceLoadWire(load);
+  log().info << "circuit rendezvous replace peer=" << relay << " load=" << ServiceLoadWire(load);
   ReserveOnBootstrapSeeds();
 }
 
@@ -303,7 +298,7 @@ void CircuitRendezvousCoordinator::WarmBootstrapSeedSessionsOnIo() {
     }
     if (chat->links.IsConnected(hop.peer_id)) {
       log().info << "bootstrap warm already connected peer=" << hop.peer_id;
-      continue;  // still warm remaining seeds (dialer may pick hop2 — dogfood ae4900eb)
+      continue; // still warm remaining seeds (dialer may pick hop2 — dogfood ae4900eb)
     }
     IChatPeerLinks* links = &chat->links;
     log().info << "bootstrap warm assoc start peer=" << hop.peer_id << " (serial)";
@@ -315,7 +310,7 @@ void CircuitRendezvousCoordinator::WarmBootstrapSeedSessionsOnIo() {
       RegisterDialableEndpoint(*links, hop);
       log().info << "bootstrap warm assoc ok peer=" << hop.peer_id;
     });
-    return;  // one cold dial at a time
+    return; // one cold dial at a time
   }
 }
 
@@ -387,37 +382,37 @@ void CircuitRendezvousCoordinator::ReserveOnBootstrapSeedsOnIo() {
                  << " load=" << ServiceLoadWire(ParkLoad(hop.peer_id));
       continue;
     }
-    view.push_back({hop.peer_id, chat->links.IsConnected(hop.peer_id) && !ReachableOnlyViaCarrier(chat->links, hop.peer_id),
+    view.push_back({hop.peer_id,
+                    chat->links.IsConnected(hop.peer_id) && !ReachableOnlyViaCarrier(chat->links, hop.peer_id),
                     Facts(hop.peer_id)});
   }
   // Seeds first (stable): the park waits on them (H010), so the capped cold
   // walk must reach them. Within each, the ones that said they are open before
   // busy ones.
   const std::vector<std::string> seeds = BootstrapSeedPeerIds();
-  const auto seeds_end = std::stable_partition(
-      view.begin(), view.end(), [&seeds](const ReachCandidate &c) {
-        return std::find(seeds.begin(), seeds.end(), c.peer_id) != seeds.end();
-      });
-  const auto by_load = [this](const ReachCandidate &a,
-                              const ReachCandidate &b) {
-    return ServiceLoadRank(ParkLoad(a.peer_id)) <
-           ServiceLoadRank(ParkLoad(b.peer_id));
+  const auto seeds_end = std::stable_partition(view.begin(), view.end(), [&seeds](const ReachCandidate& c) {
+    return std::find(seeds.begin(), seeds.end(), c.peer_id) != seeds.end();
+  });
+  const auto by_load = [this](const ReachCandidate& a, const ReachCandidate& b) {
+    return ServiceLoadRank(ParkLoad(a.peer_id)) < ServiceLoadRank(ParkLoad(b.peer_id));
   };
   std::stable_sort(view.begin(), seeds_end, by_load);
   std::stable_sort(seeds_end, view.end(), by_load);
   auto park = std::make_shared<ColdPark>();
   park->must_dial = StickyRelay();
-  const ReachSelection pick = SelectForRole(view, PeerReachRecord::NowMs(), kRendezvousLiveTarget,
-                                            kReachMaxColdDialsPerRound, park->must_dial);
+  const ReachSelection pick =
+      SelectForRole(view, PeerReachRecord::NowMs(), kRendezvousLiveTarget, kReachMaxColdDialsPerRound, park->must_dial);
   log().info << "circuit rendezvous reserve surface=" << surface.size() << " connected=" << pick.connected.size()
-             << " cold=" << pick.cold.size() << " held_down=" << pick.down.size() << " target=" << kRendezvousLiveTarget;
+             << " cold=" << pick.cold.size() << " held_down=" << pick.down.size()
+             << " target=" << kRendezvousLiveTarget;
   // Reserve every Connected relay first (H011 / dogfood 39412f), then dial the selected cold ones.
   for (const std::string& relay : pick.connected) {
     StartReserveOnRelay(relay, "circuit reserve");
   }
   park->live = pick.connected.size();
   for (const std::string& relay : pick.cold) {
-    auto it = std::find_if(surface.begin(), surface.end(), [&](const MeshHopCandidate& hop) { return hop.peer_id == relay; });
+    auto it =
+        std::find_if(surface.begin(), surface.end(), [&](const MeshHopCandidate& hop) { return hop.peer_id == relay; });
     park->hops.push_back(*it);
   }
   ReserveColdSurface(park);
@@ -440,7 +435,7 @@ void CircuitRendezvousCoordinator::ReserveColdSurface(const std::shared_ptr<Cold
       continue;
     }
     if (chat->links.IsConnected(hop.peer_id)) {
-      StartReserveOnRelay(hop.peer_id, "circuit reserve");  // connected since the walk started
+      StartReserveOnRelay(hop.peer_id, "circuit reserve"); // connected since the walk started
       ++park->live;
       continue;
     }
@@ -448,24 +443,23 @@ void CircuitRendezvousCoordinator::ReserveColdSurface(const std::shared_ptr<Cold
     const size_t index = park->next++;
     log().info << "circuit reserve assoc start peer=" << hop.peer_id << " (cold=" << index + 1 << "/"
                << park->hops.size() << " live=" << park->live << ")";
-    chat->links.EnsureAssociation(
-        hop.peer_id, deferred_.Bind([this, park, links, hop](IChatPeerLinks::LinkRoe assoc) {
-          if (!assoc) {
-            log().warning << "circuit reserve assoc miss peer=" << hop.peer_id << " err=" << assoc.error().message;
-            OnSeedDialMissed(*links, hop);
-          } else {
-            RegisterDialableEndpoint(*links, hop);
-            StartReserveOnRelay(hop.peer_id, "circuit reserve");
-            ++park->live;
-          }
-          ReserveColdSurface(park);  // the next one, unless the stagger started it already
-        }));
+    chat->links.EnsureAssociation(hop.peer_id, deferred_.Bind([this, park, links, hop](IChatPeerLinks::LinkRoe assoc) {
+      if (!assoc) {
+        log().warning << "circuit reserve assoc miss peer=" << hop.peer_id << " err=" << assoc.error().message;
+        OnSeedDialMissed(*links, hop);
+      } else {
+        RegisterDialableEndpoint(*links, hop);
+        StartReserveOnRelay(hop.peer_id, "circuit reserve");
+        ++park->live;
+      }
+      ReserveColdSurface(park); // the next one, unless the stagger started it already
+    }));
     // Happy Eyeballs: a relay that has not answered by then does not hold up the next one.
     if (auto lane = m->IoLane(); lane && park->next < park->hops.size()) {
       (void)lane->PostAfter(kColdParkStagger, [this, park, started = park->next, alive = deferred_.token(),
                                                snap = deferred_.Snapshot()]() {
         if (pp::Lifetime::Alive(alive, snap) && park->next == started) {
-          ReserveColdSurface(park);  // nothing moved the walk on since
+          ReserveColdSurface(park); // nothing moved the walk on since
         }
       });
     }
@@ -510,7 +504,7 @@ void CircuitRendezvousCoordinator::OnSeedDialMissed(IChatPeerLinks& links, const
   }
   if (redial) {
     log().info << "bootstrap seed park redial peer=" << hop.peer_id;
-    links.ClearDialBackoff(hop.peer_id);  // the miss armed a backoff that would refuse the redial
+    links.ClearDialBackoff(hop.peer_id); // the miss armed a backoff that would refuse the redial
     links.EnsureAssociation(hop.peer_id, deferred_.Bind([this, links = &links, hop](IChatPeerLinks::LinkRoe assoc) {
       if (!assoc) {
         log().warning << "bootstrap seed park redial miss peer=" << hop.peer_id << " err=" << assoc.error().message;
@@ -518,7 +512,7 @@ void CircuitRendezvousCoordinator::OnSeedDialMissed(IChatPeerLinks& links, const
         return;
       }
       RegisterDialableEndpoint(*links, hop);
-      StartReserveOnRelay(hop.peer_id, "circuit reserve");  // the park's Connected listener settles it
+      StartReserveOnRelay(hop.peer_id, "circuit reserve"); // the park's Connected listener settles it
     }));
     return;
   }
@@ -547,24 +541,19 @@ void CircuitRendezvousCoordinator::StartReserveOnRelay(const std::string& relay,
   }
   const std::string what = label;
   const auto id = m->AmpCircuitClient()->StartReserve(
-      relay,
-      deferred_.Bind([this, relay,
-                      what](CircuitClientCoordinator::BridgeRoe result) {
-        const ServiceLoad load =
-            ParkLoad(relay); // the reply's level, noted by the circuit client
+      relay, deferred_.Bind([this, relay, what](CircuitClientCoordinator::BridgeRoe result) {
+        const ServiceLoad load = ParkLoad(relay); // the reply's level, noted by the circuit client
         if (!result) {
           // Live Brief may still lack op=reserve (dogfood fd4e3de "unsupported op"). A Connected
           // PeerLink alone is enough for peer-id-only ServeDial — log and keep the link.
-          log().warning << what << " miss peer=" << relay
-                        << " err=" << result.error().message
+          log().warning << what << " miss peer=" << relay << " err=" << result.error().message
                         << " load=" << ServiceLoadWire(load);
           if (ServiceLoadRefusesNew(load)) {
             ReplaceParkSoon(relay, load);
           }
           return;
         }
-        log().info << what << " ok peer=" << relay
-                   << " load=" << ServiceLoadWire(load);
+        log().info << what << " ok peer=" << relay << " load=" << ServiceLoadWire(load);
         if (load == ServiceLoad::Draining) {
           ReplaceParkSoon(relay, load);
         }
@@ -621,7 +610,8 @@ void CircuitRendezvousCoordinator::PreferLateReserveOnIo(const std::string& rela
   }));
 }
 
-void CircuitRendezvousCoordinator::EnsureBootstrapSeedParkedAsync(std::function<void(bool parked)> on_done, const int timeout_ms) {
+void CircuitRendezvousCoordinator::EnsureBootstrapSeedParkedAsync(std::function<void(bool parked)> on_done,
+                                                                  const int timeout_ms) {
   if (!on_done) {
     return;
   }
@@ -644,8 +634,8 @@ void CircuitRendezvousCoordinator::EnsureBootstrapSeedParkedAsync(std::function<
     return;
   }
   const std::unordered_set<std::string> seed_ids(ids.begin(), ids.end());
-  park->listener_id = park->links->AddPeerConnectedListener(
-      deferred_.Bind([this, park, seed_ids](const std::string& peer_id) {
+  park->listener_id =
+      park->links->AddPeerConnectedListener(deferred_.Bind([this, park, seed_ids](const std::string& peer_id) {
         if (seed_ids.count(peer_id) > 0) {
           PostIoOrRun(deferred_.Bind([this, park]() { CheckSeedPark(park, /*at_deadline=*/false); }));
         }
@@ -660,22 +650,21 @@ void CircuitRendezvousCoordinator::EnsureBootstrapSeedParkedAsync(std::function<
   PostIoOrRun(deferred_.Bind([this, park]() { CheckSeedPark(park, /*at_deadline=*/false); }));
   // The deadline always answers: on the lane while the mesh runs; Invalidate (mesh stop) abandons
   // the park with `false` instead of checking links that may be gone.
-  park->deadline_timer = lane->PostAfter(
-      std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 12000),
-      [this, park, alive = deferred_.token(), snap = deferred_.Snapshot()]() {
-        if (!pp::Lifetime::Alive(alive, snap)) {
-          AbandonSeedPark(park);
-          return;
-        }
-        CheckSeedPark(park, /*at_deadline=*/true);
-      });
+  park->deadline_timer = lane->PostAfter(std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 12000),
+                                         [this, park, alive = deferred_.token(), snap = deferred_.Snapshot()]() {
+                                           if (!pp::Lifetime::Alive(alive, snap)) {
+                                             AbandonSeedPark(park);
+                                             return;
+                                           }
+                                           CheckSeedPark(park, /*at_deadline=*/true);
+                                         });
 }
 
 void CircuitRendezvousCoordinator::AbandonSeedPark(const std::shared_ptr<SeedPark>& park) {
   if (park->settled.exchange(true, std::memory_order_acq_rel)) {
     return;
   }
-  park->listener_id.store(0);  // the mesh's links (and their listeners) went with the stop
+  park->listener_id.store(0); // the mesh's links (and their listeners) went with the stop
   park->on_done(false);
 }
 
@@ -721,35 +710,35 @@ void CircuitRendezvousCoordinator::CheckSeedPark(const std::shared_ptr<SeedPark>
   }
   const bool enough = count.connected >= SeedParkNeeds(count.usable);
   switch (DecideSeedParkStep(enough, count.connected > 0, at_deadline, park->grace_timer.load() != 0)) {
-  case SeedParkStep::SettleOk:
-    if (enough) {
-      log().info << "bootstrap seed park ok (connected=" << count.connected << " of usable=" << count.usable << ")";
-    } else {
-      log().info << "bootstrap seed park ok (partial — ≥1 Connected after grace / deadline)";
+    case SeedParkStep::SettleOk:
+      if (enough) {
+        log().info << "bootstrap seed park ok (connected=" << count.connected << " of usable=" << count.usable << ")";
+      } else {
+        log().info << "bootstrap seed park ok (partial — ≥1 Connected after grace / deadline)";
+      }
+      FinishSeedPark(park, true);
+      return;
+    case SeedParkStep::SettleFail:
+      log().warning << "bootstrap seed park timeout (no Connected relay)";
+      FinishSeedPark(park, false);
+      return;
+    case SeedParkStep::ArmGrace: {
+      const uint64_t timer =
+          park->lane->PostAfter(kSeedParkGrace, [this, park, alive = deferred_.token(), snap = deferred_.Snapshot()]() {
+            if (!pp::Lifetime::Alive(alive, snap)) {
+              AbandonSeedPark(park);
+              return;
+            }
+            CheckSeedPark(park, /*at_deadline=*/true);
+          });
+      uint64_t expected = 0;
+      if (!park->grace_timer.compare_exchange_strong(expected, timer) && timer != 0) {
+        park->lane->CancelTimer(timer); // raced another check: one grace is enough
+      }
+      return;
     }
-    FinishSeedPark(park, true);
-    return;
-  case SeedParkStep::SettleFail:
-    log().warning << "bootstrap seed park timeout (no Connected relay)";
-    FinishSeedPark(park, false);
-    return;
-  case SeedParkStep::ArmGrace: {
-    const uint64_t timer = park->lane->PostAfter(
-        kSeedParkGrace, [this, park, alive = deferred_.token(), snap = deferred_.Snapshot()]() {
-          if (!pp::Lifetime::Alive(alive, snap)) {
-            AbandonSeedPark(park);
-            return;
-          }
-          CheckSeedPark(park, /*at_deadline=*/true);
-        });
-    uint64_t expected = 0;
-    if (!park->grace_timer.compare_exchange_strong(expected, timer) && timer != 0) {
-      park->lane->CancelTimer(timer);  // raced another check: one grace is enough
-    }
-    return;
-  }
-  case SeedParkStep::Wait:
-    return;
+    case SeedParkStep::Wait:
+      return;
   }
 }
 
@@ -796,7 +785,8 @@ void CircuitRendezvousCoordinator::OnRendezvousPeerReconnected(const std::string
     return;
   }
   const auto surface = RendezvousCandidates();
-  if (std::none_of(surface.begin(), surface.end(), [&](const MeshHopCandidate& hop) { return hop.peer_id == peer_id; })) {
+  if (std::none_of(surface.begin(), surface.end(),
+                   [&](const MeshHopCandidate& hop) { return hop.peer_id == peer_id; })) {
     return;
   }
   log().info << "circuit rendezvous re-park on reconnect peer=" << peer_id;

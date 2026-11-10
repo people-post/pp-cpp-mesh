@@ -222,13 +222,13 @@ private:
 
   MeshConnectivityDeps deps_;
   std::function<void(const std::string&)> on_relay_chosen_;
-  ListenBook peer_listen_mas_;  // state lane
+  ListenBook peer_listen_mas_; // state lane
   mutable std::mutex listen_book_mu_;
   std::shared_ptr<const ListenBook> listen_book_ = std::make_shared<const ListenBook>();
   mutable std::mutex hop_policy_mu_;
   std::shared_ptr<const MeshHopPolicy> hop_policy_ = std::make_shared<const MeshHopPolicy>();
-  uint64_t local_view_timer_ = 0;  // state lane
-  bool wired_ = false;             // state lane: between Wire and InvalidateAsyncOps
+  uint64_t local_view_timer_ = 0; // state lane
+  bool wired_ = false;            // state lane: between Wire and InvalidateAsyncOps
   /** Serializes edges (they nest: Clear runs InvalidateAsyncOps). Never taken on the lane. */
   std::recursive_mutex edge_mu_;
   /** Guards `lane_` only: a leaf, never held while running anything. */
@@ -239,13 +239,13 @@ private:
   std::shared_ptr<const MeshLocalView> local_view_ = std::make_shared<const MeshLocalView>();
   std::unique_ptr<PeerSessionDialRegistry> dial_registry_;
   std::unique_ptr<ICircuitHopReach> circuit_hop_reach_;
-  std::shared_ptr<pp::Executor> work_;  // set at Wire, read at consumers' bind points like Dial()
+  std::shared_ptr<pp::Executor> work_; // set at Wire, read at consumers' bind points like Dial()
   std::shared_ptr<pp::SerialExecutor> test_lane_;
   IDialRegistry* test_dial_ = nullptr;
   ICircuitHopReach* test_circuit_reach_ = nullptr;
   /** Shared with the link listener, which lives as long as the Amp stack it was added to. */
   std::shared_ptr<PeerReachRecord> reach_record_ = std::make_shared<PeerReachRecord>();
-  const void* reach_record_amp_ = nullptr;  // the Amp stack already feeding it (edges only)
+  const void* reach_record_amp_ = nullptr; // the Amp stack already feeding it (edges only)
   PunchIntroducerWalk punch_;
   CircuitRendezvousCoordinator rendezvous_;
   pp::Lifetime deferred_;

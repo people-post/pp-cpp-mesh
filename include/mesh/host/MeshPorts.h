@@ -96,9 +96,7 @@ public:
       std::function<void(pp::amp::LinkHandle handle, const std::string& remote_peer_id, uint32_t channel_id)>;
 
   /** Stable codes mirror `PeerLinkManager::Err` — see pp-browser docs/contracts/AMP-LINK-ERRORS.md. */
-  static bool IsAssociationNotReady(const Failure& failure) {
-    return failure.GetCode() == Err::AssociationNotReady;
-  }
+  static bool IsAssociationNotReady(const Failure& failure) { return failure.GetCode() == Err::AssociationNotReady; }
 
   static bool IsDialInBackoff(const Failure& failure) { return failure.GetCode() == Err::DialInBackoff; }
 
@@ -115,8 +113,7 @@ public:
    * short per-attempt timeouts (B28). Default: reverse RegisterEndpoint so Preferred
    * lands on multiaddrs.front().
    */
-  virtual Roe<void> RegisterEndpoints(const std::string& peer_key,
-                                      const std::vector<std::string>& multiaddrs) {
+  virtual Roe<void> RegisterEndpoints(const std::string& peer_key, const std::vector<std::string>& multiaddrs) {
     if (multiaddrs.empty()) {
       return Error("amp dial book: no multiaddrs");
     }
@@ -183,8 +180,7 @@ public:
    */
   virtual std::shared_ptr<pp::amp::ChannelSession> BindChannel(
       const std::string& peer_key, uint32_t channel_id, pp::amp::ChannelPolicy policy,
-      pp::amp::ChannelSession::FrameHandler on_frame,
-      pp::amp::ChannelSession::ClosedCallback on_closed = {}) = 0;
+      pp::amp::ChannelSession::FrameHandler on_frame, pp::amp::ChannelSession::ClosedCallback on_closed = {}) = 0;
   /**
    * Bind a channel on the one link `link` names — what a ProtocolHandler must use for its inbound
    * channel: channels are numbered per link, and with two links to one peer (direct and relayed) the
@@ -192,8 +188,7 @@ public:
    */
   virtual std::shared_ptr<pp::amp::ChannelSession> BindChannelOnLink(
       pp::amp::LinkHandle link, uint32_t channel_id, pp::amp::ChannelPolicy policy,
-      pp::amp::ChannelSession::FrameHandler on_frame,
-      pp::amp::ChannelSession::ClosedCallback on_closed = {}) = 0;
+      pp::amp::ChannelSession::FrameHandler on_frame, pp::amp::ChannelSession::ClosedCallback on_closed = {}) = 0;
 };
 
 struct MeshChatDeps {

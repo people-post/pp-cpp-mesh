@@ -46,21 +46,21 @@ inline constexpr std::array<CircuitRefusal, 7> kCircuitRefusalReasons{
 
 inline const char* CircuitRefusalWire(const CircuitRefusal refusal) {
   switch (refusal) {
-  case CircuitRefusal::TargetNotReserved:
-    return "target_not_reserved";
-  case CircuitRefusal::TargetUnreachable:
-    return "target_unreachable";
-  case CircuitRefusal::Busy:
-    return "busy";
-  case CircuitRefusal::Refused:
-    return "refused";
-  case CircuitRefusal::NotReady:
-    return "not_ready";
-  case CircuitRefusal::BadRequest:
-    return "bad_request";
-  case CircuitRefusal::Ok:
-  case CircuitRefusal::Generic:
-    break;
+    case CircuitRefusal::TargetNotReserved:
+      return "target_not_reserved";
+    case CircuitRefusal::TargetUnreachable:
+      return "target_unreachable";
+    case CircuitRefusal::Busy:
+      return "busy";
+    case CircuitRefusal::Refused:
+      return "refused";
+    case CircuitRefusal::NotReady:
+      return "not_ready";
+    case CircuitRefusal::BadRequest:
+      return "bad_request";
+    case CircuitRefusal::Ok:
+    case CircuitRefusal::Generic:
+      break;
   }
   return "";
 }
@@ -78,7 +78,7 @@ inline CircuitRefusal CircuitRefusalFromAck(const std::string_view code, const s
     }
   }
   if (!code.empty()) {
-    return CircuitRefusal::Generic;  // a code from a newer relay
+    return CircuitRefusal::Generic; // a code from a newer relay
   }
   const auto has = [legacy_text](const char* needle) { return legacy_text.find(needle) != std::string_view::npos; };
   if (has("not registered")) {

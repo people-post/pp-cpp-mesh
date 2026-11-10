@@ -75,7 +75,7 @@ public:
     last_quote_hop = hop;
     last_quote = request;
     if (!quote_ok) {
-      return MediaRelayFailure::Of(MediaRelayErr::HopBusy, "quote refused");  // as a hop's refusal arrives
+      return MediaRelayFailure::Of(MediaRelayErr::HopBusy, "quote refused"); // as a hop's refusal arrives
     }
     MediaRelayQuote q;
     q.ok = true;
@@ -142,7 +142,8 @@ protected:
     r.quote.participants = 3;
     return r;
   }
-  std::optional<MediaRelayRoe<MediaRelayAttached>> Run(MediaRelayAttachRequest request, MediaRelayAttachHooks hooks = {}) {
+  std::optional<MediaRelayRoe<MediaRelayAttached>> Run(MediaRelayAttachRequest request,
+                                                       MediaRelayAttachHooks hooks = {}) {
     std::optional<MediaRelayRoe<MediaRelayAttached>> out;
     AttachToMediaRelayAsync(Ports(), std::move(request), std::move(hooks),
                             [&out](MediaRelayRoe<MediaRelayAttached> r) { out = std::move(r); });
@@ -238,13 +239,14 @@ TEST_F(MediaRelayAttachTest, MeshStopDuringServiceReachFailsWithoutTouchingPorts
   reach_.during_reach = [&objects]() { objects.Invalidate(); };
 
   std::optional<MediaRelayRoe<MediaRelayAttached>> attached;
-  AttachToMediaRelayAsync(ports, Request(), {}, [&attached](MediaRelayRoe<MediaRelayAttached> r) { attached = std::move(r); });
+  AttachToMediaRelayAsync(ports, Request(), {},
+                          [&attached](MediaRelayRoe<MediaRelayAttached> r) { attached = std::move(r); });
   ASSERT_TRUE(attached);
   ASSERT_FALSE(*attached);
   EXPECT_EQ(attached->error().GetCode(), MediaRelayErr::Aborted) << attached->error().message;
 
-  dial_.relay_routes.clear();  // the first reach landed; the quote must go through reach again
-  ports.objects_snap = objects.Snapshot();  // the objects were rebuilt: a fresh generation
+  dial_.relay_routes.clear();              // the first reach landed; the quote must go through reach again
+  ports.objects_snap = objects.Snapshot(); // the objects were rebuilt: a fresh generation
   reach_.during_reach = [&objects]() { objects.Invalidate(); };
   std::optional<MediaRelayRoe<MediaRelayQuote>> quoted;
   QuoteMediaRelayAsync(ports, Request(), [&quoted](MediaRelayRoe<MediaRelayQuote> r) { quoted = std::move(r); });
@@ -257,7 +259,8 @@ TEST_F(MediaRelayAttachTest, MeshStopDuringServiceReachFailsWithoutTouchingPorts
 
 TEST_F(MediaRelayAttachTest, MissingPortsFail) {
   std::optional<MediaRelayRoe<MediaRelayAttached>> out;
-  AttachToMediaRelayAsync(MediaRelayAttachPorts{}, Request(), {}, [&out](MediaRelayRoe<MediaRelayAttached> r) { out = r; });
+  AttachToMediaRelayAsync(MediaRelayAttachPorts{}, Request(), {},
+                          [&out](MediaRelayRoe<MediaRelayAttached> r) { out = r; });
   ASSERT_TRUE(out);
   EXPECT_FALSE(*out);
 }

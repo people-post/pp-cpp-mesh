@@ -110,7 +110,7 @@ private:
   std::mutex mutex_;
   /** Closest first; unkeyed entries (non-PeerId dial keys) last, in arrival order. */
   std::vector<Entry> shortlist_;
-  std::unordered_set<std::string> seen_;  // peer_keys ever added (dedupe)
+  std::unordered_set<std::string> seen_; // peer_keys ever added (dedupe)
   size_t inflight_ = 0;
   size_t asked_ = 0;
   size_t answered_ = 0;

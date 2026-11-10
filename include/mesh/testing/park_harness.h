@@ -62,7 +62,7 @@ private:
     std::string peer_id;
     std::string multiaddr;
     bool seed = false;
-    std::unique_ptr<MeshHost> host;  // null: unreachable
+    std::unique_ptr<MeshHost> host; // null: unreachable
   };
   /** delay_ms > 0: the host's received datagrams arrive that much later (DelayedDatagramIo). */
   pp::Roe<std::unique_ptr<MeshHost>> MakeHost(const pp::adp::IpEndpoint& addr, std::string* peer_id,

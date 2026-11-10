@@ -43,9 +43,8 @@ Roe<std::vector<uint8_t>> ChooseCarriedVideoLevels(const MediaRelayVideoOffer& o
   }
 
   std::vector<uint8_t> carried;
-  for (const uint8_t level : offered) {  // highest first
-    if (carried.size() < limit &&
-        (served.empty() || std::find(served.begin(), served.end(), level) != served.end())) {
+  for (const uint8_t level : offered) { // highest first
+    if (carried.size() < limit && (served.empty() || std::find(served.begin(), served.end(), level) != served.end())) {
       carried.push_back(level);
     }
   }

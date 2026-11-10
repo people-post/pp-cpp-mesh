@@ -74,28 +74,28 @@ PeerReachCoordinator::Failure PeerReachCoordinator::WrapLinkFailure(const IChatP
   using LinkErr = IChatPeerLinks::Err;
   Err code = Err::Generic;
   switch (link.GetCode()) {
-  case LinkErr::EndpointNotRegistered:
-    code = Err::NoEndpoint;
-    break;
-  case LinkErr::DialInBackoff:
-    code = Err::DialInBackoff;
-    break;
-  case LinkErr::TooManyConcurrentDials:
-  case LinkErr::MaxLinksReached:
-    code = Err::DialBusy;
-    break;
-  case LinkErr::DialTimeout:
-    code = Err::NoAnswer;
-    break;
-  case LinkErr::HandshakeFailed:
-    code = Err::Refused;
-    break;
-  case LinkErr::TransportFailed:
-    code = Err::TransportFailed;
-    break;
-  default:
-    code = Err::Generic;
-    break;
+    case LinkErr::EndpointNotRegistered:
+      code = Err::NoEndpoint;
+      break;
+    case LinkErr::DialInBackoff:
+      code = Err::DialInBackoff;
+      break;
+    case LinkErr::TooManyConcurrentDials:
+    case LinkErr::MaxLinksReached:
+      code = Err::DialBusy;
+      break;
+    case LinkErr::DialTimeout:
+      code = Err::NoAnswer;
+      break;
+    case LinkErr::HandshakeFailed:
+      code = Err::Refused;
+      break;
+    case LinkErr::TransportFailed:
+      code = Err::TransportFailed;
+      break;
+    default:
+      code = Err::Generic;
+      break;
   }
   return Failure::Of(code, detail::AppendFrom("peer reach: dial failed", "link", link.message));
 }
@@ -107,14 +107,14 @@ PeerReachCoordinator::Failure PeerReachCoordinator::WrapCircuitFailure(const Cir
 
 const char* PeerLinkKindName(const PeerLinkKind kind) {
   switch (kind) {
-  case PeerLinkKind::Unknown:
-    return "unknown";
-  case PeerLinkKind::Direct:
-    return "direct";
-  case PeerLinkKind::Punched:
-    return "punched";
-  case PeerLinkKind::Relayed:
-    return "relayed";
+    case PeerLinkKind::Unknown:
+      return "unknown";
+    case PeerLinkKind::Direct:
+      return "direct";
+    case PeerLinkKind::Punched:
+      return "punched";
+    case PeerLinkKind::Relayed:
+      return "relayed";
   }
   return "?";
 }
@@ -153,8 +153,11 @@ struct PeerReachCoordinator::Attempt {
 };
 
 PeerReachCoordinator::PeerReachCoordinator(PeerReachPorts ports)
-    : dial_(ports.dial), circuit_(ports.circuit), lane_(std::move(ports.lane)),
-      local_listen_addrs_(std::move(ports.local_listen_addrs)), dial_budget_ms_(kDialBudgetMs),
+    : dial_(ports.dial),
+      circuit_(ports.circuit),
+      lane_(std::move(ports.lane)),
+      local_listen_addrs_(std::move(ports.local_listen_addrs)),
+      dial_budget_ms_(kDialBudgetMs),
       alive_(std::make_shared<std::atomic<bool>>(true)) {
   redirectLogger("PeerReach");
 }
@@ -296,13 +299,14 @@ void PeerReachCoordinator::UpgradeToDirect(const std::string& peer_id, std::func
     }
     log().info << "direct upgrade punch peer=" << peer_id;
     // Circuit reach answers from inside its own handling: run the caller's continuation after it.
-    circuit->TryUpgradeToDirectAsync(peer_id, [alive, lane, on_done = std::move(on_done)](CircuitReachRoe result) mutable {
-      PostOn(lane, [alive, on_done = std::move(on_done), result = std::move(result)]() mutable {
-        if (alive->load(std::memory_order_acquire)) {
-          on_done(result ? UpgradeRoe() : UpgradeRoe(WrapCircuitFailure(result.error())));
-        }
-      });
-    });
+    circuit->TryUpgradeToDirectAsync(
+        peer_id, [alive, lane, on_done = std::move(on_done)](CircuitReachRoe result) mutable {
+          PostOn(lane, [alive, on_done = std::move(on_done), result = std::move(result)]() mutable {
+            if (alive->load(std::memory_order_acquire)) {
+              on_done(result ? UpgradeRoe() : UpgradeRoe(WrapCircuitFailure(result.error())));
+            }
+          });
+        });
   });
 }
 
@@ -327,8 +331,8 @@ std::string PeerReachCoordinator::PreferDialKey(const std::string& alias, const 
     }
   }
   const bool peer_dialable = dial->IsDialable(peer_id);
-  log().info << "dial key alias=" << alias << " peer_id=" << peer_id
-             << " alias_dialable=" << (alias_dialable ? 1 : 0) << " peer_dialable=" << (peer_dialable ? 1 : 0);
+  log().info << "dial key alias=" << alias << " peer_id=" << peer_id << " alias_dialable=" << (alias_dialable ? 1 : 0)
+             << " peer_dialable=" << (peer_dialable ? 1 : 0);
   if (peer_dialable || !alias_dialable) {
     return peer_id;
   }
@@ -379,12 +383,11 @@ void PeerReachCoordinator::Finish(const AttemptPtr& a, ReachRoe result) {
 }
 
 void PeerReachCoordinator::ScheduleTick(const AttemptPtr& a, const int delay_ms) {
-  ScheduleOn(Lane(), std::chrono::milliseconds(delay_ms),
-                                               [this, alive = alive_, a]() {
-                                                 if (alive->load(std::memory_order_acquire)) {
-                                                   Tick(a);
-                                                 }
-                                               });
+  ScheduleOn(Lane(), std::chrono::milliseconds(delay_ms), [this, alive = alive_, a]() {
+    if (alive->load(std::memory_order_acquire)) {
+      Tick(a);
+    }
+  });
 }
 
 bool PeerReachCoordinator::AnyConnected(const Attempt& a) const {
@@ -483,8 +486,7 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
     PeerReachResult r;
     r.kind = AnyConnectedDirect(*a) ? PeerLinkKind::Direct : PeerLinkKind::Relayed;
     r.reused_link = true;
-    log().info << "peer connected peer=" << a->Primary() << " path=" << PeerLinkKindName(r.kind)
-               << " reused=1";
+    log().info << "peer connected peer=" << a->Primary() << " path=" << PeerLinkKindName(r.kind) << " reused=1";
     Finish(a, r);
     return;
   }
@@ -501,11 +503,10 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
   }
   a->seed_park_preassoc_done = !a->seed_park || !circuit;
   a->seed_park_ok = !a->seed_park || !circuit;
-  log().info << "reach start peer=" << a->Primary()
-             << " mode=" << (a->IsAwait() ? "await" : "reach")
+  log().info << "reach start peer=" << a->Primary() << " mode=" << (a->IsAwait() ? "await" : "reach")
              << " dialable=" << (AnyDialable(*a) ? 1 : 0) << " connected=" << (connected ? 1 : 0)
-             << " exclude_direct=" << (a->req.exclude_direct ? 1 : 0)
-             << " has_circuit_reach=" << (circuit ? 1 : 0) << " budget_ms=" << a->dial_budget_ms;
+             << " exclude_direct=" << (a->req.exclude_direct ? 1 : 0) << " has_circuit_reach=" << (circuit ? 1 : 0)
+             << " budget_ms=" << a->dial_budget_ms;
 
   a->started_ms = util::NowUnixMs();
   a->deadline_ms = a->started_ms + a->dial_budget_ms;
@@ -514,16 +515,13 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
   // not touch dial state — it can fire mid-StartBridge and race PeerLinkManager::FinishDial (dogfood 091029).
   const int64_t watchdog_ms =
       std::max(a->dial_budget_ms + kPeerDialOverlapMs + kCircuitEnsureBudgetMs, AwaitHoldMs(*a)) + 250;
-  ScheduleOn(
-      Lane(), std::chrono::milliseconds(watchdog_ms),
-      [this, alive = alive_, a]() {
-        if (!alive->load(std::memory_order_acquire) || a->settled.load(std::memory_order_acquire)) {
-          return;
-        }
-        log().warning << "reach deadline watchdog peer=" << a->Primary()
-                      << " last=" << a->last_error.message;
-        Finish(a, a->last_error);
-      });
+  ScheduleOn(Lane(), std::chrono::milliseconds(watchdog_ms), [this, alive = alive_, a]() {
+    if (!alive->load(std::memory_order_acquire) || a->settled.load(std::memory_order_acquire)) {
+      return;
+    }
+    log().warning << "reach deadline watchdog peer=" << a->Primary() << " last=" << a->last_error.message;
+    Finish(a, a->last_error);
+  });
   Tick(a);
 }
 
@@ -532,8 +530,8 @@ int64_t PeerReachCoordinator::AwaitHoldMs(const Attempt& a) {
 }
 
 bool PeerReachCoordinator::TrySettleConnected(const AttemptPtr& a) {
-  const bool mutating = (a->circuit_inflight && !a->seed_park_inflight) || (a->assoc_started && !a->assoc_done) ||
-                        a->lan_dial_inflight;
+  const bool mutating =
+      (a->circuit_inflight && !a->seed_park_inflight) || (a->assoc_started && !a->assoc_done) || a->lan_dial_inflight;
   const bool wait_for_circuit = a->req.exclude_direct && !a->circuit_started && !AnyCircuitHop(*a);
   // exclude_direct wants the relay: the direct link the caller already has does not settle it.
   const bool have_link = a->req.exclude_direct ? AnyConnectedRelayed(*a) : AnyConnected(*a);
@@ -591,8 +589,7 @@ void PeerReachCoordinator::Tick(const AttemptPtr& a) {
       a->assoc_started = true;
       a->assoc_done = true;
     } else {
-      log().warning << "peer still not connected peer=" << a->Primary()
-                    << " last=" << a->last_error.message
+      log().warning << "peer still not connected peer=" << a->Primary() << " last=" << a->last_error.message
                     << " circuit_started=" << (a->circuit_started ? 1 : 0)
                     << " assoc_started=" << (a->assoc_started ? 1 : 0);
       Finish(a, a->last_error);
@@ -652,7 +649,7 @@ bool PeerReachCoordinator::MaybeDialOnOurLan(const AttemptPtr& a) {
   log().info << "same-LAN dial before the seed park peer=" << a->Primary();
   dial->EnsureAssociation(a->Primary(), [this, alive = alive_, lane = Lane(), a](IChatPeerLinks::LinkRoe assoc) {
     if (!alive->load(std::memory_order_acquire) || !a->lan_dial_inflight) {
-      return;  // abandoned at kLanDialMs: the park went on without it
+      return; // abandoned at kLanDialMs: the park went on without it
     }
     // Runs inside FinishDial, on the lane: no longer out (the timer below sees it), continue after.
     a->lan_dial_inflight = false;
@@ -666,7 +663,8 @@ bool PeerReachCoordinator::MaybeDialOnOurLan(const AttemptPtr& a) {
     });
   });
   ScheduleOn(Lane(), std::chrono::milliseconds(kLanDialMs), [this, alive = alive_, a]() {
-    if (!alive->load(std::memory_order_acquire) || !a->lan_dial_inflight || a->settled.load(std::memory_order_acquire)) {
+    if (!alive->load(std::memory_order_acquire) || !a->lan_dial_inflight ||
+        a->settled.load(std::memory_order_acquire)) {
       return;
     }
     a->lan_dial_inflight = false;
@@ -713,9 +711,9 @@ bool PeerReachCoordinator::MaybeStartAssociation(const AttemptPtr& a) {
   if (await_skip_private || ShouldSkipPrivatePreferredDialAfterSeedPark(a->seed_park_ok, public_preferred)) {
     a->assoc_started = true;
     a->assoc_done = true;
-    log().info << "skip EnsureAssociation private Preferred"
-               << (await_skip_private ? " (await)" : " (seed parked)") << " peer=" << a->Primary();
-    return false;  // fall through to circuit / punch
+    log().info << "skip EnsureAssociation private Preferred" << (await_skip_private ? " (await)" : " (seed parked)")
+               << " peer=" << a->Primary();
+    return false; // fall through to circuit / punch
   }
   IDialRegistry* dial = dial_.load(std::memory_order_acquire);
   a->assoc_started = true;
@@ -730,33 +728,31 @@ bool PeerReachCoordinator::MaybeStartAssociation(const AttemptPtr& a) {
     // Runs inside FinishDial — snapshot link state, and continue after it.
     const bool connected_now = static_cast<bool>(assoc) && AnyConnected(*a);
     const bool direct_now = connected_now && AnyConnectedDirect(*a);
-    PostOn(lane,
-        [this, alive, a, assoc = std::move(assoc), connected_now, direct_now]() mutable {
-          if (alive->load(std::memory_order_acquire)) {
-            OnAssociationDone(a, std::move(assoc), connected_now, direct_now);
-          }
-        });
+    PostOn(lane, [this, alive, a, assoc = std::move(assoc), connected_now, direct_now]() mutable {
+      if (alive->load(std::memory_order_acquire)) {
+        OnAssociationDone(a, std::move(assoc), connected_now, direct_now);
+      }
+    });
   });
   // Wait for assoc to finish before StartBridge so the two ADP handshakes never overlap.
   ScheduleTick(a, kPollMs);
   return true;
 }
 
-void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, IChatPeerLinks::LinkRoe assoc, const bool connected_now,
-                                             const bool direct_now) {
+void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, IChatPeerLinks::LinkRoe assoc,
+                                             const bool connected_now, const bool direct_now) {
   if (a->settled.load(std::memory_order_acquire)) {
     return;
   }
   const auto rearm = [this, a]() {
-    ScheduleOn(Lane(), std::chrono::milliseconds(kAssocRedialBackoffMs),
-                                                 [this, alive = alive_, a]() {
-                                                   if (!alive->load(std::memory_order_acquire)) {
-                                                     return;
-                                                   }
-                                                   a->assoc_started = false;
-                                                   a->assoc_done = false;
-                                                   Tick(a);
-                                                 });
+    ScheduleOn(Lane(), std::chrono::milliseconds(kAssocRedialBackoffMs), [this, alive = alive_, a]() {
+      if (!alive->load(std::memory_order_acquire)) {
+        return;
+      }
+      a->assoc_started = false;
+      a->assoc_done = false;
+      Tick(a);
+    });
   };
   if (assoc) {
     a->assoc_done = true;
@@ -788,7 +784,7 @@ void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, IChatPeerLinks
       rearm();
       return;
     }
-    a->assoc_done = true;  // budget spent — allow circuit / punch
+    a->assoc_done = true; // budget spent — allow circuit / punch
   }
   ScheduleTick(a, kPollMs);
 }
@@ -831,8 +827,7 @@ bool PeerReachCoordinator::MaybeStartCircuit(const AttemptPtr& a) {
             }
             a->seed_park_inflight = false;
             a->seed_park_ok = parked;
-            log().info << "seed park before circuit/punch peer=" << a->Primary()
-                       << " parked=" << (parked ? 1 : 0);
+            log().info << "seed park before circuit/punch peer=" << a->Primary() << " parked=" << (parked ? 1 : 0);
             KickCircuit(a, allow_circuit);
           });
         },
@@ -892,13 +887,13 @@ void PeerReachCoordinator::OnCircuitDone(const AttemptPtr& a, CircuitReachRoe vi
   if (connected_now) {
     PeerReachResult r;
     r.kind = relayed_now ? PeerLinkKind::Relayed : PeerLinkKind::Punched;
-    log().info << "peer reachable via circuit/punch peer=" << a->Primary()
-               << " path=" << PeerLinkKindName(r.kind) << " via_ok=" << (via ? 1 : 0);
+    log().info << "peer reachable via circuit/punch peer=" << a->Primary() << " path=" << PeerLinkKindName(r.kind)
+               << " via_ok=" << (via ? 1 : 0);
     Finish(a, r);
     return;
   }
-  a->last_error = via ? Failure::Of(Err::NotConnected, "peer not connected after circuit/punch")
-                      : WrapCircuitFailure(via.error());
+  a->last_error =
+      via ? Failure::Of(Err::NotConnected, "peer not connected after circuit/punch") : WrapCircuitFailure(via.error());
   log().info << "circuit/punch miss peer=" << a->Primary() << " err=" << a->last_error.message
              << " via_ok=" << (via ? 1 : 0);
   // A relay-only reach (standby / TX-only escalation) is ours alone: nobody else builds that circuit.

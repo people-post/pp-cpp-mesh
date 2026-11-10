@@ -55,21 +55,21 @@ enum class MediaRelayRefusal : int32_t {
 
 inline const char* MediaRelayRefusalWire(const MediaRelayRefusal refusal) {
   switch (refusal) {
-  case MediaRelayRefusal::Busy:
-    return "busy";
-  case MediaRelayRefusal::Refused:
-    return "refused";
-  case MediaRelayRefusal::NotReady:
-    return "not_ready";
-  case MediaRelayRefusal::AuthFailed:
-    return "auth_failed";
-  case MediaRelayRefusal::UnknownQuote:
-    return "unknown_quote";
-  case MediaRelayRefusal::BadRequest:
-    return "bad_request";
-  case MediaRelayRefusal::Ok:
-  case MediaRelayRefusal::Generic:
-    break;
+    case MediaRelayRefusal::Busy:
+      return "busy";
+    case MediaRelayRefusal::Refused:
+      return "refused";
+    case MediaRelayRefusal::NotReady:
+      return "not_ready";
+    case MediaRelayRefusal::AuthFailed:
+      return "auth_failed";
+    case MediaRelayRefusal::UnknownQuote:
+      return "unknown_quote";
+    case MediaRelayRefusal::BadRequest:
+      return "bad_request";
+    case MediaRelayRefusal::Ok:
+    case MediaRelayRefusal::Generic:
+      break;
   }
   return "";
 }
@@ -96,14 +96,14 @@ inline MediaRelayErr MediaRelayErrFromReply(const std::string_view code, const s
                                      : MediaRelayRefusal::Generic;
   }
   switch (refusal) {
-  case MediaRelayRefusal::Busy:
-    return MediaRelayErr::HopBusy;
-  case MediaRelayRefusal::AuthFailed:
-    return MediaRelayErr::AuthFailed;
-  case MediaRelayRefusal::UnknownQuote:
-    return MediaRelayErr::UnknownQuote;
-  default:
-    return MediaRelayErr::HopRefused;
+    case MediaRelayRefusal::Busy:
+      return MediaRelayErr::HopBusy;
+    case MediaRelayRefusal::AuthFailed:
+      return MediaRelayErr::AuthFailed;
+    case MediaRelayRefusal::UnknownQuote:
+      return MediaRelayErr::UnknownQuote;
+    default:
+      return MediaRelayErr::HopRefused;
   }
 }
 

@@ -92,13 +92,13 @@ private:
    * unless this device already holds its reservation there (a renewal is
    * accepted).
    */
-  bool ParkCountsOn(const std::string &relay) const;
+  bool ParkCountsOn(const std::string& relay) const;
   /** The park's level for `relay`, as it said it (Unknown when it did not or
    * long ago). */
-  ServiceLoad ParkLoad(const std::string &relay) const;
+  ServiceLoad ParkLoad(const std::string& relay) const;
   /** A relay said full or draining: park elsewhere now, not at the next round
    * (at most every kReplaceParkEveryMs). */
-  void ReplaceParkSoon(const std::string &relay, ServiceLoad load);
+  void ReplaceParkSoon(const std::string& relay, ServiceLoad load);
   static constexpr int64_t kReplaceParkEveryMs = 5000;
   /**
    * How long a park's reservation is held (the relay's own default; at most 60 s there). Longer than the app's

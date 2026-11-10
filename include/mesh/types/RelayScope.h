@@ -19,13 +19,13 @@ enum class RelayScope : uint8_t {
 
 using RelayScopeMask = uint8_t;
 
-inline constexpr RelayScopeMask kRelayScopeLinkSiteSocial =
-    static_cast<RelayScopeMask>(RelayScope::Link) | static_cast<RelayScopeMask>(RelayScope::Site) |
-    static_cast<RelayScopeMask>(RelayScope::Social);
+inline constexpr RelayScopeMask kRelayScopeLinkSiteSocial = static_cast<RelayScopeMask>(RelayScope::Link) |
+                                                            static_cast<RelayScopeMask>(RelayScope::Site) |
+                                                            static_cast<RelayScopeMask>(RelayScope::Social);
 
 /** Short-term consumer + volunteer provider default (N020 / N023). Excludes Public. */
-inline constexpr RelayScopeMask kRelayScopeShortTerm = kRelayScopeLinkSiteSocial |
-                                                       static_cast<RelayScopeMask>(RelayScope::Org);
+inline constexpr RelayScopeMask kRelayScopeShortTerm =
+    kRelayScopeLinkSiteSocial | static_cast<RelayScopeMask>(RelayScope::Org);
 
 inline constexpr RelayScopeMask kRelayScopeVolunteerServe = kRelayScopeLinkSiteSocial;
 
@@ -48,4 +48,4 @@ inline bool RelayAdmissionAllowsDialer(RelayScopeMask serve_mask, const std::str
   return RelayScopeMaskHas(serve_mask, RelayScope::Public);
 }
 
-}  // namespace pp::mesh
+} // namespace pp::mesh

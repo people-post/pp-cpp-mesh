@@ -49,8 +49,7 @@ inline ChannelPolicy BulkChannelPolicy(bool read_once) {
  * (e.g. one-way relayed media) or a reservation is legitimately silent on one side; the
  * circuit coordinators bound the handshake and the reservation TTL themselves.
  */
-inline ChannelPolicy CircuitTunnelChannelPolicy(
-    std::chrono::milliseconds read_timeout = std::chrono::milliseconds{0}) {
+inline ChannelPolicy CircuitTunnelChannelPolicy(std::chrono::milliseconds read_timeout = std::chrono::milliseconds{0}) {
   ChannelPolicy policy;
   policy.cls = ChannelClass::Control;
   policy.drop = ChannelDropPolicy::Never;
@@ -91,8 +90,8 @@ inline ChannelPolicy MediaRelayDataChannelPolicy() {
   return policy;
 }
 
-inline ChannelPolicy MediaRelayClientChannelPolicy(
-    std::chrono::milliseconds read_timeout = std::chrono::milliseconds{0}) {
+inline ChannelPolicy MediaRelayClientChannelPolicy(std::chrono::milliseconds read_timeout = std::chrono::milliseconds{
+                                                       0}) {
   ChannelPolicy policy;
   policy.cls = ChannelClass::RealtimeControl;
   policy.drop = ChannelDropPolicy::Never;

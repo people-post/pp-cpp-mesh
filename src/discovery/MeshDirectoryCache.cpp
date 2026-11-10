@@ -247,9 +247,8 @@ void MeshDirectoryCache::RequestRefresh() {
     sync = fetcher_;
   }
 
-  auto apply = lifetime_.Bind([this](Roe<std::vector<MeshDirectoryNode>> result) {
-    ApplyRefreshResult(std::move(result));
-  });
+  auto apply =
+      lifetime_.Bind([this](Roe<std::vector<MeshDirectoryNode>> result) { ApplyRefreshResult(std::move(result)); });
   if (async) {
     // The completion may arrive on the mesh's I/O lane: applying persists to disk, so not there.
     async([blocking = blocking_, apply](Roe<std::vector<MeshDirectoryNode>> result) {

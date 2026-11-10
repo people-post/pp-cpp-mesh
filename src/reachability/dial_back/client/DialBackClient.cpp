@@ -32,9 +32,8 @@ std::chrono::milliseconds RemainingTimeout(const Clock::time_point deadline) {
 DialBackClient::DialBackClient(pp::amp::MeshRuntime& runtime, IoPump io_pump)
     : runtime_(runtime), io_pump_(std::move(io_pump)) {}
 
-void DialBackClient::ProbeAsync(const std::string& seed_peer_key,
-                                    const std::vector<std::string>& target_multiaddrs,
-                                    std::function<void(ProbeRoe)> on_done, int timeout_ms) {
+void DialBackClient::ProbeAsync(const std::string& seed_peer_key, const std::vector<std::string>& target_multiaddrs,
+                                std::function<void(ProbeRoe)> on_done, int timeout_ms) {
   auto settled = std::make_shared<std::atomic<bool>>(false);
   auto finish_once = std::make_shared<std::function<void(ProbeRoe)>>();
   *finish_once = [on_done = std::move(on_done), settled](ProbeRoe value) {
@@ -84,82 +83,75 @@ void DialBackClient::ProbeAsync(const std::string& seed_peer_key,
 
   const auto read_timeout = RemainingTimeout(deadline);
   runtime_.Links().EnsureAssociation(seed_peer_key, [this, seed_peer_key, request_json, finish, session, deadline,
-                                           read_timeout, settled](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
+                                                     read_timeout,
+                                                     settled](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
     if (!assoc) {
       (*finish)(ProbeRoe::error(WrapLinkFailure(assoc.error())));
       return;
     }
-    runtime_.Links().OpenChannel(seed_peer_key, kDialBackProtocolId, pp::amp::ControlJsonChannelPolicy(read_timeout),
-                       [this, seed_peer_key, request_json, finish, session, deadline, read_timeout,
-                        settled](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
-                         if (!channel) {
-                           (*finish)(ProbeRoe::error(WrapLinkFailure(channel.error())));
-                           return;
-                         }
-                         AmpWhenChannelOpen(
-                             runtime_.Links(), seed_peer_key, *channel, deadline,
-                             [this, seed_peer_key, channel_id = *channel, request_json, finish, session, deadline,
-                              read_timeout, settled](bool open) mutable {
-                               if (!open) {
-                                 (*finish)(ProbeRoe::error(
-                                     Failure::Of(Err::ChannelFailed, "amp dial-back: channel open failed")));
-                                 return;
-                               }
-                               auto* link = runtime_.Links().FindLink(seed_peer_key);
-                               if (!link || !link->Mux() ||
-                                   link->Mux()->State(channel_id) != pp::amp::ChannelState::Open) {
-                                 (*finish)(ProbeRoe::error(
-                                     Failure::Of(Err::ChannelFailed, "amp dial-back: channel open failed")));
-                                 return;
-                               }
-                               session->Bind(*link->Mux(), channel_id, pp::amp::ControlJsonChannelPolicy(read_timeout),
-                                             [finish](Roe<std::vector<uint8_t>> frame) {
-                                               if (!frame) {
-                                                 (*finish)(ProbeRoe::error(Failure::Of(
-                                                     Err::ProtocolError, "Failed to read dial-back response")));
-                                                 return false;
-                                               }
-                                               auto root =
-                                                   common::TryParseObject(std::string(frame->begin(), frame->end()));
-                                               if (!root) {
-                                                 (*finish)(ProbeRoe::error(Failure::Of(
-                                                     Err::ProtocolError, "invalid dial-back response")));
-                                                 return false;
-                                               }
-                                               DialBackProbeResult parsed;
-                                               parsed.ok = root->getIf<bool>("ok").value_or(false);
-                                               parsed.dialed = root->getString("dialed").value_or("");
-                                               parsed.observed = root->getString("observed").value_or("");
-                                               parsed.error = root->getString("error").value_or("");
-                                               (*finish)(parsed);
-                                               return false;
-                                             });
-                               if (!session->EnqueueOutbound(JsonToBody(request_json))) {
-                                 (*finish)(ProbeRoe::error(
-                                     Failure::Of(Err::ProtocolError, "Failed to send dial-back probe")));
-                                 return;
-                               }
-                               const auto attempt_ms =
-                                   std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
-                               if (attempt_ms.count() > 0) {
-                                 runtime_.PostAfter(attempt_ms, [finish, settled]() {
-                                   if (!settled->load(std::memory_order_acquire)) {
-                                     (*finish)(ProbeRoe::error(
-                                         Failure::Of(Err::Timeout, "dial-back probe timed out")));
-                                   }
-                                 });
-                               }
-                             });
-                       });
+    runtime_.Links().OpenChannel(
+        seed_peer_key, kDialBackProtocolId, pp::amp::ControlJsonChannelPolicy(read_timeout),
+        [this, seed_peer_key, request_json, finish, session, deadline, read_timeout,
+         settled](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
+          if (!channel) {
+            (*finish)(ProbeRoe::error(WrapLinkFailure(channel.error())));
+            return;
+          }
+          AmpWhenChannelOpen(
+              runtime_.Links(), seed_peer_key, *channel, deadline,
+              [this, seed_peer_key, channel_id = *channel, request_json, finish, session, deadline, read_timeout,
+               settled](bool open) mutable {
+                if (!open) {
+                  (*finish)(ProbeRoe::error(Failure::Of(Err::ChannelFailed, "amp dial-back: channel open failed")));
+                  return;
+                }
+                auto* link = runtime_.Links().FindLink(seed_peer_key);
+                if (!link || !link->Mux() || link->Mux()->State(channel_id) != pp::amp::ChannelState::Open) {
+                  (*finish)(ProbeRoe::error(Failure::Of(Err::ChannelFailed, "amp dial-back: channel open failed")));
+                  return;
+                }
+                session->Bind(
+                    *link->Mux(), channel_id, pp::amp::ControlJsonChannelPolicy(read_timeout),
+                    [finish](Roe<std::vector<uint8_t>> frame) {
+                      if (!frame) {
+                        (*finish)(
+                            ProbeRoe::error(Failure::Of(Err::ProtocolError, "Failed to read dial-back response")));
+                        return false;
+                      }
+                      auto root = common::TryParseObject(std::string(frame->begin(), frame->end()));
+                      if (!root) {
+                        (*finish)(ProbeRoe::error(Failure::Of(Err::ProtocolError, "invalid dial-back response")));
+                        return false;
+                      }
+                      DialBackProbeResult parsed;
+                      parsed.ok = root->getIf<bool>("ok").value_or(false);
+                      parsed.dialed = root->getString("dialed").value_or("");
+                      parsed.observed = root->getString("observed").value_or("");
+                      parsed.error = root->getString("error").value_or("");
+                      (*finish)(parsed);
+                      return false;
+                    });
+                if (!session->EnqueueOutbound(JsonToBody(request_json))) {
+                  (*finish)(ProbeRoe::error(Failure::Of(Err::ProtocolError, "Failed to send dial-back probe")));
+                  return;
+                }
+                const auto attempt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
+                if (attempt_ms.count() > 0) {
+                  runtime_.PostAfter(attempt_ms, [finish, settled]() {
+                    if (!settled->load(std::memory_order_acquire)) {
+                      (*finish)(ProbeRoe::error(Failure::Of(Err::Timeout, "dial-back probe timed out")));
+                    }
+                  });
+                }
+              });
+        });
   });
 }
 
 DialBackClient::ProbeRoe DialBackClient::Probe(const std::string& seed_peer_key,
-                                                         const std::vector<std::string>& target_multiaddrs,
-                                                         int timeout_ms) {
+                                               const std::vector<std::string>& target_multiaddrs, int timeout_ms) {
   SettledWait<DialBackProbeResult, Failure> wait;
-  ProbeAsync(seed_peer_key, target_multiaddrs, [wait](ProbeRoe value) { wait.Finish(std::move(value)); },
-             timeout_ms);
+  ProbeAsync(seed_peer_key, target_multiaddrs, [wait](ProbeRoe value) { wait.Finish(std::move(value)); }, timeout_ms);
 
   const int wait_ms = (timeout_ms > 0 ? timeout_ms : 8000) + 2000;
   const auto deadline = Clock::now() + std::chrono::milliseconds(wait_ms);

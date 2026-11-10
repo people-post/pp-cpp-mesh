@@ -116,8 +116,7 @@ bool MultiaddrHasPublicDialHost(const std::string& multiaddr) {
     if (addr.rfind("fe80:", 0) == 0 || addr.rfind("FE80:", 0) == 0) {
       return false;
     }
-    if (addr.rfind("fc", 0) == 0 || addr.rfind("fd", 0) == 0 || addr.rfind("FC", 0) == 0 ||
-        addr.rfind("FD", 0) == 0) {
+    if (addr.rfind("fc", 0) == 0 || addr.rfind("fd", 0) == 0 || addr.rfind("FC", 0) == 0 || addr.rfind("FD", 0) == 0) {
       return false;
     }
     return addr != "::1" && addr != "::";
@@ -150,8 +149,7 @@ bool CircuitHopMultiaddrIsUdpDialable(const std::string& multiaddr) {
   if (multiaddr.rfind("/ip6/", 0) == 0) {
     const size_t start = 5;
     const size_t end = multiaddr.find('/', start);
-    std::string host =
-        multiaddr.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    std::string host = multiaddr.substr(start, end == std::string::npos ? std::string::npos : end - start);
     if (!host.empty() && host.front() == '[' && host.back() == ']') {
       host = host.substr(1, host.size() - 2);
     }
@@ -182,16 +180,15 @@ std::string PreferredDialMultiaddr(const std::vector<std::string>& multiaddrs) {
 }
 
 std::vector<std::string> OrderDialMultiaddrsWorstToBest(std::vector<std::string> multiaddrs) {
-  std::stable_sort(multiaddrs.begin(), multiaddrs.end(),
-                   [](const std::string& a, const std::string& b) {
-                     const int ra = DialMultiaddrPreferenceRank(a);
-                     const int rb = DialMultiaddrPreferenceRank(b);
-                     // Higher rank = worse; register worst first for last-write-wins.
-                     if (ra != rb) {
-                       return ra > rb;
-                     }
-                     return a < b;
-                   });
+  std::stable_sort(multiaddrs.begin(), multiaddrs.end(), [](const std::string& a, const std::string& b) {
+    const int ra = DialMultiaddrPreferenceRank(a);
+    const int rb = DialMultiaddrPreferenceRank(b);
+    // Higher rank = worse; register worst first for last-write-wins.
+    if (ra != rb) {
+      return ra > rb;
+    }
+    return a < b;
+  });
   return multiaddrs;
 }
 

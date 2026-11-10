@@ -57,7 +57,7 @@ public:
    * while the level refuses it — a call it already hosts still takes its
    * members. Null: no level said, the hard limits only.
    */
-  void SetLoadMonitor(ServiceLoadMonitor *monitor);
+  void SetLoadMonitor(ServiceLoadMonitor* monitor);
   /** Test: how long a session outlives its last participant (default kEmptySessionGrace). */
   void SetEmptySessionGraceForTest(std::chrono::milliseconds grace);
 
@@ -67,7 +67,7 @@ public:
   // --- local participant (this node's client on its own hop) --------------------------------
   /** Join (or create) the hosted session for `call_id`; re-attaching the same call swaps the handler. */
   MediaRelayRoe<MediaRelayAttachResult> AttachLocal(const std::string& call_id, const std::string& local_peer_id,
-                                          FrameHandler on_frame);
+                                                    FrameHandler on_frame);
   /** True when the local participant is in `call_id` as `local_peer_id`. */
   bool LocalAttachedTo(const std::string& call_id, const std::string& local_peer_id) const;
   void DetachLocal();

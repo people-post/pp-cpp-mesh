@@ -34,7 +34,7 @@ struct Network {
   struct Node {
     std::unique_ptr<DhtRoutingTable> table;
     bool holds_record = false;
-    bool liar = false;  // answers with made-up hints, never the record
+    bool liar = false; // answers with made-up hints, never the record
   };
   std::map<std::string, Node> nodes;
   std::string target;
@@ -73,14 +73,14 @@ struct Network {
   void Answer(const DhtLookupCandidate& asked, const DhtLookup::AnswerCb& answer) {
     const auto it = nodes.find(asked.peer_key);
     if (it == nodes.end()) {
-      answer(std::nullopt);  // nobody there
+      answer(std::nullopt); // nobody there
       return;
     }
     ++answered_asks;
     DhtLookupAnswer out;
     if (it->second.liar) {
       for (int i = 0; i < 8; ++i) {
-        const int ghost = 100000 + static_cast<int>(answered_asks) * 8 + i;  // a real-looking PeerId nobody has
+        const int ghost = 100000 + static_cast<int>(answered_asks) * 8 + i; // a real-looking PeerId nobody has
         out.closer.push_back({Pid(ghost), Ma(ghost)});
       }
       answer(std::move(out));
@@ -117,7 +117,7 @@ std::vector<DhtLookupCandidate> FarSeeds(const Network& net) {
   }
   const DhtKey key = *DhtKeyOfPeerId(net.target);
   std::sort(ids.begin(), ids.end(), [&](const std::string& a, const std::string& b) {
-    return DhtCloser(key, *DhtKeyOfPeerId(b), *DhtKeyOfPeerId(a));  // farthest first
+    return DhtCloser(key, *DhtKeyOfPeerId(b), *DhtKeyOfPeerId(a)); // farthest first
   });
   return {{ids[0], std::nullopt, {}}, {ids[1], std::nullopt, {}}, {ids[2], std::nullopt, {}}};
 }
@@ -134,7 +134,7 @@ TEST(DhtLookupTest, FindsARecordHeldNearItsKeyFromFarAway) {
 
 TEST(DhtLookupTest, NoRecordAnywhereEndsAfterTheClosestAnswered) {
   Network net(200, 5, 0);
-  net.nodes.erase(net.target);  // the target is not in the network either
+  net.nodes.erase(net.target); // the target is not in the network either
   const auto outcome = RunInline(net, FarSeeds(net));
   EXPECT_FALSE(outcome.record.has_value());
   EXPECT_GT(outcome.answered, 0u);
@@ -146,11 +146,11 @@ TEST(DhtLookupTest, LiarsWithMadeUpHintsDoNotStopIt) {
   int i = 0;
   for (auto& [id, node] : net.nodes) {
     if (!node.holds_record && id != net.target && i++ % 5 == 0) {
-      node.liar = true;  // a fifth of the network
+      node.liar = true; // a fifth of the network
     }
   }
   const auto seeds = FarSeeds(net);
-  net.nodes[seeds[0].peer_key].liar = true;  // two of the three seeds lie too
+  net.nodes[seeds[0].peer_key].liar = true; // two of the three seeds lie too
   net.nodes[seeds[1].peer_key].liar = true;
   net.nodes[seeds[2].peer_key].liar = false;
   const auto outcome = RunInline(net, seeds);

@@ -90,8 +90,8 @@ public:
 
 private:
   struct Bucket {
-    std::vector<DhtContact> contacts;      // oldest heard first
-    std::vector<DhtContact> replacements;  // newest last
+    std::vector<DhtContact> contacts;     // oldest heard first
+    std::vector<DhtContact> replacements; // newest last
   };
 
   static std::string SubnetOf(const std::string& multiaddr);

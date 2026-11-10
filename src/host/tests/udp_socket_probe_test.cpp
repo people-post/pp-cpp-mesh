@@ -141,7 +141,7 @@ TEST_F(UdpSocketProbeTest, ASocketThatHearsNothingIsDeadAfterTwoTries) {
 
 TEST_F(UdpSocketProbeTest, ALiveSocketIsLeftAlone) {
   auto io = std::make_shared<DeafDatagramIo>(std::make_shared<pp::adp::MemoryDatagramIo>(hub_, addr_), true);
-  ASSERT_TRUE(static_cast<bool>(io->Reopen()));  // hears from the start
+  ASSERT_TRUE(static_cast<bool>(io->Reopen())); // hears from the start
   Attach(io);
   const auto check = Ensure();
   ASSERT_TRUE(check.has_value());
@@ -189,7 +189,7 @@ TEST_F(UdpSocketProbeTest, ChecksAskedTogetherReopenOnce) {
   EXPECT_TRUE(checks[0].alive) << checks[0].error;
   EXPECT_EQ(io->reopens_, 1);
 
-  host_.EnsureUdpSocketAlive(UdpSocketCheckReason::Requested);  // done: the next one runs
+  host_.EnsureUdpSocketAlive(UdpSocketCheckReason::Requested); // done: the next one runs
   for (int i = 0; i < 100 && checks.size() < 2; ++i) {
     host_.Tick();
     clock_->Advance(50);

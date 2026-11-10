@@ -34,8 +34,8 @@ public:
     uint64_t store_rejected = 0;
   };
 
-  DhtServer(pp::amp::MeshRuntime& runtime, DhtRecordStore& store, const DhtRoutingTable& table,
-            NoteHeard note_heard, WorkerPost post_worker = {});
+  DhtServer(pp::amp::MeshRuntime& runtime, DhtRecordStore& store, const DhtRoutingTable& table, NoteHeard note_heard,
+            WorkerPost post_worker = {});
   ~DhtServer();
 
   DhtServer(const DhtServer&) = delete;

@@ -147,11 +147,11 @@ public:
    * set the pressures they see, a tick adds the link table's, and an operator
    * adds more (CPU, uplink) or drains it. They say the level in their replies.
    */
-  ServiceLoadMonitor &OwnLoad() { return own_load_; }
+  ServiceLoadMonitor& OwnLoad() { return own_load_; }
   /** What other nodes said about their own load, as this host's clients heard
    * it. */
-  PeerLoadBook &PeerLoads() { return peer_loads_; }
-  const PeerLoadBook &PeerLoads() const { return peer_loads_; }
+  PeerLoadBook& PeerLoads() { return peer_loads_; }
+  const PeerLoadBook& PeerLoads() const { return peer_loads_; }
   /** Amp dial-back for reachability chrome (D8); null when Amp is down. */
   DialBackClient* AmpDialBack();
   /** Amp coordinated punch (H009 / L3.25a); null when Amp is down. */

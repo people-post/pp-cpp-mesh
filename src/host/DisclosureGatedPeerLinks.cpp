@@ -18,7 +18,7 @@ std::optional<std::string> DisclosureGatedPeerLinks::PreferredMultiaddr(const st
 }
 
 Roe<void> DisclosureGatedPeerLinks::RegisterEndpoint(const std::string& peer_key, const std::string& multiaddr) {
-  return inner_.RegisterEndpoint(peer_key, multiaddr);  // booking an address discloses nothing
+  return inner_.RegisterEndpoint(peer_key, multiaddr); // booking an address discloses nothing
 }
 
 Roe<void> DisclosureGatedPeerLinks::RegisterEndpoints(const std::string& peer_key,
@@ -38,7 +38,7 @@ void DisclosureGatedPeerLinks::EnsureAssociation(const std::string& peer_key, Li
 
 void DisclosureGatedPeerLinks::OpenChannel(const std::string& peer_key, const std::string& protocol_id,
                                            pp::amp::ChannelPolicy policy, ChannelCb on_complete) {
-  if (!MayDial(peer_key)) {  // opening a channel dials first when no link is up
+  if (!MayDial(peer_key)) { // opening a channel dials first when no link is up
     if (on_complete) {
       on_complete(ChannelRoe(Failure::Of(Err::EndpointNotRegistered, kNotDisclosed)));
     }
@@ -65,7 +65,7 @@ void DisclosureGatedPeerLinks::RemoveProtocolHandler(const std::string& protocol
 MeshPeerLinkSnapshot DisclosureGatedPeerLinks::GetLinkSnapshot(const std::string& peer_key) const {
   MeshPeerLinkSnapshot snap = inner_.GetLinkSnapshot(peer_key);
   if (!MayDial(peer_key)) {
-    snap.has_endpoint = false;  // there is an address, but not one we may dial
+    snap.has_endpoint = false; // there is an address, but not one we may dial
   }
   return snap;
 }

@@ -15,9 +15,7 @@ public:
   virtual Roe<DirectoryHit> LookupRelayUser(const std::string& relay_user_id) = 0;
   virtual Roe<DirectoryHit> LookupByAccount(const std::string& account_id) = 0;
   /** Infra / pp-node listings (N027). Default empty for mocks / older providers. */
-  virtual Roe<std::vector<MeshNodeHit>> ListMeshNodes() {
-    return std::vector<MeshNodeHit>{};
-  }
+  virtual Roe<std::vector<MeshNodeHit>> ListMeshNodes() { return std::vector<MeshNodeHit>{}; }
 };
 
-}  // namespace pp::mesh
+} // namespace pp::mesh

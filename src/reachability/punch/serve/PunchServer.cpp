@@ -29,11 +29,8 @@ std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
 }
 
 std::string MakeEpochId(const std::string& local_peer_id) {
-  const auto ticks = std::chrono::duration_cast<std::chrono::microseconds>(
-                         Clock::now().time_since_epoch())
-                         .count();
-  return "ep-" + local_peer_id.substr(0, std::min<size_t>(local_peer_id.size(), 8)) + "-" +
-         std::to_string(ticks);
+  const auto ticks = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count();
+  return "ep-" + local_peer_id.substr(0, std::min<size_t>(local_peer_id.size(), 8)) + "-" + std::to_string(ticks);
 }
 
 std::string ResolvePeerKey(pp::amp::PeerLinkManager& links, const std::string& peer_id) {
@@ -145,7 +142,8 @@ struct PunchServer::Impl {
     AmpPunchLog().info << "punch introduce epoch=" << epoch_id << " initiator_addrs="
                        << (sync_to_target.peer_addrs.empty() ? std::string("-") : sync_to_target.peer_addrs.front())
                        << " (" << sync_to_target.peer_addrs.size() << ") target_addrs="
-                       << (sync_to_initiator.peer_addrs.empty() ? std::string("-") : sync_to_initiator.peer_addrs.front())
+                       << (sync_to_initiator.peer_addrs.empty() ? std::string("-")
+                                                                : sync_to_initiator.peer_addrs.front())
                        << " (" << sync_to_initiator.peer_addrs.size() << ")";
     sync_to_target.window_ms = window_ms;
 
@@ -184,122 +182,119 @@ struct PunchServer::Impl {
 
     auto target_session = std::make_shared<pp::amp::ChannelSession>();
     auto target_settled = std::make_shared<std::atomic<bool>>(false);
-    auto finish_candidates =
-        [this, target_settled, target_session, initiator_session, initiator_peer_id, epoch_id, window_ms,
-         req](CodedRoe<PunchCandidates, PunchErr> value) {
-          if (target_settled->exchange(true, std::memory_order_acq_rel)) {
-            return;
-          }
-          // Stay on strand: candidate frames may arrive under mux — continue via PostStrand.
-          PostStrand([this, target_session, initiator_session, initiator_peer_id, epoch_id, window_ms, req,
-                      value = std::move(value)]() mutable {
-            if (stopped.load(std::memory_order_acquire) || !runtime) {
-              target_session->Close();
-              return;
-            }
-            if (!value) {
-              target_session->Close();
-              // The target leg's failure, as the initiator's refusal: it declined us, or this
-              // introducer could not get to it (the initiator then asks another).
-              const PunchErr leg = value.error().GetCode();
-              FailSession(initiator_session, epoch_id,
-                          leg == PunchErr::Declined                                     ? PunchRefusal::Declined
-                          : leg == PunchErr::ProtocolError || leg == PunchErr::Generic ? PunchRefusal::Generic
-                                                                                        : PunchRefusal::TargetUnknown,
-                          value.error().message);
-              return;
-            }
-            if (SanitizePunchAddrs(value->addrs).empty()) {
-              target_session->Close();
-              FailSession(initiator_session, epoch_id, PunchRefusal::NoCandidates, "punch: target returned no candidates");
-              return;
-            }
-            SendSyncPair(initiator_session, target_session, initiator_peer_id, epoch_id, window_ms, req, *value);
-          });
-        };
+    auto finish_candidates = [this, target_settled, target_session, initiator_session, initiator_peer_id, epoch_id,
+                              window_ms, req](CodedRoe<PunchCandidates, PunchErr> value) {
+      if (target_settled->exchange(true, std::memory_order_acq_rel)) {
+        return;
+      }
+      // Stay on strand: candidate frames may arrive under mux — continue via PostStrand.
+      PostStrand([this, target_session, initiator_session, initiator_peer_id, epoch_id, window_ms, req,
+                  value = std::move(value)]() mutable {
+        if (stopped.load(std::memory_order_acquire) || !runtime) {
+          target_session->Close();
+          return;
+        }
+        if (!value) {
+          target_session->Close();
+          // The target leg's failure, as the initiator's refusal: it declined us, or this
+          // introducer could not get to it (the initiator then asks another).
+          const PunchErr leg = value.error().GetCode();
+          FailSession(initiator_session, epoch_id,
+                      leg == PunchErr::Declined                                    ? PunchRefusal::Declined
+                      : leg == PunchErr::ProtocolError || leg == PunchErr::Generic ? PunchRefusal::Generic
+                                                                                   : PunchRefusal::TargetUnknown,
+                      value.error().message);
+          return;
+        }
+        if (SanitizePunchAddrs(value->addrs).empty()) {
+          target_session->Close();
+          FailSession(initiator_session, epoch_id, PunchRefusal::NoCandidates, "punch: target returned no candidates");
+          return;
+        }
+        SendSyncPair(initiator_session, target_session, initiator_peer_id, epoch_id, window_ms, req, *value);
+      });
+    };
 
     const auto read_timeout = PunchRemainingTimeout(deadline);
-    Links().EnsureAssociation(
-        target_key, [this, target_key, initiator_peer_id, req, epoch_id, window_ms, finish_candidates,
-                     target_session, deadline, read_timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
-          if (!assoc) {
-            finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(WrapPunchLinkFailure(assoc.error())));
-            return;
-          }
-          Links().OpenChannel(
-              target_key, kAmpPunchProtocolId, PunchJsonChannelPolicy(read_timeout),
-              [this, target_key, initiator_peer_id, req, epoch_id, window_ms, finish_candidates, target_session,
-               deadline, read_timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
-                if (!channel) {
-                  finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(WrapPunchLinkFailure(channel.error())));
-                  return;
-                }
-                AmpScheduleWhenChannelOpen(
-                    MakePostIo(), io_pump,
-                    [this, target_key, channel_id = *channel]() {
-                      auto* link = Links().FindLink(target_key);
-                      return link && link->Mux() &&
-                             link->Mux()->State(channel_id) == pp::amp::ChannelState::Open;
-                    },
-                    deadline,
-                    [this, target_key, channel_id = *channel, initiator_peer_id, req, epoch_id, window_ms,
-                     finish_candidates, target_session, read_timeout](bool open) mutable {
-                      if (!open) {
-                        finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
-                            PunchFailure::Of(PunchErr::ChannelFailed, "punch: target channel open failed")));
-                        return;
-                      }
-                      auto* link = Links().FindLink(target_key);
-                      if (!link || !link->Mux() ||
-                          link->Mux()->State(channel_id) != pp::amp::ChannelState::Open) {
-                        finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
-                            PunchFailure::Of(PunchErr::ChannelFailed, "punch: target channel open failed")));
-                        return;
-                      }
-                      target_session->Bind(
-                          *link->Mux(), channel_id, PunchJsonChannelPolicy(read_timeout),
-                          [finish_candidates](Roe<std::vector<uint8_t>> frame) {
-                            if (!frame) {
-                              finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
-                                  PunchFailure::Of(PunchErr::ProtocolError, "punch: failed to read target candidates")));
-                              return false;
-                            }
-                            auto root = common::TryParseObject(std::string(frame->begin(), frame->end()));
-                            if (!root) {
-                              finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
-                                  PunchFailure::Of(PunchErr::ProtocolError, "punch: invalid target candidates json")));
-                              return false;
-                            }
-                            if (auto refused = DecodePunchResult(*root); refused && !refused->ok) {
-                              finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(PunchFailure::Of(
-                                  refused->refusal == PunchRefusal::Declined ? PunchErr::Declined : PunchErr::PunchFailed,
-                                  detail::AppendFrom("punch: target refused", "target", refused->error))));
-                              return false;
-                            }
-                            auto decoded = DecodePunchCandidates(*root);
-                            if (!decoded) {
-                              finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
-                                  PunchFailure::Of(PunchErr::ProtocolError, "punch: target candidates decode failed")));
-                              return false;
-                            }
-                            finish_candidates(*decoded);
-                            return true; // keep open for sync
-                          });
+    Links().EnsureAssociation(target_key, [this, target_key, initiator_peer_id, req, epoch_id, window_ms,
+                                           finish_candidates, target_session, deadline,
+                                           read_timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
+      if (!assoc) {
+        finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(WrapPunchLinkFailure(assoc.error())));
+        return;
+      }
+      Links().OpenChannel(
+          target_key, kAmpPunchProtocolId, PunchJsonChannelPolicy(read_timeout),
+          [this, target_key, initiator_peer_id, req, epoch_id, window_ms, finish_candidates, target_session, deadline,
+           read_timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
+            if (!channel) {
+              finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(WrapPunchLinkFailure(channel.error())));
+              return;
+            }
+            AmpScheduleWhenChannelOpen(
+                MakePostIo(), io_pump,
+                [this, target_key, channel_id = *channel]() {
+                  auto* link = Links().FindLink(target_key);
+                  return link && link->Mux() && link->Mux()->State(channel_id) == pp::amp::ChannelState::Open;
+                },
+                deadline,
+                [this, target_key, channel_id = *channel, initiator_peer_id, req, epoch_id, window_ms,
+                 finish_candidates, target_session, read_timeout](bool open) mutable {
+                  if (!open) {
+                    finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
+                        PunchFailure::Of(PunchErr::ChannelFailed, "punch: target channel open failed")));
+                    return;
+                  }
+                  auto* link = Links().FindLink(target_key);
+                  if (!link || !link->Mux() || link->Mux()->State(channel_id) != pp::amp::ChannelState::Open) {
+                    finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
+                        PunchFailure::Of(PunchErr::ChannelFailed, "punch: target channel open failed")));
+                    return;
+                  }
+                  target_session->Bind(
+                      *link->Mux(), channel_id, PunchJsonChannelPolicy(read_timeout),
+                      [finish_candidates](Roe<std::vector<uint8_t>> frame) {
+                        if (!frame) {
+                          finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
+                              PunchFailure::Of(PunchErr::ProtocolError, "punch: failed to read target candidates")));
+                          return false;
+                        }
+                        auto root = common::TryParseObject(std::string(frame->begin(), frame->end()));
+                        if (!root) {
+                          finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
+                              PunchFailure::Of(PunchErr::ProtocolError, "punch: invalid target candidates json")));
+                          return false;
+                        }
+                        if (auto refused = DecodePunchResult(*root); refused && !refused->ok) {
+                          finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(PunchFailure::Of(
+                              refused->refusal == PunchRefusal::Declined ? PunchErr::Declined : PunchErr::PunchFailed,
+                              detail::AppendFrom("punch: target refused", "target", refused->error))));
+                          return false;
+                        }
+                        auto decoded = DecodePunchCandidates(*root);
+                        if (!decoded) {
+                          finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
+                              PunchFailure::Of(PunchErr::ProtocolError, "punch: target candidates decode failed")));
+                          return false;
+                        }
+                        finish_candidates(*decoded);
+                        return true; // keep open for sync
+                      });
 
-                      PunchOffer offer;
-                      offer.initiator_peer_id = initiator_peer_id;
-                      offer.addrs = SanitizePunchAddrs(req.addrs);
-                      offer.epoch_id = epoch_id;
-                      offer.window_ms = window_ms;
-                      if (!target_session->EnqueueOutbound(JsonToBody(EncodePunchOffer(offer)))) {
-                        finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
-                            PunchFailure::Of(PunchErr::ProtocolError, "punch: failed to send offer")));
-                        return;
-                      }
-                    },
-                    [this]() { return stopped.load(std::memory_order_acquire); });
-              });
-        });
+                  PunchOffer offer;
+                  offer.initiator_peer_id = initiator_peer_id;
+                  offer.addrs = SanitizePunchAddrs(req.addrs);
+                  offer.epoch_id = epoch_id;
+                  offer.window_ms = window_ms;
+                  if (!target_session->EnqueueOutbound(JsonToBody(EncodePunchOffer(offer)))) {
+                    finish_candidates(CodedRoe<PunchCandidates, PunchErr>::error(
+                        PunchFailure::Of(PunchErr::ProtocolError, "punch: failed to send offer")));
+                    return;
+                  }
+                },
+                [this]() { return stopped.load(std::memory_order_acquire); });
+          });
+    });
   }
 
   void RunBurstAndReply(const std::shared_ptr<pp::amp::ChannelSession>& session, PunchSync sync,
@@ -349,15 +344,12 @@ struct PunchServer::Impl {
 
   /** pp_punch_served_total{role} (pp-browser docs/contracts/NODE_METRICS.md § Reachability). */
   void CountServed(const char* role) {
-    metrics
-        .Counter("pp_punch_served_total", "Punch requests this node served, by role.", {{"role", role}})
-        .Inc();
+    metrics.Counter("pp_punch_served_total", "Punch requests this node served, by role.", {{"role", role}}).Inc();
   }
 
-  void HandleInboundFrame(const std::shared_ptr<pp::amp::ChannelSession>& session,
-                          const std::string& remote_peer_id, const std::shared_ptr<std::string>& phase,
-                          const std::shared_ptr<std::string>& punch_remote_peer_id,
-                          const std::string& json_utf8) {
+  void HandleInboundFrame(const std::shared_ptr<pp::amp::ChannelSession>& session, const std::string& remote_peer_id,
+                          const std::shared_ptr<std::string>& phase,
+                          const std::shared_ptr<std::string>& punch_remote_peer_id, const std::string& json_utf8) {
     if (stopped.load(std::memory_order_acquire) || !runtime || !session) {
       return;
     }
@@ -416,8 +408,7 @@ struct PunchServer::Impl {
     }
   }
 
-  void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id_in,
-                           uint32_t channel_id) {
+  void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id_in, uint32_t channel_id) {
     if (stopped.load(std::memory_order_acquire) || !runtime || remote_peer_id_in.empty()) {
       return;
     }
@@ -449,7 +440,9 @@ PunchServer::PunchServer(pp::amp::MeshRuntime& runtime, IoPump io_pump, MetricsR
   impl_->local_addrs = &local_addrs_;
 }
 
-PunchServer::~PunchServer() { Stop(); }
+PunchServer::~PunchServer() {
+  Stop();
+}
 
 void PunchServer::SetAddressDisclosure(const AddressDisclosureGate* gate) {
   impl_->disclosure.store(gate, std::memory_order_release);
@@ -467,10 +460,10 @@ void PunchServer::Start() {
   impl_->stopped.store(false, std::memory_order_release);
   runtime_.Links().SetProtocolHandler(
       kAmpPunchProtocolId,
-      impl_->deferred.Bind([impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id,
-                                                uint32_t channel_id) {
-        impl->HandleInboundOnLink(handle, remote_peer_id, channel_id);
-      }));
+      impl_->deferred.Bind(
+          [impl = impl_.get()](pp::amp::LinkHandle handle, const std::string& remote_peer_id, uint32_t channel_id) {
+            impl->HandleInboundOnLink(handle, remote_peer_id, channel_id);
+          }));
 }
 
 void PunchServer::Stop() {

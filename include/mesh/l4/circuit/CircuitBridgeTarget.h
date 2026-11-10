@@ -19,14 +19,14 @@ enum class CircuitStandbyPriority {
 /** Wire value of the bridge request's optional `standby_priority`; None → nullptr (field omitted). */
 inline const char* CircuitStandbyPriorityWire(const CircuitStandbyPriority priority) {
   switch (priority) {
-  case CircuitStandbyPriority::Low:
-    return "low";
-  case CircuitStandbyPriority::Medium:
-    return "medium";
-  case CircuitStandbyPriority::High:
-    return "high";
-  case CircuitStandbyPriority::None:
-    break;
+    case CircuitStandbyPriority::Low:
+      return "low";
+    case CircuitStandbyPriority::Medium:
+      return "medium";
+    case CircuitStandbyPriority::High:
+      return "high";
+    case CircuitStandbyPriority::None:
+      break;
   }
   return nullptr;
 }

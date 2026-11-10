@@ -115,8 +115,7 @@ TEST_F(AmpCircuitMediaRelayComposeTest, CircuitBackedQuoteAndAttach) {
   ASSERT_TRUE(bridge_wait.result) << bridge_wait.result.error().message;
   ASSERT_TRUE(bridge_wait.result->session);
   ASSERT_TRUE(static_cast<bool>(
-      hops_->Install(harness_->peer_id_b, "relay", kMediaRelayProtocolId, bridge_wait.result->session,
-                     tunnel_id)));
+      hops_->Install(harness_->peer_id_b, "relay", kMediaRelayProtocolId, bridge_wait.result->session, tunnel_id)));
 
   MediaRelayQuoteRequest req;
   req.session_id = "call-amp-circuit-sfu";
@@ -129,8 +128,8 @@ TEST_F(AmpCircuitMediaRelayComposeTest, CircuitBackedQuoteAndAttach) {
   ASSERT_TRUE(quote_wait.result->ok);
 
   Wait<MediaRelayAttachResult, MediaRelayFailure> attach_wait;
-  ASSERT_TRUE(client_->StartAttach(harness_->peer_id_b, quote_wait.result->quote_id, req.session_id,
-                                   req.session_id, {}, attach_wait.Fn(), 8000));
+  ASSERT_TRUE(client_->StartAttach(harness_->peer_id_b, quote_wait.result->quote_id, req.session_id, req.session_id, {},
+                                   attach_wait.Fn(), 8000));
   attach_wait.PumpUntilDone(*harness_);
   ASSERT_TRUE(attach_wait.result) << attach_wait.result.error().message;
   EXPECT_TRUE(attach_wait.result->ok);

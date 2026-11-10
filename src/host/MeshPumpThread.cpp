@@ -6,7 +6,9 @@
 
 namespace pp::mesh {
 
-MeshPumpThread::~MeshPumpThread() { Stop(); }
+MeshPumpThread::~MeshPumpThread() {
+  Stop();
+}
 
 void MeshPumpThread::Start(std::function<bool()> tick, const std::chrono::milliseconds interval,
                            std::function<void()> on_thread_start, std::function<void()> on_thread_exit) {

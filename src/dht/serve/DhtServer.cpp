@@ -72,15 +72,12 @@ struct DhtServer::Impl {
     return [rt = runtime](std::function<void()> task) { rt->PostToIo(std::move(task)); };
   }
 
-  void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id,
-                           const uint32_t channel_id) {
+  void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id, const uint32_t channel_id) {
     if (stopped.load(std::memory_order_acquire) || !runtime || remote_peer_id.empty()) {
       return;
     }
     pp::amp::ByteVector remote_pk;
-    Links().WithLiveLink(handle, [&](pp::amp::PeerLink& link) {
-      remote_pk = link.RemoteIdentityPublicKey();
-    });
+    Links().WithLiveLink(handle, [&](pp::amp::PeerLink& link) { remote_pk = link.RemoteIdentityPublicKey(); });
     auto session_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
     *session_holder = Links().BindChannelOnLink(
         handle, channel_id, InboundReplyPolicy(pp::amp::ControlJsonChannelPolicy()),
@@ -130,96 +127,93 @@ struct DhtServer::Impl {
                 }
                 response = MakeErrorResponse(req_id, "rate_limited", "dht rate limited");
               } else if (op == "find_peer") {
-                          {
-                            std::lock_guard lock(stats_mutex);
-                            ++stats.inbound_find_peer;
-                          }
-                          response.set("op", "find_peer_result");
-                          response.set("req_id", req_id);
-                          response.set("version", int64_t{kDhtWireVersion});
-                          const std::string peer_id = root->getString("peer_id").value_or("");
-                          response.set("peer_id", peer_id);
-                          std::vector<PeerRoutingRecord> records;
-                          if (auto local = store->Get(peer_id)) {
-                            records.push_back(*local);
-                          }
-                          response.set("records", RecordsToJsonArray(records));
-                          std::vector<DhtCloserPeer> closer;
-                          if (const auto target_key = DhtKeyOfPeerId(peer_id)) {
-                            const size_t n = std::min(table->K(), kDhtCloserPeers);  // k_closer = k
-                            for (DhtContact& contact : table->Closest(*target_key, n, remote_peer)) {
-                              closer.push_back({std::move(contact.peer_id), std::move(contact.multiaddr)});
-                            }
-                          }
-                          response.set("closer_peers", DhtCloserPeersToArray(closer));
-                          response.set("participant", participate.load(std::memory_order_acquire));
-                        } else {
-                          {
-                            std::lock_guard lock(stats_mutex);
-                            ++stats.inbound_store;
-                          }
-                          std::string reject_code;
-                          bool ok = false;
-                          if (const common::Object* record_obj = root->getObject("record")) {
-                            if (auto parsed = PeerRoutingRecordFromObject(*record_obj)) {
-                              if (parsed->peer_id != remote_peer) {
-                                reject_code = "not_self";
-                              } else if (PeerRoutingRecordExpired(
-                                             *parsed, static_cast<int64_t>(std::time(nullptr)))) {
-                                reject_code = "expired";
-                              } else {
-                                auto verified = VerifyPeerRoutingRecord(*parsed, remote_pk);
-                                if (!verified) {
-                                  reject_code = "bad_signature";
-                                } else if (!*verified) {
-                                  reject_code = "bad_signature";
-                                } else if (!parsed->public_key_b64.empty() &&
-                                           parsed->public_key_b64 != pp::Base64Encode(remote_pk)) {
-                                  reject_code = "bad_key";
-                                } else if (auto existing = store->Get(parsed->peer_id);
-                                           existing && existing->seq > parsed->seq) {
-                                  reject_code = "seq_regression";
-                                } else if (parsed->public_key_b64 = pp::Base64Encode(remote_pk);
-                                           !store->Put(*parsed)) {  // served checkable to anyone
-                                  reject_code = "store_failed";
-                                } else {
-                                  ok = true;
-                                }
-                              }
-                            } else {
-                              reject_code = "invalid_record";
-                            }
-                          } else {
-                            reject_code = "missing_record";
-                          }
-                          if (!ok) {
-                            std::lock_guard lock(stats_mutex);
-                            ++stats.store_rejected;
-                          } else if (note_heard) {
-                            // It publishes, so it takes part; its own record says where to dial it.
-                            if (auto stored = store->Get(remote_peer)) {
-                              note_heard(remote_peer, PeerRoutingRecordDialAddr(*stored));
-                            }
-                          }
-                          if (!ok && !reject_code.empty()) {
-                            response = MakeErrorResponse(req_id, reject_code, reject_code);
-                          } else {
-                            response.set("op", "store_result");
-                            response.set("req_id", req_id);
-                            response.set("version", int64_t{kDhtWireVersion});
-                            response.set("ok", ok);
-                          }
-                        }
+                {
+                  std::lock_guard lock(stats_mutex);
+                  ++stats.inbound_find_peer;
+                }
+                response.set("op", "find_peer_result");
+                response.set("req_id", req_id);
+                response.set("version", int64_t{kDhtWireVersion});
+                const std::string peer_id = root->getString("peer_id").value_or("");
+                response.set("peer_id", peer_id);
+                std::vector<PeerRoutingRecord> records;
+                if (auto local = store->Get(peer_id)) {
+                  records.push_back(*local);
+                }
+                response.set("records", RecordsToJsonArray(records));
+                std::vector<DhtCloserPeer> closer;
+                if (const auto target_key = DhtKeyOfPeerId(peer_id)) {
+                  const size_t n = std::min(table->K(), kDhtCloserPeers); // k_closer = k
+                  for (DhtContact& contact : table->Closest(*target_key, n, remote_peer)) {
+                    closer.push_back({std::move(contact.peer_id), std::move(contact.multiaddr)});
+                  }
+                }
+                response.set("closer_peers", DhtCloserPeersToArray(closer));
+                response.set("participant", participate.load(std::memory_order_acquire));
+              } else {
+                {
+                  std::lock_guard lock(stats_mutex);
+                  ++stats.inbound_store;
+                }
+                std::string reject_code;
+                bool ok = false;
+                if (const common::Object* record_obj = root->getObject("record")) {
+                  if (auto parsed = PeerRoutingRecordFromObject(*record_obj)) {
+                    if (parsed->peer_id != remote_peer) {
+                      reject_code = "not_self";
+                    } else if (PeerRoutingRecordExpired(*parsed, static_cast<int64_t>(std::time(nullptr)))) {
+                      reject_code = "expired";
+                    } else {
+                      auto verified = VerifyPeerRoutingRecord(*parsed, remote_pk);
+                      if (!verified) {
+                        reject_code = "bad_signature";
+                      } else if (!*verified) {
+                        reject_code = "bad_signature";
+                      } else if (!parsed->public_key_b64.empty() &&
+                                 parsed->public_key_b64 != pp::Base64Encode(remote_pk)) {
+                        reject_code = "bad_key";
+                      } else if (auto existing = store->Get(parsed->peer_id); existing && existing->seq > parsed->seq) {
+                        reject_code = "seq_regression";
+                      } else if (parsed->public_key_b64 = pp::Base64Encode(remote_pk);
+                                 !store->Put(*parsed)) { // served checkable to anyone
+                        reject_code = "store_failed";
                       } else {
-                        response = MakeErrorResponse(req_id, "unsupported_op", "unsupported op");
+                        ok = true;
                       }
-                      reply->Send(JsonToBody(common::DumpJson(response)));
-                      reply->Close();
-                    });
+                    }
+                  } else {
+                    reject_code = "invalid_record";
+                  }
+                } else {
+                  reject_code = "missing_record";
+                }
+                if (!ok) {
+                  std::lock_guard lock(stats_mutex);
+                  ++stats.store_rejected;
+                } else if (note_heard) {
+                  // It publishes, so it takes part; its own record says where to dial it.
+                  if (auto stored = store->Get(remote_peer)) {
+                    note_heard(remote_peer, PeerRoutingRecordDialAddr(*stored));
+                  }
+                }
+                if (!ok && !reject_code.empty()) {
+                  response = MakeErrorResponse(req_id, reject_code, reject_code);
+                } else {
+                  response.set("op", "store_result");
+                  response.set("req_id", req_id);
+                  response.set("version", int64_t{kDhtWireVersion});
+                  response.set("ok", ok);
+                }
+              }
+            } else {
+              response = MakeErrorResponse(req_id, "unsupported_op", "unsupported op");
+            }
+            reply->Send(JsonToBody(common::DumpJson(response)));
+            reply->Close();
+          });
           return true;
         });
   }
-
 };
 
 DhtServer::DhtServer(pp::amp::MeshRuntime& runtime, DhtRecordStore& store, const DhtRoutingTable& table,
@@ -232,7 +226,9 @@ DhtServer::DhtServer(pp::amp::MeshRuntime& runtime, DhtRecordStore& store, const
   impl_->post_worker = std::move(post_worker);
 }
 
-DhtServer::~DhtServer() { Stop(); }
+DhtServer::~DhtServer() {
+  Stop();
+}
 
 void DhtServer::Configure(const AmpDhtProtocolConfig& config) {
   impl_->local_peer_id = config.local_peer_id;

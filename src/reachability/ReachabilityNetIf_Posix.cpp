@@ -87,8 +87,7 @@ std::vector<LanIpv4If> LanIpv4Interfaces() {
     if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) {
       continue;
     }
-    if ((ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_RUNNING) == 0 ||
-        (ifa->ifa_flags & IFF_LOOPBACK) != 0) {
+    if ((ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_RUNNING) == 0 || (ifa->ifa_flags & IFF_LOOPBACK) != 0) {
       continue;
     }
     const auto* addr = reinterpret_cast<const sockaddr_in*>(ifa->ifa_addr);

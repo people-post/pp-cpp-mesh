@@ -47,8 +47,7 @@ TEST(CircuitServeDialPolicyTest, ArmFarLegWaitDeadlineUsesTunnelWhenShorterThanS
 
 TEST(CircuitServeDialPolicyTest, ArmFarLegWaitDeadlineUsesMaxWhenNoTunnel) {
   const int64_t now = 1000;
-  EXPECT_EQ(pp::mesh::CircuitServeDialArmFarLegWaitDeadlineMs(now, 0),
-            now + pp::mesh::kCircuitServeDialFarLegWaitMs);
+  EXPECT_EQ(pp::mesh::CircuitServeDialArmFarLegWaitDeadlineMs(now, 0), now + pp::mesh::kCircuitServeDialFarLegWaitMs);
 }
 
 // A relay's refusal by its ack's code (docs/ERRORS.md); the text only for relays before codes.
@@ -56,9 +55,9 @@ TEST(CircuitRefusalTest, TheAckCodeDecidesAndOldTextStillReads) {
   using pp::mesh::CircuitRefusal;
   using pp::mesh::CircuitRefusalFromAck;
   using pp::mesh::CircuitRefusalWire;
-  for (const CircuitRefusal refusal : {CircuitRefusal::TargetNotReserved, CircuitRefusal::TargetUnreachable,
-                                       CircuitRefusal::Busy, CircuitRefusal::Refused, CircuitRefusal::NotReady,
-                                       CircuitRefusal::BadRequest}) {
+  for (const CircuitRefusal refusal :
+       {CircuitRefusal::TargetNotReserved, CircuitRefusal::TargetUnreachable, CircuitRefusal::Busy,
+        CircuitRefusal::Refused, CircuitRefusal::NotReady, CircuitRefusal::BadRequest}) {
     EXPECT_EQ(CircuitRefusalFromAck(CircuitRefusalWire(refusal), "unrelated words"), refusal);
   }
   EXPECT_EQ(CircuitRefusalFromAck("a_newer_code", "relay busy"), CircuitRefusal::Generic);

@@ -83,11 +83,11 @@ TEST(DhtRecordCodecTest, ARecordWithItsKeyChecksOnItsOwn) {
   EXPECT_EQ(parsed->public_key_b64, signed_record->public_key_b64);
   EXPECT_TRUE(VerifyPeerRoutingRecordStandalone(*parsed));
 
-  PeerRoutingRecord wrong_key = *parsed;  // a key that does not derive the PeerId
+  PeerRoutingRecord wrong_key = *parsed; // a key that does not derive the PeerId
   wrong_key.public_key_b64 = pp::Base64Encode(other->public_key);
   EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(wrong_key));
 
-  PeerRoutingRecord altered = *parsed;  // the right key, the signed fields changed
+  PeerRoutingRecord altered = *parsed; // the right key, the signed fields changed
   altered.multiaddrs = {"/ip4/198.51.100.9/udp/443/adp/1.0.0/p2p/" + record.peer_id};
   EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(altered));
 }
@@ -100,9 +100,9 @@ TEST(DhtRecordCodecTest, CloserPeersKeepOnlyWellFormedHints) {
   common::Object response;
   response.set("closer_peers", DhtCloserPeersToArray({
                                    {a, ma(a)},
-                                   {b, ma(a)},        // the address names someone else
-                                   {a, ma(a)},        // twice
-                                   {"Qm0lI", ma("Qm0lI")},  // not base58
+                                   {b, ma(a)},             // the address names someone else
+                                   {a, ma(a)},             // twice
+                                   {"Qm0lI", ma("Qm0lI")}, // not base58
                                    {b, ma(b)},
                                }));
   const auto peers = DhtCloserPeersFromResponse(response);
@@ -189,7 +189,8 @@ TEST(DhtRecordCodecTest, RejectsMultiaddrPeerMismatch) {
   object.set("seq", int64_t{1});
   object.set("ttl_seconds", int64_t{3600});
   object.set("issued_at", int64_t{1'700'000'000});
-  object.set("multiaddrs", common::makeArray(std::vector<common::Value>{"/ip4/1.2.3.4/udp/443/adp/1.0.0/p2p/12D3KooWPeerB"}));
+  object.set("multiaddrs",
+             common::makeArray(std::vector<common::Value>{"/ip4/1.2.3.4/udp/443/adp/1.0.0/p2p/12D3KooWPeerB"}));
   object.set("signature_b64", "AA==");
   object.set("signature_alg", "ml-dsa-65");
 

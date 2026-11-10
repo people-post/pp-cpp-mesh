@@ -18,7 +18,6 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-
 std::vector<uint8_t> JsonToBody(const std::string& json_utf8) {
   return std::vector<uint8_t>(json_utf8.begin(), json_utf8.end());
 }
@@ -42,8 +41,7 @@ DhtClient::Failure DhtClient::WrapLinkFailure(const pp::amp::PeerLinkManager::Fa
     case pp::amp::PeerLinkManager::Err::DialTimeout:
       return Failure::Of(Err::Timeout, detail::AppendFrom("dht: dial timed out", "link", child.message));
     case pp::amp::PeerLinkManager::Err::ChannelOpenFailed:
-      return Failure::Of(Err::ChannelFailed,
-                         detail::AppendFrom("dht: channel open failed", "link", child.message));
+      return Failure::Of(Err::ChannelFailed, detail::AppendFrom("dht: channel open failed", "link", child.message));
     case pp::amp::PeerLinkManager::Err::DialInBackoff:
     case pp::amp::PeerLinkManager::Err::TooManyConcurrentDials:
     case pp::amp::PeerLinkManager::Err::MaxLinksReached:
@@ -64,22 +62,26 @@ DhtClient::Failure DhtClient::WrapLinkFailure(const pp::amp::PeerLinkManager::Fa
 DhtClient::DhtClient(pp::amp::MeshRuntime& runtime, DhtRecordStore& store, DhtRoutingTable& table)
     : runtime_(runtime), store_(store), table_(table) {}
 
-void DhtClient::Configure(const AmpDhtProtocolConfig& config) { config_ = config; }
+void DhtClient::Configure(const AmpDhtProtocolConfig& config) {
+  config_ = config;
+}
 
-void DhtClient::Start() { started_.store(true, std::memory_order_release); }
+void DhtClient::Start() {
+  started_.store(true, std::memory_order_release);
+}
 
-void DhtClient::Stop() { started_.store(false, std::memory_order_release); }
+void DhtClient::Stop() {
+  started_.store(false, std::memory_order_release);
+}
 
 void DhtClient::NoteSoftReputationBad(const std::string& peer_key) {
   if (peer_key.empty()) {
     return;
   }
-  const int threshold = config_.tunables.soft_reputation_penalty_threshold > 0
-                            ? config_.tunables.soft_reputation_penalty_threshold
-                            : 3;
-  const int cooldown_s = config_.tunables.soft_reputation_cooldown_seconds > 0
-                             ? config_.tunables.soft_reputation_cooldown_seconds
-                             : 300;
+  const int threshold =
+      config_.tunables.soft_reputation_penalty_threshold > 0 ? config_.tunables.soft_reputation_penalty_threshold : 3;
+  const int cooldown_s =
+      config_.tunables.soft_reputation_cooldown_seconds > 0 ? config_.tunables.soft_reputation_cooldown_seconds : 300;
   std::lock_guard lock(reputation_mutex_);
   SoftRep& rep = soft_reputation_[peer_key];
   ++rep.bad_count;
@@ -143,12 +145,12 @@ void DhtClient::NoteAnswered(const std::string& peer_key, const common::Object& 
     NoteHeard(peer_id, PeerRoutingRecordDialAddr(*stored));
   } else if (!reached_at.empty() && pp::amp::PeerIdFromMultiaddr(reached_at) == peer_id) {
     NoteHeard(peer_id, reached_at);
-  }  // else admitted once its record is cached (the publish tick warms the query peers')
+  } // else admitted once its record is cached (the publish tick warms the query peers')
 }
 
 void DhtClient::PingContact(const DhtContact& contact) {
   if (HeldDown(contact.peer_id)) {
-    table_.Remove(contact.peer_id);  // the record already knows: no ping needed
+    table_.Remove(contact.peer_id); // the record already knows: no ping needed
     return;
   }
   {
@@ -173,7 +175,7 @@ void DhtClient::PingContact(const DhtContact& contact) {
         resp->getString("peer_id").value_or("") == contact.peer_id) {
       table_.NoteHeard(contact.peer_id, contact.multiaddr, NowMs());
     } else if (resp || resp.error().GetCode() != Err::NotStarted) {
-      table_.Remove(contact.peer_id);  // a replacement moves in
+      table_.Remove(contact.peer_id); // a replacement moves in
     }
   });
 }
@@ -204,73 +206,66 @@ void DhtClient::Rpc(const std::string& peer_key, common::Object request, std::fu
   };
 
   runtime_.Links().EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session_holder, deadline,
-                                      timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
+                                                timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
     if (!assoc) {
       finish(RpcRoe::error(WrapLinkFailure(assoc.error())));
       return;
     }
-    runtime_.Links().OpenChannel(peer_key, kDhtProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
-                       [this, peer_key, request_json, finish, session_holder, deadline,
-                        timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
-                         if (!channel) {
-                           finish(RpcRoe::error(WrapLinkFailure(channel.error())));
-                           return;
-                         }
-                         if (!IsStarted()) {
-                           finish(RpcRoe::error(Failure::Of(Err::NotStarted, "dht service stopped")));
-                           return;
-                         }
-                         const uint32_t channel_id = *channel;
-                         AmpWhenChannelOpen(
-                             runtime_.Links(), peer_key, channel_id, deadline,
-                             [this, peer_key, channel_id, request_json, finish, session_holder, timeout](
-                                 bool open) mutable {
-                               if (!IsStarted()) {
-                                 finish(RpcRoe::error(Failure::Of(Err::NotStarted, "dht service stopped")));
-                                 return;
-                               }
-                               if (!open) {
-                                 finish(RpcRoe::error(
-                                     Failure::Of(Err::ChannelFailed, "dht channel open failed")));
-                                 return;
-                               }
-                               *session_holder = runtime_.Links().BindChannel(
-                                   peer_key, channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
-                                   [finish](Roe<std::vector<uint8_t>> frame) {
-                                     if (!frame) {
-                                       finish(RpcRoe::error(Failure::Of(
-                                           Err::ProtocolError, "dht response read failed")));
-                                       return false;
-                                     }
-                                     auto root =
-                                         common::TryParseObject(std::string(frame->begin(), frame->end()));
-                                     if (!root) {
-                                       finish(RpcRoe::error(Failure::Of(
-                                           Err::ProtocolError, "invalid dht response json")));
-                                       return false;
-                                     }
-                                     finish(std::move(*root));
-                                     return false;
-                                   },
-                                   // The reply channel can end with no frame (read timeout, link
-                                   // dropped, server stopping): settle, or the request never does.
-                                   [finish](const char* reason) {
-                                     finish(RpcRoe::error(Failure::Of(
-                                         Err::ChannelFailed, std::string("dht channel closed: ") +
-                                                                 (reason ? reason : ""))));
-                                   });
-                               if (!*session_holder) {
-                                 finish(RpcRoe::error(
-                                     Failure::Of(Err::ChannelFailed, "dht channel open failed")));
-                                 return;
-                               }
-                               if (!(*session_holder)->EnqueueOutbound(JsonToBody(request_json))) {
-                                 finish(RpcRoe::error(
-                                     Failure::Of(Err::ProtocolError, "dht request send failed")));
-                                 return;
-                               }
-                             });
-                       });
+    runtime_.Links().OpenChannel(
+        peer_key, kDhtProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
+        [this, peer_key, request_json, finish, session_holder, deadline,
+         timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
+          if (!channel) {
+            finish(RpcRoe::error(WrapLinkFailure(channel.error())));
+            return;
+          }
+          if (!IsStarted()) {
+            finish(RpcRoe::error(Failure::Of(Err::NotStarted, "dht service stopped")));
+            return;
+          }
+          const uint32_t channel_id = *channel;
+          AmpWhenChannelOpen(
+              runtime_.Links(), peer_key, channel_id, deadline,
+              [this, peer_key, channel_id, request_json, finish, session_holder, timeout](bool open) mutable {
+                if (!IsStarted()) {
+                  finish(RpcRoe::error(Failure::Of(Err::NotStarted, "dht service stopped")));
+                  return;
+                }
+                if (!open) {
+                  finish(RpcRoe::error(Failure::Of(Err::ChannelFailed, "dht channel open failed")));
+                  return;
+                }
+                *session_holder = runtime_.Links().BindChannel(
+                    peer_key, channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
+                    [finish](Roe<std::vector<uint8_t>> frame) {
+                      if (!frame) {
+                        finish(RpcRoe::error(Failure::Of(Err::ProtocolError, "dht response read failed")));
+                        return false;
+                      }
+                      auto root = common::TryParseObject(std::string(frame->begin(), frame->end()));
+                      if (!root) {
+                        finish(RpcRoe::error(Failure::Of(Err::ProtocolError, "invalid dht response json")));
+                        return false;
+                      }
+                      finish(std::move(*root));
+                      return false;
+                    },
+                    // The reply channel can end with no frame (read timeout, link
+                    // dropped, server stopping): settle, or the request never does.
+                    [finish](const char* reason) {
+                      finish(RpcRoe::error(Failure::Of(Err::ChannelFailed,
+                                                       std::string("dht channel closed: ") + (reason ? reason : ""))));
+                    });
+                if (!*session_holder) {
+                  finish(RpcRoe::error(Failure::Of(Err::ChannelFailed, "dht channel open failed")));
+                  return;
+                }
+                if (!(*session_holder)->EnqueueOutbound(JsonToBody(request_json))) {
+                  finish(RpcRoe::error(Failure::Of(Err::ProtocolError, "dht request send failed")));
+                  return;
+                }
+              });
+        });
   });
 }
 
@@ -298,7 +293,7 @@ void DhtClient::PublishSelfIfDue() {
     next_self_publish_ = std::min(next_self_publish_, now + std::chrono::seconds(kPublishRetrySeconds));
   }
   std::vector<std::string> addrs = PublishableAddrs();
-  const bool moved = !published_addrs_.empty() && addrs != published_addrs_;  // a network change
+  const bool moved = !published_addrs_.empty() && addrs != published_addrs_; // a network change
   if (now < next_self_publish_ && !moved) {
     return;
   }
@@ -307,7 +302,7 @@ void DhtClient::PublishSelfIfDue() {
     return;
   }
   if (publishing_.exchange(true, std::memory_order_acq_rel)) {
-    return;  // the last one is still walking
+    return; // the last one is still walking
   }
   const int ttl = config_.tunables.record_ttl_seconds > 0 ? config_.tunables.record_ttl_seconds : 3600;
   next_self_publish_ = now + std::chrono::seconds(std::max(30, ttl / 2));
@@ -331,7 +326,7 @@ void DhtClient::PublishSelfIfDue() {
     return;
   }
   if (!config_.device_signing_public.empty()) {
-    signed_record->public_key_b64 = pp::Base64Encode(config_.device_signing_public);  // checkable by anyone
+    signed_record->public_key_b64 = pp::Base64Encode(config_.device_signing_public); // checkable by anyone
   }
   store_.Put(*signed_record);
 
@@ -343,29 +338,29 @@ void DhtClient::PublishSelfIfDue() {
 
   // At the k closest to our key that answered a walk to it, and at the query peers (where a
   // Client, which does not walk, asks).
-  Walk(config_.local_peer_id, DhtLookup::Limits::WalkToClosest(table_.K()), [this, store_req](DhtLookup::Outcome outcome) {
-    if (outcome.answered == 0) {
-      retry_publish_.store(true, std::memory_order_release);  // nobody heard us: soon, not at ttl / 2
-    }
-    std::vector<std::string> targets = std::move(outcome.closest);
-    for (const std::string& peer_key : config_.query_peer_keys) {
-      if (std::find(targets.begin(), targets.end(), peer_key) == targets.end()) {
-        targets.push_back(peer_key);
-      }
-    }
-    for (const std::string& peer_key : targets) {
-      if (peer_key != config_.local_peer_id && !HeldDown(peer_key)) {
-        Rpc(peer_key, store_req, [](RpcRoe) {});
-      }
-    }
-    {
-      std::lock_guard lock(stats_mutex_);
-      ++self_publishes_;
-      last_publish_targets_ = targets.size();
-    }
-    publishing_.store(false, std::memory_order_release);
-  });
-
+  Walk(config_.local_peer_id, DhtLookup::Limits::WalkToClosest(table_.K()),
+       [this, store_req](DhtLookup::Outcome outcome) {
+         if (outcome.answered == 0) {
+           retry_publish_.store(true, std::memory_order_release); // nobody heard us: soon, not at ttl / 2
+         }
+         std::vector<std::string> targets = std::move(outcome.closest);
+         for (const std::string& peer_key : config_.query_peer_keys) {
+           if (std::find(targets.begin(), targets.end(), peer_key) == targets.end()) {
+             targets.push_back(peer_key);
+           }
+         }
+         for (const std::string& peer_key : targets) {
+           if (peer_key != config_.local_peer_id && !HeldDown(peer_key)) {
+             Rpc(peer_key, store_req, [](RpcRoe) {});
+           }
+         }
+         {
+           std::lock_guard lock(stats_mutex_);
+           ++self_publishes_;
+           last_publish_targets_ = targets.size();
+         }
+         publishing_.store(false, std::memory_order_release);
+       });
 }
 
 void DhtClient::WarmQueryPeersIfDue(const std::chrono::steady_clock::time_point now) {
@@ -462,8 +457,8 @@ void DhtClient::RefreshIfDue() {
       continue;
     }
     ++refreshes_in_window_;
-    Walk(in_bucket[static_cast<size_t>(now_ms) % in_bucket.size()].peer_id, DhtLookup::Limits::WalkToClosest(table_.K()),
-         [](DhtLookup::Outcome) {});
+    Walk(in_bucket[static_cast<size_t>(now_ms) % in_bucket.size()].peer_id,
+         DhtLookup::Limits::WalkToClosest(table_.K()), [](DhtLookup::Outcome) {});
   }
 }
 
@@ -485,8 +480,7 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
     return;
   }
 
-  const int max_inflight =
-      config_.tunables.max_concurrent_lookups > 0 ? config_.tunables.max_concurrent_lookups : 4;
+  const int max_inflight = config_.tunables.max_concurrent_lookups > 0 ? config_.tunables.max_concurrent_lookups : 4;
   int expected = inflight_lookups_.load(std::memory_order_relaxed);
   while (true) {
     if (expected >= max_inflight) {
@@ -523,7 +517,7 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
       on_done(std::move(result));
       return;
     }
-    if (outcome.answered > 0) {  // someone answered and nobody had it — not just our link down
+    if (outcome.answered > 0) { // someone answered and nobody had it — not just our link down
       {
         std::lock_guard lock(not_found_mutex_);
         not_found_until_ms_[target_peer_id] = NowMs() + kNotFoundCacheMs;
@@ -531,9 +525,8 @@ void DhtClient::FindPeer(const std::string& target_peer_id, std::function<void(F
       on_done(FindPeerRoe::error(Failure::Of(Err::NotFound, "find_peer not found")));
       return;
     }
-    on_done(FindPeerRoe::error(outcome.asked == 0
-                                   ? Failure::Of(Err::InvalidRequest, "no dht query peers configured")
-                                   : outcome.last_failure));
+    on_done(FindPeerRoe::error(outcome.asked == 0 ? Failure::Of(Err::InvalidRequest, "no dht query peers configured")
+                                                  : outcome.last_failure));
   });
 }
 
@@ -592,76 +585,76 @@ void DhtClient::AskForPeer(const DhtLookupCandidate& candidate, const std::strin
                            std::function<void(CodedRoe<DhtLookupAnswer, Err>)> done) {
   const std::string& peer_key = candidate.peer_key;
   if (!candidate.hint_addr.empty() && !runtime_.Links().GetLinkSnapshot(peer_key).has_endpoint) {
-    (void)runtime_.Links().RegisterEndpoint(peer_key, candidate.hint_addr);  // dialling it proves the PeerId
+    (void)runtime_.Links().RegisterEndpoint(peer_key, candidate.hint_addr); // dialling it proves the PeerId
   }
   common::Object request;
   request.set("op", "find_peer");
   request.set("req_id", util::GenerateUuid());
   request.set("version", int64_t{kDhtWireVersion});
   request.set("peer_id", target_peer_id);
-  Rpc(peer_key, request, [this, peer_key, target_peer_id, reached_at = candidate.hint_addr,
-                           done = std::move(done)](RpcRoe resp) {
-    if (!resp) {
-      done(CodedRoe<DhtLookupAnswer, Err>::error(resp.error()));
-      return;
-    }
-    if (resp->getString("op").value_or("") != "find_peer_result") {
-      done(CodedRoe<DhtLookupAnswer, Err>::error(Failure::Of(
-          Err::ProtocolError, "find_peer: " + resp->getString("code").value_or("unexpected answer"))));
-      return;
-    }
-    bool saw_bad = false;
-    DhtLookupAnswer answer;
-    std::optional<PeerRoutingRecord> self_answer;  // the responder's own, verified
-    const pp::amp::PeerLink* answering_link = runtime_.Links().FindLink(peer_key);
-    const std::string responder = answering_link ? answering_link->RemotePeerId() : std::string();
-    const int64_t now_sec = static_cast<int64_t>(std::time(nullptr));
-    if (const common::Array* records = resp->getArray("records")) {
-      for (const common::Value& item : records->elements) {
-        const common::Object* obj = common::asObject(item);
-        auto parsed = obj ? PeerRoutingRecordFromObject(*obj) : Roe<PeerRoutingRecord>(Error("not an object"));
-        if (!parsed || parsed->peer_id != target_peer_id) {
-          saw_bad = true;
-          continue;
+  Rpc(peer_key, request,
+      [this, peer_key, target_peer_id, reached_at = candidate.hint_addr, done = std::move(done)](RpcRoe resp) {
+        if (!resp) {
+          done(CodedRoe<DhtLookupAnswer, Err>::error(resp.error()));
+          return;
         }
-        if (PeerRoutingRecordExpired(*parsed, now_sec)) {
-          continue;  // stale, or our clocks differ — not misbehaviour
+        if (resp->getString("op").value_or("") != "find_peer_result") {
+          done(CodedRoe<DhtLookupAnswer, Err>::error(
+              Failure::Of(Err::ProtocolError, "find_peer: " + resp->getString("code").value_or("unexpected answer"))));
+          return;
         }
-        bool from_subject = false;
-        if (!responder.empty() && responder == target_peer_id) {
-          // Its subject answered: the session proved the key; the signature must hold.
-          const pp::amp::ByteVector& key = answering_link->RemoteIdentityPublicKey();
-          auto verified = VerifyPeerRoutingRecord(*parsed, key);
-          if (!verified || !*verified) {
-            saw_bad = true;
-            continue;
+        bool saw_bad = false;
+        DhtLookupAnswer answer;
+        std::optional<PeerRoutingRecord> self_answer; // the responder's own, verified
+        const pp::amp::PeerLink* answering_link = runtime_.Links().FindLink(peer_key);
+        const std::string responder = answering_link ? answering_link->RemotePeerId() : std::string();
+        const int64_t now_sec = static_cast<int64_t>(std::time(nullptr));
+        if (const common::Array* records = resp->getArray("records")) {
+          for (const common::Value& item : records->elements) {
+            const common::Object* obj = common::asObject(item);
+            auto parsed = obj ? PeerRoutingRecordFromObject(*obj) : Roe<PeerRoutingRecord>(Error("not an object"));
+            if (!parsed || parsed->peer_id != target_peer_id) {
+              saw_bad = true;
+              continue;
+            }
+            if (PeerRoutingRecordExpired(*parsed, now_sec)) {
+              continue; // stale, or our clocks differ — not misbehaviour
+            }
+            bool from_subject = false;
+            if (!responder.empty() && responder == target_peer_id) {
+              // Its subject answered: the session proved the key; the signature must hold.
+              const pp::amp::ByteVector& key = answering_link->RemoteIdentityPublicKey();
+              auto verified = VerifyPeerRoutingRecord(*parsed, key);
+              if (!verified || !*verified) {
+                saw_bad = true;
+                continue;
+              }
+              parsed->public_key_b64 = pp::Base64Encode(key);
+              from_subject = true;
+              self_answer = *parsed;
+            } else if (parsed->public_key_b64.empty()) {
+              continue; // an older publisher's record: not checkable from here — dropped
+            } else if (!VerifyPeerRoutingRecordStandalone(*parsed)) {
+              saw_bad = true; // carries a key, and does not check out
+              continue;
+            }
+            // A self answer always wins over another's, whatever the seq: a third party cannot
+            // suppress a legitimate self answer by racing it with a higher seq.
+            if (!answer.record || (from_subject && !answer.self_answer) ||
+                (from_subject == answer.self_answer && parsed->seq > answer.record->seq)) {
+              answer.record = std::move(*parsed);
+              answer.self_answer = from_subject;
+            }
           }
-          parsed->public_key_b64 = pp::Base64Encode(key);
-          from_subject = true;
-          self_answer = *parsed;
-        } else if (parsed->public_key_b64.empty()) {
-          continue;  // an older publisher's record: not checkable from here — dropped
-        } else if (!VerifyPeerRoutingRecordStandalone(*parsed)) {
-          saw_bad = true;  // carries a key, and does not check out
-          continue;
         }
-        // A self answer always wins over another's, whatever the seq: a third party cannot
-        // suppress a legitimate self answer by racing it with a higher seq.
-        if (!answer.record || (from_subject && !answer.self_answer) ||
-            (from_subject == answer.self_answer && parsed->seq > answer.record->seq)) {
-          answer.record = std::move(*parsed);
-          answer.self_answer = from_subject;
+        answer.closer = DhtCloserPeersFromResponse(*resp);
+        if (saw_bad) {
+          NoteSoftReputationBad(peer_key);
+        } else {
+          NoteAnswered(peer_key, *resp, self_answer, reached_at);
         }
-      }
-    }
-    answer.closer = DhtCloserPeersFromResponse(*resp);
-    if (saw_bad) {
-      NoteSoftReputationBad(peer_key);
-    } else {
-      NoteAnswered(peer_key, *resp, self_answer, reached_at);
-    }
-    done(std::move(answer));
-  });
+        done(std::move(answer));
+      });
 }
 
 DhtClient::Stats DhtClient::OutboundStats() const {

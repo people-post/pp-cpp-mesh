@@ -55,8 +55,7 @@ TEST(DialBackServerClientTest, ProbeNotStartedReturnsCodedFailure) {
 TEST(DialBackServerClientTest, WrapLinkFailureMapsCodes) {
   using Mgr = pp::amp::PeerLinkManager;
   {
-    const auto wrapped =
-        DialBackClient::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::EndpointNotRegistered, "missing"));
+    const auto wrapped = DialBackClient::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::EndpointNotRegistered, "missing"));
     EXPECT_EQ(wrapped.GetCode(), DialBackClient::Err::EndpointNotRegistered);
     EXPECT_NE(wrapped.message.find("[link:"), std::string::npos);
   }
@@ -65,13 +64,11 @@ TEST(DialBackServerClientTest, WrapLinkFailureMapsCodes) {
     EXPECT_EQ(wrapped.GetCode(), DialBackClient::Err::Timeout);
   }
   {
-    const auto wrapped =
-        DialBackClient::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux"));
+    const auto wrapped = DialBackClient::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::ChannelOpenFailed, "mux"));
     EXPECT_EQ(wrapped.GetCode(), DialBackClient::Err::ChannelFailed);
   }
   {
-    const auto wrapped =
-        DialBackClient::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::AssociationNotReady, "not ready"));
+    const auto wrapped = DialBackClient::WrapLinkFailure(Mgr::Failure::Of(Mgr::Err::AssociationNotReady, "not ready"));
     EXPECT_EQ(wrapped.GetCode(), DialBackClient::Err::LinkFailed);
   }
 }
@@ -183,16 +180,16 @@ TEST(DialBackTargetAllowedTest, OwnHostOwnPrefixOrPublicAcrossFamilies) {
       << "another public v4 host is a third party";
 
   const auto observed_v6 = V6({0x20, 0x01, 0x48, 0x60, 0x12, 0x34, 0x56, 0x78, 0xaa, 0xbb, 0, 0, 0, 0, 0, 1});
-  EXPECT_TRUE(DialBackTargetAllowed(V6({0x20, 0x01, 0x48, 0x60, 0x12, 0x34, 0x56, 0x78, 0, 0, 0, 0, 0, 0, 0, 9}),
-                                    observed_v6))
+  EXPECT_TRUE(
+      DialBackTargetAllowed(V6({0x20, 0x01, 0x48, 0x60, 0x12, 0x34, 0x56, 0x78, 0, 0, 0, 0, 0, 0, 0, 9}), observed_v6))
       << "same /64 (privacy source vs stable address)";
-  EXPECT_FALSE(DialBackTargetAllowed(V6({0x20, 0x01, 0x48, 0x60, 0x12, 0x34, 0x56, 0x79, 0, 0, 0, 0, 0, 0, 0, 9}),
-                                     observed_v6))
+  EXPECT_FALSE(
+      DialBackTargetAllowed(V6({0x20, 0x01, 0x48, 0x60, 0x12, 0x34, 0x56, 0x79, 0, 0, 0, 0, 0, 0, 0, 9}), observed_v6))
       << "another /64";
 
   // Across families: the global v6 targets reach ranks first, while the link runs over v4.
-  EXPECT_TRUE(DialBackTargetAllowed(V6({0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0x88, 0x88}),
-                                    observed_v4));
+  EXPECT_TRUE(
+      DialBackTargetAllowed(V6({0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0x88, 0x88}), observed_v4));
   EXPECT_FALSE(DialBackTargetAllowed(V6({0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}), observed_v4))
       << "link-local";
   EXPECT_FALSE(DialBackTargetAllowed(V6({0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}), observed_v4)) << "ULA";

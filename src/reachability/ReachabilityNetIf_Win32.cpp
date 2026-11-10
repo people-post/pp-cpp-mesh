@@ -25,17 +25,15 @@ std::vector<std::string> PublicIpv4Addresses() {
 std::vector<LanIpv4If> LanIpv4Interfaces() {
   std::vector<LanIpv4If> out;
   ULONG size = 0;
-  if (GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
-                                        GAA_FLAG_SKIP_DNS_SERVER,
-                           nullptr, nullptr, &size) != ERROR_BUFFER_OVERFLOW ||
+  if (GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER, nullptr,
+                           nullptr, &size) != ERROR_BUFFER_OVERFLOW ||
       size == 0) {
     return out;
   }
   std::vector<uint8_t> buffer(size);
   auto* adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
-  if (GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
-                                        GAA_FLAG_SKIP_DNS_SERVER,
-                           nullptr, adapters, &size) != NO_ERROR) {
+  if (GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER, nullptr,
+                           adapters, &size) != NO_ERROR) {
     return out;
   }
   for (IP_ADAPTER_ADDRESSES* adapter = adapters; adapter != nullptr; adapter = adapter->Next) {
@@ -45,8 +43,7 @@ std::vector<LanIpv4If> LanIpv4Interfaces() {
     if (adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK) {
       continue;
     }
-    for (IP_ADAPTER_UNICAST_ADDRESS* uni = adapter->FirstUnicastAddress; uni != nullptr;
-         uni = uni->Next) {
+    for (IP_ADAPTER_UNICAST_ADDRESS* uni = adapter->FirstUnicastAddress; uni != nullptr; uni = uni->Next) {
       if (!uni->Address.lpSockaddr || uni->Address.lpSockaddr->sa_family != AF_INET) {
         continue;
       }

@@ -18,8 +18,7 @@ inline void CloseQuietSlot(std::shared_ptr<pp::amp::ChannelSession>& slot, pp::a
   if (!session) {
     return;
   }
-  if (link && link->Mux() && link->Phase() == pp::amp::PeerLinkPhase::Connected &&
-      session->Mux() == link->Mux()) {
+  if (link && link->Mux() && link->Phase() == pp::amp::PeerLinkPhase::Connected && session->Mux() == link->Mux()) {
     session->CloseQuiet();
     session->ReleaseHandlers();
   } else {

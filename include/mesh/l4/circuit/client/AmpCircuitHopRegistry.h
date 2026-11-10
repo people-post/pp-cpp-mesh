@@ -28,9 +28,8 @@ public:
 
   static std::string Key(const std::string& peer_key, const std::string& target_protocol);
 
-  Roe<void> Install(const std::string& peer_key, const std::string& relay_peer_key,
-                    const std::string& target_protocol, std::shared_ptr<pp::amp::ChannelSession> session,
-                    CircuitTunnelId tunnel_id = {});
+  Roe<void> Install(const std::string& peer_key, const std::string& relay_peer_key, const std::string& target_protocol,
+                    std::shared_ptr<pp::amp::ChannelSession> session, CircuitTunnelId tunnel_id = {});
 
   std::optional<Hop> Find(const std::string& peer_key, const std::string& target_protocol) const;
   bool HasAny(const std::string& peer_key) const;

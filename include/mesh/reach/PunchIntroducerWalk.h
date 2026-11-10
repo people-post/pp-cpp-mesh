@@ -66,9 +66,9 @@ public:
   /** The punch failed in a way another introducer may not: it cannot get to the target. */
   static bool AnotherIntroducerMayHelp(PunchErr code);
 
-  using SignalingPunchFn = std::function<void(const std::string& target_peer_id,
-                                              const std::vector<std::string>& my_addrs,
-                                              std::function<void(Roe<void>)> on_done)>;
+  using SignalingPunchFn =
+      std::function<void(const std::string& target_peer_id, const std::vector<std::string>& my_addrs,
+                         std::function<void(Roe<void>)> on_done)>;
 
   PunchIntroducerWalk();
   PunchIntroducerWalk(const PunchIntroducerWalk&) = delete;

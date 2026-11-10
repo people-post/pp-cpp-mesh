@@ -47,12 +47,10 @@ struct PunchExpiryStageFixture {
   bool AssocAAndBToIntroducer() {
     bool a_ready = false;
     bool b_ready = false;
-    harness->mgr_a().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
-      a_ready = static_cast<bool>(r);
-    });
-    harness->mgr_b().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
-      b_ready = static_cast<bool>(r);
-    });
+    harness->mgr_a().EnsureAssociation("introducer",
+                                       [&](pp::amp::PeerLinkManager::LinkRoe r) { a_ready = static_cast<bool>(r); });
+    harness->mgr_b().EnsureAssociation("introducer",
+                                       [&](pp::amp::PeerLinkManager::LinkRoe r) { b_ready = static_cast<bool>(r); });
     harness->PumpUntil([&] { return a_ready && b_ready; }, 2000);
     return a_ready && b_ready;
   }
@@ -126,12 +124,10 @@ TEST(AmpPunchCoordinatorTest, SeedIntroducerColdPunchConnectsAToB) {
   // Warm A→I and B→I. Introducer should see both via FindLinkByPeerId after handshake.
   bool a_ready = false;
   bool b_ready = false;
-  harness->mgr_a().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
-    a_ready = static_cast<bool>(r);
-  });
-  harness->mgr_b().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
-    b_ready = static_cast<bool>(r);
-  });
+  harness->mgr_a().EnsureAssociation("introducer",
+                                     [&](pp::amp::PeerLinkManager::LinkRoe r) { a_ready = static_cast<bool>(r); });
+  harness->mgr_b().EnsureAssociation("introducer",
+                                     [&](pp::amp::PeerLinkManager::LinkRoe r) { b_ready = static_cast<bool>(r); });
   harness->PumpUntil([&] { return a_ready && b_ready; }, 2000);
   ASSERT_TRUE(a_ready);
   ASSERT_TRUE(b_ready);
@@ -172,7 +168,6 @@ TEST(AmpPunchCoordinatorTest, SeedIntroducerColdPunchConnectsAToB) {
   punch_b.Stop();
 }
 
-
 // projects/privacy T1: the target answers a punch only for initiators its audience allows —
 // answering hands the initiator our candidates and a burst from our IP.
 TEST(AmpPunchCoordinatorTest, TargetDeclinesAnInitiatorOutsideItsAudience) {
@@ -187,7 +182,7 @@ TEST(AmpPunchCoordinatorTest, TargetDeclinesAnInitiatorOutsideItsAudience) {
   punch_b.SetLocalCandidateAddrs({harness.ma_b});
   AddressDisclosureGate b_audience;
   AddressDisclosurePolicy strangers_only;
-  strangers_only.audience = DirectAudience::Contacts;  // A is not one of B's contacts
+  strangers_only.audience = DirectAudience::Contacts; // A is not one of B's contacts
   b_audience.Publish(strangers_only);
   punch_b.SetAddressDisclosure(&b_audience);
   punch_a.Start();
@@ -248,12 +243,10 @@ TEST(AmpPunchCoordinatorTest, ContactIntroducerColdPunchConnectsAToB) {
 
   bool a_ready = false;
   bool b_ready = false;
-  harness->mgr_a().EnsureAssociation(harness->peer_id_r, [&](pp::amp::PeerLinkManager::LinkRoe r) {
-    a_ready = static_cast<bool>(r);
-  });
-  harness->mgr_b().EnsureAssociation(harness->peer_id_r, [&](pp::amp::PeerLinkManager::LinkRoe r) {
-    b_ready = static_cast<bool>(r);
-  });
+  harness->mgr_a().EnsureAssociation(harness->peer_id_r,
+                                     [&](pp::amp::PeerLinkManager::LinkRoe r) { a_ready = static_cast<bool>(r); });
+  harness->mgr_b().EnsureAssociation(harness->peer_id_r,
+                                     [&](pp::amp::PeerLinkManager::LinkRoe r) { b_ready = static_cast<bool>(r); });
   harness->PumpUntil([&] { return a_ready && b_ready; }, 2000);
   ASSERT_TRUE(a_ready);
   ASSERT_TRUE(b_ready);
@@ -316,12 +309,10 @@ TEST(AmpPunchCoordinatorTest, DualDialRaceElectsSingleConnectedSession) {
 
   bool a_ready = false;
   bool b_ready = false;
-  harness->mgr_a().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
-    a_ready = static_cast<bool>(r);
-  });
-  harness->mgr_b().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
-    b_ready = static_cast<bool>(r);
-  });
+  harness->mgr_a().EnsureAssociation("introducer",
+                                     [&](pp::amp::PeerLinkManager::LinkRoe r) { a_ready = static_cast<bool>(r); });
+  harness->mgr_b().EnsureAssociation("introducer",
+                                     [&](pp::amp::PeerLinkManager::LinkRoe r) { b_ready = static_cast<bool>(r); });
   harness->PumpUntil([&] { return a_ready && b_ready; }, 2000);
   ASSERT_TRUE(a_ready);
   ASSERT_TRUE(b_ready);
@@ -428,15 +419,14 @@ TEST(AmpPunchCoordinatorTest, Stage3_OpenPunchChannelToIntroducer) {
   SettledWait<uint32_t, Error> wait;
   auto policy = pp::amp::ControlJsonChannelPolicy(std::chrono::milliseconds{2000});
   policy.read_once = false;
-  fx.harness->mgr_a().OpenChannel(
-      "introducer", kAmpPunchProtocolId, policy,
-      [wait](pp::amp::PeerLinkManager::ChannelRoe ch) {
-        if (ch) {
-          wait.Finish(*ch);
-        } else {
-          wait.Finish(Error(ch.error().message));
-        }
-      });
+  fx.harness->mgr_a().OpenChannel("introducer", kAmpPunchProtocolId, policy,
+                                  [wait](pp::amp::PeerLinkManager::ChannelRoe ch) {
+                                    if (ch) {
+                                      wait.Finish(*ch);
+                                    } else {
+                                      wait.Finish(Error(ch.error().message));
+                                    }
+                                  });
   fx.harness->PumpUntil([&] { return wait.IsSettled(); }, 2000);
   auto opened = wait.Wait(std::chrono::milliseconds(1), Error("punch channel open timed out"));
   ASSERT_TRUE(static_cast<bool>(opened)) << opened.error().message;
@@ -457,15 +447,14 @@ TEST(AmpPunchCoordinatorTest, Stage4_IntroducerOpensPunchChannelToTarget) {
   SettledWait<uint32_t, Error> wait;
   auto policy = pp::amp::ControlJsonChannelPolicy(std::chrono::milliseconds{2000});
   policy.read_once = false;
-  fx.harness->mgr_r().OpenChannel(
-      fx.harness->peer_id_b, kAmpPunchProtocolId, policy,
-      [wait](pp::amp::PeerLinkManager::ChannelRoe ch) {
-        if (ch) {
-          wait.Finish(*ch);
-        } else {
-          wait.Finish(Error(ch.error().message));
-        }
-      });
+  fx.harness->mgr_r().OpenChannel(fx.harness->peer_id_b, kAmpPunchProtocolId, policy,
+                                  [wait](pp::amp::PeerLinkManager::ChannelRoe ch) {
+                                    if (ch) {
+                                      wait.Finish(*ch);
+                                    } else {
+                                      wait.Finish(Error(ch.error().message));
+                                    }
+                                  });
   fx.harness->PumpUntil([&] { return wait.IsSettled(); }, 2000);
   auto opened = wait.Wait(std::chrono::milliseconds(1), Error("introducer→target punch channel timed out"));
   ASSERT_TRUE(static_cast<bool>(opened)) << opened.error().message;
@@ -479,8 +468,7 @@ TEST(AmpPunchCoordinatorTest, Stage5_RegisterBlackholePeerAddrsWithoutBurst) {
   ASSERT_TRUE(fx.AssocAAndBToIntroducer());
 
   // Mirror sync-handler bookkeeping: RegisterEndpoint under PeerId, no dial yet.
-  ASSERT_TRUE(static_cast<bool>(
-      fx.harness->mgr_a().RegisterEndpoint(fx.harness->peer_id_b, fx.blackhole_b)));
+  ASSERT_TRUE(static_cast<bool>(fx.harness->mgr_a().RegisterEndpoint(fx.harness->peer_id_b, fx.blackhole_b)));
   EXPECT_TRUE(fx.harness->mgr_a().GetLinkSnapshot(fx.harness->peer_id_b).has_endpoint);
   auto pref = fx.harness->mgr_a().PreferredMultiaddr(fx.harness->peer_id_b);
   ASSERT_TRUE(pref.has_value());
@@ -506,8 +494,7 @@ TEST(AmpPunchCoordinatorTest, Stage6_BurstDialBlackholeAlone) {
   EXPECT_FALSE(done->error.empty()) << "expected dial/window failure message";
   EXPECT_TRUE(done->error.find("timed out") != std::string::npos ||
               done->error.find("window expired") != std::string::npos ||
-              done->error.find("punch burst") != std::string::npos ||
-              done->error.find("dial") != std::string::npos)
+              done->error.find("punch burst") != std::string::npos || done->error.find("dial") != std::string::npos)
       << done->error;
   EXPECT_FALSE(fx.harness->mgr_a().IsConnected(fx.harness->peer_id_b));
   EXPECT_EQ(fx.harness->mgr_a().CountConnectedLinksForPeerId(fx.harness->peer_id_b), 0u);
@@ -583,12 +570,10 @@ BlackholePunchOutcome RunBlackholeCandidatePunch(const bool a_b_reachable) {
 
   bool a_ready = false;
   bool b_ready = false;
-  harness->mgr_a().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
-    a_ready = static_cast<bool>(r);
-  });
-  harness->mgr_b().EnsureAssociation("introducer", [&](pp::amp::PeerLinkManager::LinkRoe r) {
-    b_ready = static_cast<bool>(r);
-  });
+  harness->mgr_a().EnsureAssociation("introducer",
+                                     [&](pp::amp::PeerLinkManager::LinkRoe r) { a_ready = static_cast<bool>(r); });
+  harness->mgr_b().EnsureAssociation("introducer",
+                                     [&](pp::amp::PeerLinkManager::LinkRoe r) { b_ready = static_cast<bool>(r); });
   harness->PumpUntil([&] { return a_ready && b_ready; }, 2000);
   EXPECT_TRUE(a_ready && b_ready);
   EXPECT_FALSE(harness->mgr_a().IsConnected(harness->peer_id_b));

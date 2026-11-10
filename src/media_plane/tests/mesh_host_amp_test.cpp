@@ -28,8 +28,8 @@ namespace pp::mesh {
 namespace {
 
 std::unique_ptr<pp::amp::AmpStack> MakeTestAmpStack(const std::shared_ptr<pp::adp::Clock>& clock,
-                                                const std::shared_ptr<pp::adp::DatagramIo>& io,
-                                                std::string* peer_id_out) {
+                                                    const std::shared_ptr<pp::adp::DatagramIo>& io,
+                                                    std::string* peer_id_out) {
   auto keys = pp::MlDsa::GenerateKeyPair();
   if (!keys) {
     return nullptr;
@@ -69,7 +69,7 @@ TEST(MeshHostAmpTest, AttachAmpStackParallelNoMeshHost) {
   auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
-  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()};  // manual drive: L4 work inline
+  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()}; // manual drive: L4 work inline
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
   ASSERT_NE(host.Amp(), nullptr);
   EXPECT_TRUE(host.Amp()->IsStarted());
@@ -110,7 +110,7 @@ TEST(MeshHostAmpTest, AmpL4CoordinatorsShareIoTickWithoutOverwrite) {
   auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
-  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()};  // manual drive: L4 work inline
+  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()}; // manual drive: L4 work inline
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
   ASSERT_NE(host.AmpCircuitClient(), nullptr);
   ASSERT_NE(host.AmpMediaRelayServer(), nullptr);
@@ -149,7 +149,7 @@ TEST(MeshHostAmpTest, ConnectivityWiresOnAmpWithoutTheMediaRelayClient) {
   auto ma = pp::amp::FormatAdpMultiaddr(addr, peer_id);
   ASSERT_TRUE(static_cast<bool>(ma));
 
-  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()};  // manual drive: L4 work inline
+  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()}; // manual drive: L4 work inline
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack), *ma)));
   ASSERT_NE(host.AmpMediaRelayClientCoord(), nullptr);
   host.AmpMediaRelayClientCoord()->Stop();
@@ -182,8 +182,8 @@ struct SilentPeerFixture {
   std::shared_ptr<pp::adp::MemoryDatagramHub> hub = pp::adp::MemoryDatagramIo::MakeHub();
   std::shared_ptr<pp::adp::LossyDatagramIo> io_b;
   std::unique_ptr<pp::amp::AmpStack> stack_b;
-  MetricsRegistry metrics;  // this host's own: only its link shows
-  MeshHost host{MeshExecutors{}, metrics};  // manual drive: L4 work inline
+  MetricsRegistry metrics;                 // this host's own: only its link shows
+  MeshHost host{MeshExecutors{}, metrics}; // manual drive: L4 work inline
   std::vector<pp::amp::LinkEvent> events;
   /** Runs once the host has its Amp stack, before the link to B comes up. */
   std::function<void()> after_attach;
@@ -213,7 +213,7 @@ struct SilentPeerFixture {
     links.EnsureAssociation("b", [&](pp::amp::PeerLinkManager::LinkRoe r) { connected = static_cast<bool>(r); });
     Run(200, 10);
     ASSERT_TRUE(connected);
-    links.MarkHot("b");  // hot: its liveness window is far longer than the test
+    links.MarkHot("b"); // hot: its liveness window is far longer than the test
     Run(10, 100);
     io_b->SetDropRate(1.0);
   }
@@ -246,19 +246,19 @@ TEST(MeshHostAmpTest, NetworkChangeEvictsADeadLinkFast) {
     return;
   }
   // node-monitoring M2: the drop shows in the operator counters, by reason, as a live link.
-  auto& drops = f.metrics.Counter("pp_link_drops_total",
-                                                   "Amp links dropped, by reason; stage=attempt never connected.",
-                                                   {{"reason", "network-changed"}, {"stage", "connected"}});
+  auto& drops = f.metrics.Counter("pp_link_drops_total", "Amp links dropped, by reason; stage=attempt never connected.",
+                                  {{"reason", "network-changed"}, {"stage", "connected"}});
   f.host.OnLocalNetworkChanged(LocalNetworkChange{true, true, true});
-  f.Run(30, 100);  // 3 s
+  f.Run(30, 100); // 3 s
   EXPECT_TRUE(f.Dropped(pp::amp::LinkDropReason::NetworkChanged));
   EXPECT_EQ(f.host.Amp()->Links().FindLink("b"), nullptr);
   EXPECT_EQ(drops.Value(), 1u);
   // The link's reliable handshake was acked: round trips reached the histogram (M2 amp stats).
-  const auto rtt = f.metrics
-                       .Histogram("pp_amp_rtt_seconds", "Amp round trips (acks of never-retransmitted reliable packets).",
-                                  {0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5})
-                       .Read();
+  const auto rtt =
+      f.metrics
+          .Histogram("pp_amp_rtt_seconds", "Amp round trips (acks of never-retransmitted reliable packets).",
+                     {0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5})
+          .Read();
   EXPECT_GT(rtt.count, 0u);
   EXPECT_GT(f.host.Amp()->Runtime().GetEndpoint().Stats().tx_datagrams, 0u);
   f.host.Stop();
@@ -280,7 +280,7 @@ TEST(MeshHostAmpTest, TheReachRecordFollowsAPeerUpAndGone) {
   if (::testing::Test::HasFatalFailure()) {
     return;
   }
-  f.Run(5, 10);  // link events are posted
+  f.Run(5, 10); // link events are posted
   const PeerReachRecord& record = connectivity.ReachRecord();
   EXPECT_EQ(record.Facts(f.peer_b, connectivity.NetworkGeneration()).state, PeerReachState::Live);
   EXPECT_EQ(record.Facts(f.peer_b, connectivity.NetworkGeneration()).last_ok_path, PeerLinkKind::Direct);
@@ -362,9 +362,9 @@ TEST(MeshHostAmpTest, Ch0CapabilityKeepsOurAddressesFromAPeerOutsideTheAudience)
 
   AddressDisclosureGate gate;
   AddressDisclosurePolicy contacts_only;
-  contacts_only.audience = DirectAudience::Contacts;  // B is not a contact
+  contacts_only.audience = DirectAudience::Contacts; // B is not a contact
   gate.Publish(contacts_only);
-  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()};  // manual drive: L4 work inline
+  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()}; // manual drive: L4 work inline
   host.SetAddressDisclosure(&gate);
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack_a), *ma_a)));
   auto& links = host.Amp()->Links();
@@ -406,7 +406,7 @@ TEST(MeshHostAmpTest, Ch0CapabilityAdvertisesTheAppsProtocolsBesideTheMeshs) {
   ASSERT_TRUE(ma_a && ma_b);
 
   const std::string app_protocol = "/test-app/rpc/1.0.0";
-  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()};  // manual drive: L4 work inline
+  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()}; // manual drive: L4 work inline
   host.SetAppProtocols({app_protocol});
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack_a), *ma_a)));
   auto& links = host.Amp()->Links();
@@ -454,7 +454,7 @@ TEST(MeshHostAmpTest, ABlockedPeersLinkIsDroppedOnConnect) {
   policy.audience = DirectAudience::Everyone;
   policy.blocked.insert(peer_b);
   gate.Publish(policy);
-  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()};  // manual drive: L4 work inline
+  MeshHost host{MeshExecutors{}, MetricsRegistry::Global()}; // manual drive: L4 work inline
   host.SetAddressDisclosure(&gate);
   ASSERT_TRUE(static_cast<bool>(host.AttachAmpStack(std::move(stack_a), *ma_a)));
   auto& links = host.Amp()->Links();

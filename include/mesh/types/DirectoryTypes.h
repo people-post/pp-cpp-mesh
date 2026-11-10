@@ -138,9 +138,8 @@ inline void FlattenDirectoryEndpoints(std::vector<ContactId>& ids, std::vector<s
   for (const DirectoryEndpoint& endpoint : endpoints) {
     ordered.push_back(&endpoint);
   }
-  std::sort(ordered.begin(), ordered.end(), [](const DirectoryEndpoint* a, const DirectoryEndpoint* b) {
-    return a->updated_at > b->updated_at;
-  });
+  std::sort(ordered.begin(), ordered.end(),
+            [](const DirectoryEndpoint* a, const DirectoryEndpoint* b) { return a->updated_at > b->updated_at; });
   std::vector<std::string> merged_multiaddrs;
   for (const DirectoryEndpoint* endpoint : ordered) {
     if (!endpoint->peer_id.empty() && !DirectoryEndpointHasPeerId(ids, endpoint->peer_id)) {
@@ -157,4 +156,4 @@ inline void FlattenDirectoryEndpoints(std::vector<ContactId>& ids, std::vector<s
   }
 }
 
-}  // namespace pp::mesh
+} // namespace pp::mesh

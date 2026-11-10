@@ -36,7 +36,9 @@ logging::Logger& MeshHostLog() {
 MeshHost::MeshHost(MeshExecutors executors, MetricsRegistry& metrics)
     : reachability_(std::make_unique<ReachabilityEngine>()), executors_(std::move(executors)), metrics_(metrics) {}
 
-MeshHost::~MeshHost() { Stop(); }
+MeshHost::~MeshHost() {
+  Stop();
+}
 
 Roe<void> MeshHost::Start(const MeshHostConfig& config) {
   Stop();
@@ -153,8 +155,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   EnsureAmpL4Coordinators();
   host_dht_ = config.host_dht;
   host_directory_ = config.host_directory;
-  StartAmpL4Hosting(config.host_circuit_relay, config.host_media_relay, config.host_dht,
-                    config.host_directory);
+  StartAmpL4Hosting(config.host_circuit_relay, config.host_media_relay, config.host_dht, config.host_directory);
   if (amp_media_relay_server_) {
     amp_media_relay_server_->SetVideoPolicy(config.media_relay_video);
     amp_media_relay_server_->SetMaxSessions(config.capacity.group_calls);
@@ -174,8 +175,7 @@ void MeshHost::StartOwnedThreads() {
   if (!pump_.IsRunning()) {
     // The pump is the runtime's only driver: a drive from any other thread is refused (and counted).
     pump_.Start([this]() { return PumpTick(); }, MeshPumpThread::kDefaultInterval,
-                [this]() { amp_->Runtime().ClaimDriver(); },
-                [this]() { amp_->Runtime().ReleaseDriver(); });
+                [this]() { amp_->Runtime().ClaimDriver(); }, [this]() { amp_->Runtime().ReleaseDriver(); });
   }
 }
 
@@ -214,8 +214,7 @@ std::function<void(std::function<void()>)> MeshHost::MakeL4IoPost() const {
 }
 
 std::function<void(std::chrono::milliseconds, std::function<void()>)> MeshHost::MakeL4IoAfter() const {
-  return [self = const_cast<MeshHost*>(this)](std::chrono::milliseconds delay,
-                                              std::function<void()> task) {
+  return [self = const_cast<MeshHost*>(this)](std::chrono::milliseconds delay, std::function<void()> task) {
     if (self->amp_ && task) {
       self->amp_->Runtime().PostAfter(delay, std::move(task));
     }
@@ -253,21 +252,18 @@ void MeshHost::EnsureAmpL4Coordinators() {
     // pp_service_load{service} (1 open, 2 busy, 3 full, 4 draining) and the
     // worst pressure behind it (pp-browser docs/contracts/NODE_METRICS.md).
     struct Gauges {
-      MetricGauge *level = nullptr;
-      MetricGauge *pressure = nullptr;
+      MetricGauge* level = nullptr;
+      MetricGauge* pressure = nullptr;
     };
     auto gauges = std::make_shared<std::array<Gauges, kMeshServiceCount>>();
-    for (const MeshService service :
-         {MeshService::Park, MeshService::Relay, MeshService::MediaRelay}) {
+    for (const MeshService service : {MeshService::Park, MeshService::Relay, MeshService::MediaRelay}) {
       const MetricLabels labels = {{"service", MeshServiceName(service)}};
       (*gauges)[static_cast<size_t>(service)] = {
           &metrics_.Gauge("pp_service_load",
                           "This node's level per service: 1 open, 2 busy, 3 "
                           "full, 4 draining",
                           labels),
-          &metrics_.Gauge("pp_service_pressure",
-                          "The worst pressure behind the level (0..1)",
-                          labels)};
+          &metrics_.Gauge("pp_service_pressure", "The worst pressure behind the level (0..1)", labels)};
     }
     // The pump's busy share and the socket's kernel drops: what saturates a node before any count does (pp-browser
     // stress lab, 2026-11-06 — a node at 30 s of delay still counted itself open).
@@ -279,7 +275,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
     struct Sample {
       int64_t at_ms = 0;
       uint64_t drops = 0;
-      double drop_pressure = 0.0;  // smoothed: one burst is not a full node
+      double drop_pressure = 0.0; // smoothed: one burst is not a full node
     };
     auto sample = std::make_shared<Sample>();
     load_tick_ = amp_->Runtime().AddIoTick([this, sample, gauges, io_busy, udp_drops, udp_rcvbuf]() {
@@ -433,7 +429,7 @@ void MeshHost::StopAmp() {
   amp_dial_back_server_.reset();
   amp_directory_.reset();
   if (amp_ && dht_tick_ != 0) {
-    amp_->Runtime().RemoveIoTick(std::exchange(dht_tick_, 0));  // nothing drives now: MeshPump joined
+    amp_->Runtime().RemoveIoTick(std::exchange(dht_tick_, 0)); // nothing drives now: MeshPump joined
   }
   if (amp_ && load_tick_ != 0) {
     amp_->Runtime().RemoveIoTick(std::exchange(load_tick_, 0));
@@ -448,7 +444,7 @@ void MeshHost::StopAmp() {
     amp_->Stop();
     amp_.reset();
     io_.reset();
-    blocked_listener_amp_ = nullptr;  // its listener went with it
+    blocked_listener_amp_ = nullptr; // its listener went with it
   }
   chat_links_.reset();
   amp_clock_.reset();
@@ -556,15 +552,15 @@ void MeshHost::RunOnLane(const std::function<void()>& task) {
   }
 }
 
-bool MeshHost::IsRunning() const { return static_cast<bool>(amp_); }
-
+bool MeshHost::IsRunning() const {
+  return static_cast<bool>(amp_);
+}
 
 std::vector<std::string> MeshHost::AdvertisedListenMultiaddrs() const {
   if (!amp_ || amp_listen_multiaddr_.empty()) {
     return {};
   }
-  const auto observed =
-      CollectAmpObservedAddrs(amp_listen_multiaddr_, amp_->LocalPeerId(), reachability_->Snapshot());
+  const auto observed = CollectAmpObservedAddrs(amp_listen_multiaddr_, amp_->LocalPeerId(), reachability_->Snapshot());
   auto merged = observed.MergedForAdvertise();
   if (merged.empty()) {
     merged.push_back(amp_listen_multiaddr_);
@@ -576,8 +572,7 @@ void MeshHost::RefreshAdvertisedListenAddrs() {
   if (!amp_ || amp_listen_multiaddr_.empty()) {
     return;
   }
-  const auto observed = CollectAmpObservedAddrs(amp_listen_multiaddr_, amp_->LocalPeerId(),
-                                                reachability_->Snapshot());
+  const auto observed = CollectAmpObservedAddrs(amp_listen_multiaddr_, amp_->LocalPeerId(), reachability_->Snapshot());
   auto merged = observed.MergedForAdvertise();
   if (merged.empty()) {
     merged.push_back(amp_listen_multiaddr_);
@@ -588,9 +583,13 @@ void MeshHost::RefreshAdvertisedListenAddrs() {
   }
 }
 
-DialBackClient* MeshHost::AmpDialBack() { return amp_dial_back_.get(); }
+DialBackClient* MeshHost::AmpDialBack() {
+  return amp_dial_back_.get();
+}
 
-AmpPunchCoordinator* MeshHost::AmpPunch() { return amp_punch_.get(); }
+AmpPunchCoordinator* MeshHost::AmpPunch() {
+  return amp_punch_.get();
+}
 
 void MeshHost::SetAddressDisclosure(const AddressDisclosureGate* gate) {
   address_disclosure_ = gate;
@@ -625,9 +624,13 @@ void MeshHost::ApplyAddressDisclosureToAmp() {
   }
 }
 
-AmpDhtProtocol* MeshHost::AmpDht() { return amp_dht_.get(); }
+AmpDhtProtocol* MeshHost::AmpDht() {
+  return amp_dht_.get();
+}
 
-AmpDirectoryProtocol* MeshHost::AmpDirectory() { return amp_directory_.get(); }
+AmpDirectoryProtocol* MeshHost::AmpDirectory() {
+  return amp_directory_.get();
+}
 
 void MeshHost::ConfigureAmpDht(AmpDhtProtocolConfig config) {
   if (!amp_dht_) {
@@ -644,7 +647,7 @@ void MeshHost::ConfigureAmpDht(AmpDhtProtocolConfig config) {
   if (!config.may_publish) {
     config.may_publish = [this]() { return reachability_->Snapshot().status != ReachabilityStatus::Blocked; };
   }
-  RunOnLane([&]() { amp_dht_->Configure(std::move(config)); });  // its tick reads the config there
+  RunOnLane([&]() { amp_dht_->Configure(std::move(config)); }); // its tick reads the config there
 }
 
 MeshHostConfig MeshHost::CurrentHosting() const {
@@ -708,7 +711,7 @@ AmpReachabilityProbeDeps MeshHost::MakeReachabilityDeps(bool try_upnp_first) con
   deps.local_peer_id = amp_->LocalPeerId();
   deps.bootstrap_peers = bootstrap_peers_;
   deps.io_pump = MakeL4IoPump();
-  deps.post_worker = MakeL4WorkerPost(executors_.blocking);  // UPnP discovery blocks (~2 s)
+  deps.post_worker = MakeL4WorkerPost(executors_.blocking); // UPnP discovery blocks (~2 s)
   deps.post_io = MakeL4IoPost();
   deps.post_after = MakeL4IoAfter();
   deps.lane = IoLane();
@@ -726,15 +729,15 @@ void MeshHost::StartReachabilityProbe(bool try_upnp_first) {
 void MeshHost::OnLocalNetworkChanged(const LocalNetworkChange& change) {
   const LocalNetworkReaction reaction = DecideLocalNetworkReaction(change);
   const uint64_t gen = network_change_gen_.fetch_add(1, std::memory_order_acq_rel) + 1;
-  MeshHostLog().info << "local network changed online=" << (change.was_online ? 1 : 0) << "->" << (change.online ? 1 : 0)
-             << " attachment_changed=" << (change.attachment_changed ? 1 : 0)
-             << " probe_links=" << (reaction.probe_links ? 1 : 0);
+  MeshHostLog().info << "local network changed online=" << (change.was_online ? 1 : 0) << "->"
+                     << (change.online ? 1 : 0) << " attachment_changed=" << (change.attachment_changed ? 1 : 0)
+                     << " probe_links=" << (reaction.probe_links ? 1 : 0);
   if (!amp_) {
     return;
   }
   if (reaction.probe_links) {
     amp_->Runtime().NotifyNetworkChanged();
-    EnsureUdpSocketAlive(UdpSocketCheckReason::NetworkChange);  // #416: iOS can kill the socket on a path change
+    EnsureUdpSocketAlive(UdpSocketCheckReason::NetworkChange); // #416: iOS can kill the socket on a path change
   }
   if (reaction.reprobe_reachability) {
     MakeL4IoAfter()(kReachabilityReprobeAfterNetworkChange, [this, gen]() { ReprobeAfterNetworkChange(gen, 5); });
@@ -743,14 +746,13 @@ void MeshHost::OnLocalNetworkChanged(const LocalNetworkChange& change) {
 
 void MeshHost::ReprobeAfterNetworkChange(const uint64_t gen, const int attempts_left) {
   if (gen != network_change_gen_.load(std::memory_order_acquire) || !amp_) {
-    return;  // superseded by a newer change (it schedules its own)
+    return; // superseded by a newer change (it schedules its own)
   }
   if (reachability_->IsProbing()) {
     // A probe from the old network is still out; its answer would be stale — probe again after it.
     if (attempts_left > 0) {
-      MakeL4IoAfter()(std::chrono::seconds(1), [this, gen, attempts_left]() {
-        ReprobeAfterNetworkChange(gen, attempts_left - 1);
-      });
+      MakeL4IoAfter()(std::chrono::seconds(1),
+                      [this, gen, attempts_left]() { ReprobeAfterNetworkChange(gen, attempts_left - 1); });
     }
     return;
   }
@@ -815,7 +817,7 @@ void MeshHost::ReportUdpSocketCheck(const UdpSocketCheck& check) {
 
 void MeshHost::EnsureUdpSocketAlive(const UdpSocketCheckReason reason) {
   if (!amp_ || udp_socket_check_running_.exchange(true, std::memory_order_acq_rel)) {
-    return;  // no socket, or a check is running: its outcome covers this request
+    return; // no socket, or a check is running: its outcome covers this request
   }
   ProbeUdpSocket([this, reason](const UdpSocketProbeResult& probe) {
     UdpSocketCheck check;
@@ -866,7 +868,9 @@ void MeshHost::RunReachabilityProbeBlocking(bool try_upnp_first) {
   reachability_->RunProbeBlocking(MakeReachabilityDeps(try_upnp_first));
 }
 
-ReachabilityEngine& MeshHost::Reachability() { return *reachability_; }
+ReachabilityEngine& MeshHost::Reachability() {
+  return *reachability_;
+}
 
 std::optional<MeshChatDeps> MeshHost::ChatDeps() {
   if (!amp_ || !chat_links_) {
@@ -890,17 +894,31 @@ std::optional<MeshCircuitDeps> MeshHost::CircuitDeps() {
   return MeshCircuitDeps{*amp_circuit_client_, *amp_circuit_hops_, *chat_links_};
 }
 
-pp::amp::AmpStack* MeshHost::Amp() { return amp_.get(); }
+pp::amp::AmpStack* MeshHost::Amp() {
+  return amp_.get();
+}
 
-const pp::amp::AmpStack* MeshHost::Amp() const { return amp_.get(); }
+const pp::amp::AmpStack* MeshHost::Amp() const {
+  return amp_.get();
+}
 
-CircuitRelayServer* MeshHost::AmpCircuitServer() { return amp_circuit_server_.get(); }
-CircuitClientCoordinator* MeshHost::AmpCircuitClient() { return amp_circuit_client_.get(); }
+CircuitRelayServer* MeshHost::AmpCircuitServer() {
+  return amp_circuit_server_.get();
+}
+CircuitClientCoordinator* MeshHost::AmpCircuitClient() {
+  return amp_circuit_client_.get();
+}
 
-MediaRelayServer* MeshHost::AmpMediaRelayServer() { return amp_media_relay_server_.get(); }
-MediaRelayClientCoordinator* MeshHost::AmpMediaRelayClientCoord() { return amp_media_relay_client_.get(); }
+MediaRelayServer* MeshHost::AmpMediaRelayServer() {
+  return amp_media_relay_server_.get();
+}
+MediaRelayClientCoordinator* MeshHost::AmpMediaRelayClientCoord() {
+  return amp_media_relay_client_.get();
+}
 
-AmpCircuitHopRegistry* MeshHost::AmpCircuitHops() { return amp_circuit_hops_.get(); }
+AmpCircuitHopRegistry* MeshHost::AmpCircuitHops() {
+  return amp_circuit_hops_.get();
+}
 
 void MeshHost::AbortInflightCircuitRequests() {
   if (amp_circuit_client_) {

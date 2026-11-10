@@ -27,18 +27,18 @@ void CompletePunch(const PunchIntroducerWalk::Done& on_done, AmpPunchCoordinator
 PunchIntroducerWalk::Failure PunchIntroducerWalk::WrapPunchFailure(const PunchFailure& punch) {
   Err code = Err::Failed;
   switch (punch.GetCode()) {
-  case PunchErr::NotStarted:
-    code = Err::Unavailable;
-    break;
-  case PunchErr::Declined:
-    code = Err::Declined;
-    break;
-  case PunchErr::PunchFailed:
-    code = Err::NoPath;
-    break;
-  default:
-    code = Err::Failed;
-    break;
+    case PunchErr::NotStarted:
+      code = Err::Unavailable;
+      break;
+    case PunchErr::Declined:
+      code = Err::Declined;
+      break;
+    case PunchErr::PunchFailed:
+      code = Err::NoPath;
+      break;
+    default:
+      code = Err::Failed;
+      break;
   }
   return Failure::Of(code, detail::AppendFrom("punch walk: punch failed", "punch", punch.message));
 }
@@ -98,15 +98,16 @@ void PunchIntroducerWalk::TryColdPunchAsync(const std::string& target_peer_id, D
     auto intro = PickPunchIntroducer(introducers.contact_peer_ids, introducers.seed_peer_ids, target_peer_id, has_ep,
                                      is_conn, self->tried);
     if (intro && !is_conn(*intro) && self->cold >= kReachMaxColdDialsPerRound) {
-      intro.reset();  // enough cold dials for one walk
+      intro.reset(); // enough cold dials for one walk
     }
     if (!intro) {
       if (signaling_punch_) {
         log().info << "punch introducers exhausted — H012 signaling fallback target=" << target_peer_id;
         signaling_punch_(target_peer_id, punch->LocalCandidateAddrs(), [on_done](Roe<void> signaled) {
-          on_done(signaled ? WalkRoe()
-                           : WalkRoe(Failure::Of(Err::Failed, detail::AppendFrom("punch walk: signaling punch failed",
-                                                                                  "signaling", signaled.error().message))));
+          on_done(signaled
+                      ? WalkRoe()
+                      : WalkRoe(Failure::Of(Err::Failed, detail::AppendFrom("punch walk: signaling punch failed",
+                                                                            "signaling", signaled.error().message))));
         });
         return;
       }
@@ -132,8 +133,8 @@ void PunchIntroducerWalk::TryColdPunchAsync(const std::string& target_peer_id, D
   attempt->try_next();
 }
 
-void PunchIntroducerWalk::TryUpgradePunchAsync(const std::string& introducer_peer_key, const std::string& target_peer_id,
-                                               Done on_done) {
+void PunchIntroducerWalk::TryUpgradePunchAsync(const std::string& introducer_peer_key,
+                                               const std::string& target_peer_id, Done on_done) {
   MeshHost* m = mesh();
   auto* punch = m ? m->AmpPunch() : nullptr;
   if (!punch || !punch->IsStarted()) {
@@ -142,7 +143,9 @@ void PunchIntroducerWalk::TryUpgradePunchAsync(const std::string& introducer_pee
   }
   punch->TryUpgradePunchAsync(
       introducer_peer_key, target_peer_id, punch->LocalCandidateAddrs(),
-      [on_done = std::move(on_done)](AmpPunchCoordinator::PunchRoe punched) { CompletePunch(on_done, std::move(punched)); },
+      [on_done = std::move(on_done)](AmpPunchCoordinator::PunchRoe punched) {
+        CompletePunch(on_done, std::move(punched));
+      },
       2000);
 }
 

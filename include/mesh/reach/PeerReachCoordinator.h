@@ -247,9 +247,9 @@ private:
 
   std::atomic<IDialRegistry*> dial_{nullptr};
   std::atomic<ICircuitHopReach*> circuit_{nullptr};
-  mutable std::mutex mu_;  // a leaf: never held while posting or calling out
-  std::shared_ptr<pp::SerialExecutor> lane_;  // mu_
-  std::function<std::vector<std::string>()> local_listen_addrs_;  // mu_
+  mutable std::mutex mu_;                                        // a leaf: never held while posting or calling out
+  std::shared_ptr<pp::SerialExecutor> lane_;                     // mu_
+  std::function<std::vector<std::string>()> local_listen_addrs_; // mu_
   SeedParkAwait seed_park_;
   int64_t dial_budget_ms_;
   PeerReachId next_id_ = 1;

@@ -61,8 +61,8 @@ TEST(AddressDisclosureTest, OnlyEveryonePublishesAddresses) {
 }
 
 TEST(AddressDisclosureTest, AudienceNamesRoundTrip) {
-  for (const auto audience : {DirectAudience::Everyone, DirectAudience::Contacts, DirectAudience::Friendly,
-                              DirectAudience::Nobody}) {
+  for (const auto audience :
+       {DirectAudience::Everyone, DirectAudience::Contacts, DirectAudience::Friendly, DirectAudience::Nobody}) {
     EXPECT_EQ(DirectAudienceFromName(DirectAudienceName(audience)), audience);
   }
   EXPECT_FALSE(DirectAudienceFromName("strangers").has_value());

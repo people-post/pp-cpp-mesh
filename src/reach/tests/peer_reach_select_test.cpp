@@ -72,7 +72,8 @@ TEST(PeerReachSelectTest, AConnectedPeerCountsWhateverTheRecordSays) {
 }
 
 TEST(PeerReachSelectTest, TheMustDialRelayLeadsUnlessHeldDown) {
-  const auto pick = SelectForRole({Connected("a"), Connected("b"), Live("r", 5), Unknown("sticky")}, kNow, 2, 3, "sticky");
+  const auto pick =
+      SelectForRole({Connected("a"), Connected("b"), Live("r", 5), Unknown("sticky")}, kNow, 2, 3, "sticky");
   EXPECT_EQ(pick.cold, (Ids{"sticky"})) << "dialed although the target is met";
   const auto first = SelectForRole({Live("r", 5), Unknown("sticky")}, kNow, 2, 3, "sticky");
   EXPECT_EQ(first.cold, (Ids{"sticky", "r"}));
@@ -95,9 +96,8 @@ TEST(PeerReachSelectTest, OnlyAMissThatMayPassIsRedialed) {
 
 // A job the app drives (directory, DHT): up first, then latest successes, never a peer held down.
 TEST(PeerReachSelectTest, AJobGetsUpPeersThenRecentSuccessesWithinItsCap) {
-  const auto picked = ChooseForJob({Unknown("u1"), Down("gone", kNow + 1), Live("old", 1), Connected("up"),
-                                    Live("new", 9), Unknown("u2")},
-                                   kNow, 4);
+  const auto picked = ChooseForJob(
+      {Unknown("u1"), Down("gone", kNow + 1), Live("old", 1), Connected("up"), Live("new", 9), Unknown("u2")}, kNow, 4);
   EXPECT_EQ(picked, (Ids{"up", "new", "old", "u1"}));
   EXPECT_TRUE(ChooseForJob({Down("gone", kNow + 1)}, kNow, 3).empty()) << "nothing worth asking";
 }

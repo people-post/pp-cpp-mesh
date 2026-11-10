@@ -73,30 +73,30 @@ std::optional<int> UdpPortFromMultiaddr(const std::string& multiaddr) {
 
 const char* ReachabilityStatusKey(ReachabilityStatus status) {
   switch (status) {
-  case ReachabilityStatus::Checking:
-    return "checking";
-  case ReachabilityStatus::Reachable:
-    return "reachable";
-  case ReachabilityStatus::OutboundOnly:
-    return "outbound_only";
-  case ReachabilityStatus::Blocked:
-    return "blocked";
-  case ReachabilityStatus::Unknown:
-  default:
-    return "unknown";
+    case ReachabilityStatus::Checking:
+      return "checking";
+    case ReachabilityStatus::Reachable:
+      return "reachable";
+    case ReachabilityStatus::OutboundOnly:
+      return "outbound_only";
+    case ReachabilityStatus::Blocked:
+      return "blocked";
+    case ReachabilityStatus::Unknown:
+    default:
+      return "unknown";
   }
 }
 
 const char* ReachabilityHelpKey(ReachabilityStatus status) {
   switch (status) {
-  case ReachabilityStatus::OutboundOnly:
-    return "outbound_only";
-  case ReachabilityStatus::Blocked:
-    return "blocked";
-  case ReachabilityStatus::Reachable:
-    return "reachable";
-  default:
-    return "";
+    case ReachabilityStatus::OutboundOnly:
+      return "outbound_only";
+    case ReachabilityStatus::Blocked:
+      return "blocked";
+    case ReachabilityStatus::Reachable:
+      return "reachable";
+    default:
+      return "";
   }
 }
 
@@ -162,10 +162,9 @@ bool IsVirtualLanIfaceName(const std::string& ifname) {
     const size_t n = std::char_traits<char>::length(prefix);
     return ifname.size() >= n && ifname.compare(0, n, prefix) == 0;
   };
-  return starts_with("virbr") || starts_with("docker") || starts_with("veth") ||
-         starts_with("lxcbr") || starts_with("br-") || starts_with("vmnet") ||
-         starts_with("vboxnet") || starts_with("zt") || starts_with("tailscale") ||
-         ifname == "docker0";
+  return starts_with("virbr") || starts_with("docker") || starts_with("veth") || starts_with("lxcbr") ||
+         starts_with("br-") || starts_with("vmnet") || starts_with("vboxnet") || starts_with("zt") ||
+         starts_with("tailscale") || ifname == "docker0";
 }
 
 bool IsGlobalIpv6(const std::string& addr) {
@@ -175,8 +174,7 @@ bool IsGlobalIpv6(const std::string& addr) {
   if (addr.rfind("fe80:", 0) == 0 || addr.rfind("FE80:", 0) == 0) {
     return false;
   }
-  if (addr.rfind("fc", 0) == 0 || addr.rfind("fd", 0) == 0 || addr.rfind("FC", 0) == 0 ||
-      addr.rfind("FD", 0) == 0) {
+  if (addr.rfind("fc", 0) == 0 || addr.rfind("fd", 0) == 0 || addr.rfind("FC", 0) == 0 || addr.rfind("FD", 0) == 0) {
     return false;
   }
   if (addr == "::1") {
@@ -213,8 +211,7 @@ bool ShouldSkipUpnpForListen(const std::string& bound_listen_multiaddr) {
   if (udp_pos != std::string::npos && (cut == std::string::npos || udp_pos < cut)) {
     cut = udp_pos;
   }
-  const std::string prefix =
-      cut == std::string::npos ? bound_listen_multiaddr : bound_listen_multiaddr.substr(0, cut);
+  const std::string prefix = cut == std::string::npos ? bound_listen_multiaddr : bound_listen_multiaddr.substr(0, cut);
   const std::string ip = IpHostFromMultiaddrPrefix(prefix);
   if (ip.empty() || ip == "0.0.0.0" || ip == "::") {
     return false;
@@ -285,7 +282,7 @@ std::vector<std::string> EnumerateDialableLanIpv4Hosts() {
 }
 
 std::vector<std::string> BuildAmpLanAdvertisedAddrs(const std::string& amp_listen_multiaddr,
-                                                   const std::string& local_peer_id) {
+                                                    const std::string& local_peer_id) {
   std::vector<std::string> out;
   if (amp_listen_multiaddr.empty() || local_peer_id.empty()) {
     return out;
@@ -298,15 +295,14 @@ std::vector<std::string> BuildAmpLanAdvertisedAddrs(const std::string& amp_liste
   if (port == 0) {
     return out;
   }
-  const std::string peer =
-      !parsed->peer_id.empty() ? parsed->peer_id : local_peer_id;
+  const std::string peer = !parsed->peer_id.empty() ? parsed->peer_id : local_peer_id;
   for (const std::string& ip : EnumerateDialableLanIpv4Hosts()) {
     std::array<int, 4> octets{};
     if (!ParseIpv4Octets(ip, octets)) {
       continue;
     }
     auto ep = pp::adp::IpEndpoint::V4(static_cast<uint8_t>(octets[0]), static_cast<uint8_t>(octets[1]),
-                                  static_cast<uint8_t>(octets[2]), static_cast<uint8_t>(octets[3]), port);
+                                      static_cast<uint8_t>(octets[2]), static_cast<uint8_t>(octets[3]), port);
     if (auto formatted = pp::amp::FormatAdpMultiaddr(ep, peer)) {
       AppendUnique(out, *formatted);
     }
@@ -322,8 +318,8 @@ std::vector<std::string> BuildAmpLanAdvertisedAddrs(const std::string& amp_liste
 }
 
 std::vector<std::string> BuildAmpGlobalIpv6AdvertisedAddrs(const std::string& amp_listen_multiaddr,
-                                                          const std::string& local_peer_id,
-                                                          const std::vector<std::string>& hosts) {
+                                                           const std::string& local_peer_id,
+                                                           const std::vector<std::string>& hosts) {
   std::vector<std::string> out;
   if (amp_listen_multiaddr.empty() || local_peer_id.empty()) {
     return out;
@@ -332,8 +328,7 @@ std::vector<std::string> BuildAmpGlobalIpv6AdvertisedAddrs(const std::string& am
   if (!port || *port <= 0) {
     return out;
   }
-  const std::vector<std::string> ipv6_hosts =
-      hosts.empty() ? reachability_netif::GlobalIpv6Addresses() : hosts;
+  const std::vector<std::string> ipv6_hosts = hosts.empty() ? reachability_netif::GlobalIpv6Addresses() : hosts;
   for (const std::string& ip : ipv6_hosts) {
     if (!IsGlobalIpv6(ip)) {
       continue;
@@ -394,8 +389,7 @@ namespace {
 bool SameIpv4Slash24(const std::string& a, const std::string& b) {
   std::array<int, 4> oa{};
   std::array<int, 4> ob{};
-  return ParseIpv4Octets(a, oa) && ParseIpv4Octets(b, ob) && oa[0] == ob[0] && oa[1] == ob[1] &&
-         oa[2] == ob[2];
+  return ParseIpv4Octets(a, oa) && ParseIpv4Octets(b, ob) && oa[0] == ob[0] && oa[1] == ob[1] && oa[2] == ob[2];
 }
 
 int AmpDialMultiaddrRankWithContext(const std::string& multiaddr, const AmpDialLocalContext& ctx) {
@@ -404,29 +398,27 @@ int AmpDialMultiaddrRankWithContext(const std::string& multiaddr, const AmpDialL
   if (multiaddr.rfind("/ip4/", 0) == 0 && IsPrivateIpv4(host)) {
     for (const std::string& local : ctx.lan_ipv4_hosts) {
       if (SameIpv4Slash24(host, local)) {
-        return -10;  // peer on our own subnet: best possible path, no NAT involved
+        return -10; // peer on our own subnet: best possible path, no NAT involved
       }
     }
   }
   if (multiaddr.rfind("/ip6/", 0) == 0 && !ctx.has_global_ipv6) {
-    return 70;  // we cannot send to it from a v4 socket; keep it only as a last resort
+    return 70; // we cannot send to it from a v4 socket; keep it only as a last resort
   }
   return AmpDialMultiaddrRank(multiaddr);
 }
 
 } // namespace
 
-std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiaddrs,
-                                               const AmpDialLocalContext& ctx) {
-  std::stable_sort(multiaddrs.begin(), multiaddrs.end(),
-                   [&ctx](const std::string& a, const std::string& b) {
-                     const int ra = AmpDialMultiaddrRankWithContext(a, ctx);
-                     const int rb = AmpDialMultiaddrRankWithContext(b, ctx);
-                     if (ra != rb) {
-                       return ra < rb;
-                     }
-                     return a < b;
-                   });
+std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiaddrs, const AmpDialLocalContext& ctx) {
+  std::stable_sort(multiaddrs.begin(), multiaddrs.end(), [&ctx](const std::string& a, const std::string& b) {
+    const int ra = AmpDialMultiaddrRankWithContext(a, ctx);
+    const int rb = AmpDialMultiaddrRankWithContext(b, ctx);
+    if (ra != rb) {
+      return ra < rb;
+    }
+    return a < b;
+  });
   return multiaddrs;
 }
 

@@ -4,9 +4,10 @@
 namespace pp::mesh {
 
 AmpDhtProtocol::AmpDhtProtocol(pp::amp::MeshRuntime& runtime, WorkerPost post_worker)
-    : server_(runtime, store_, table_,
-              [this](const std::string& peer_id, const std::string& dial_addr) { client_.NoteHeard(peer_id, dial_addr); },
-              std::move(post_worker)),
+    : server_(
+          runtime, store_, table_,
+          [this](const std::string& peer_id, const std::string& dial_addr) { client_.NoteHeard(peer_id, dial_addr); },
+          std::move(post_worker)),
       client_(runtime, store_, table_) {}
 
 void AmpDhtProtocol::Configure(AmpDhtProtocolConfig config) {
@@ -68,8 +69,7 @@ std::string AmpDhtProtocol::FormatOpsStatusJson() const {
   object.set("self_publishes", static_cast<int64_t>(stats.self_publishes));
   object.set("last_publish_targets", static_cast<int64_t>(stats.last_publish_targets));
   object.set("soft_reputation_skips", static_cast<int64_t>(stats.soft_reputation_skips));
-  object.set("soft_reputation_penalized_peers",
-             static_cast<int64_t>(stats.soft_reputation_penalized_peers));
+  object.set("soft_reputation_penalized_peers", static_cast<int64_t>(stats.soft_reputation_penalized_peers));
   std::vector<common::Value> record_rows;
   for (const PeerRoutingRecord& record : SnapshotRecords()) {
     common::Object row;

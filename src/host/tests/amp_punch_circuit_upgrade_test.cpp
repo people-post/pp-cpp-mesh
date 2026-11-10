@@ -171,19 +171,17 @@ TEST_F(AmpPunchCircuitUpgradeTest, UpgradeViaRelayIntroducerThenDemoteCircuit) {
   auto& bridged = metrics.Counter("pp_circuit_relay_tunnels_total", tunnels, {{"result", "bridged"}});
   auto& upgrades_ok = metrics.Counter("pp_punch_attempts_total", "Hole punches this node started, by kind and result.",
                                       {{"kind", "upgrade"}, {"result", "ok"}});
-  auto& introduced = metrics.Counter("pp_punch_served_total", "Punch requests this node served, by role.",
-                                     {{"role", "introducer"}});
+  auto& introduced =
+      metrics.Counter("pp_punch_served_total", "Punch requests this node served, by role.", {{"role", "introducer"}});
   const uint64_t bridged_before = bridged.Value();
   const uint64_t upgrades_before = upgrades_ok.Value();
   const uint64_t introduced_before = introduced.Value();
   bool a_ready = false;
   bool b_ready = false;
-  harness_->mgr_a().EnsureAssociation("relay", [&](pp::amp::PeerLinkManager::LinkRoe r) {
-    a_ready = static_cast<bool>(r);
-  });
-  harness_->mgr_b().EnsureAssociation("relay", [&](pp::amp::PeerLinkManager::LinkRoe r) {
-    b_ready = static_cast<bool>(r);
-  });
+  harness_->mgr_a().EnsureAssociation("relay",
+                                      [&](pp::amp::PeerLinkManager::LinkRoe r) { a_ready = static_cast<bool>(r); });
+  harness_->mgr_b().EnsureAssociation("relay",
+                                      [&](pp::amp::PeerLinkManager::LinkRoe r) { b_ready = static_cast<bool>(r); });
   harness_->PumpUntil([&] { return a_ready && b_ready; }, 2000);
   ASSERT_TRUE(a_ready);
   ASSERT_TRUE(b_ready);

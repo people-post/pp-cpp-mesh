@@ -27,8 +27,7 @@ std::chrono::milliseconds ControlTimeout(const AmpDirectoryProtocolConfig& confi
 
 } // namespace
 
-DirectoryClient::Failure DirectoryClient::WrapLinkFailure(
-    const pp::amp::PeerLinkManager::Failure& child) {
+DirectoryClient::Failure DirectoryClient::WrapLinkFailure(const pp::amp::PeerLinkManager::Failure& child) {
   switch (child.GetCode()) {
     case pp::amp::PeerLinkManager::Err::EndpointNotRegistered:
       return Failure::Of(Err::EndpointNotRegistered,
@@ -58,20 +57,26 @@ DirectoryClient::Failure DirectoryClient::WrapLinkFailure(
 DirectoryClient::DirectoryClient(pp::amp::MeshRuntime& runtime, IoPump io_pump)
     : runtime_(runtime), io_pump_(std::move(io_pump)) {}
 
-void DirectoryClient::Configure(const AmpDirectoryProtocolConfig& config) { config_ = config; }
+void DirectoryClient::Configure(const AmpDirectoryProtocolConfig& config) {
+  config_ = config;
+}
 
-void DirectoryClient::Start() { stopped_.store(false, std::memory_order_release); }
+void DirectoryClient::Start() {
+  stopped_.store(false, std::memory_order_release);
+}
 
-void DirectoryClient::Stop() { stopped_.store(true, std::memory_order_release); }
+void DirectoryClient::Stop() {
+  stopped_.store(true, std::memory_order_release);
+}
 
-void DirectoryClient::Rpc(const std::string& peer_key, common::Object request, std::function<void(RpcRoe)> on_response) {
+void DirectoryClient::Rpc(const std::string& peer_key, common::Object request,
+                          std::function<void(RpcRoe)> on_response) {
   if (stopped_.load(std::memory_order_acquire)) {
     on_response(RpcRoe::error(Failure::Of(Err::NotStarted, "directory service stopped")));
     return;
   }
   if (!runtime_.Links().GetLinkSnapshot(peer_key).has_endpoint) {
-    on_response(
-        RpcRoe::error(Failure::Of(Err::EndpointNotRegistered, "directory peer endpoint not registered")));
+    on_response(RpcRoe::error(Failure::Of(Err::EndpointNotRegistered, "directory peer endpoint not registered")));
     return;
   }
   const auto timeout = ControlTimeout(config_);
@@ -91,74 +96,66 @@ void DirectoryClient::Rpc(const std::string& peer_key, common::Object request, s
   };
 
   runtime_.Links().EnsureAssociation(peer_key, [this, peer_key, request_json, finish, session_holder, deadline,
-                                      timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
+                                                timeout](pp::amp::PeerLinkManager::LinkRoe assoc) mutable {
     if (!assoc) {
       finish(RpcRoe::error(WrapLinkFailure(assoc.error())));
       return;
     }
-    runtime_.Links().OpenChannel(peer_key, kDirectoryProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
-                       [this, peer_key, request_json, finish, session_holder, deadline,
-                        timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
-                         if (!channel) {
-                           finish(RpcRoe::error(WrapLinkFailure(channel.error())));
-                           return;
-                         }
-                         if (stopped_.load(std::memory_order_acquire)) {
-                           finish(RpcRoe::error(Failure::Of(Err::NotStarted, "directory service stopped")));
-                           return;
-                         }
-                         const uint32_t channel_id = *channel;
-                         AmpWhenChannelOpen(
-                             runtime_.Links(), peer_key, channel_id, deadline,
-                             [this, peer_key, channel_id, request_json, finish, session_holder, timeout](
-                                 bool open) mutable {
-                               if (stopped_.load(std::memory_order_acquire)) {
-                                 finish(RpcRoe::error(
-                                     Failure::Of(Err::NotStarted, "directory service stopped")));
-                                 return;
-                               }
-                               if (!open) {
-                                 finish(RpcRoe::error(
-                                     Failure::Of(Err::ChannelFailed, "directory channel open failed")));
-                                 return;
-                               }
-                               *session_holder = runtime_.Links().BindChannel(
-                                   peer_key, channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
-                                   [finish](Roe<std::vector<uint8_t>> frame) {
-                                     if (!frame) {
-                                       finish(RpcRoe::error(Failure::Of(
-                                           Err::ProtocolError, "directory response read failed")));
-                                       return false;
-                                     }
-                                     auto root =
-                                         common::TryParseObject(std::string(frame->begin(), frame->end()));
-                                     if (!root) {
-                                       finish(RpcRoe::error(Failure::Of(
-                                           Err::ProtocolError, "invalid directory response json")));
-                                       return false;
-                                     }
-                                     finish(std::move(*root));
-                                     return false;
-                                   },
-                                   // The reply channel can end with no frame (read timeout, link
-                                   // dropped, server stopping): settle, or the request never does.
-                                   [finish](const char* reason) {
-                                     finish(RpcRoe::error(Failure::Of(
-                                         Err::ChannelFailed, std::string("directory channel closed: ") +
-                                                                 (reason ? reason : ""))));
-                                   });
-                               if (!*session_holder) {
-                                 finish(RpcRoe::error(
-                                     Failure::Of(Err::ChannelFailed, "directory channel open failed")));
-                                 return;
-                               }
-                               if (!(*session_holder)->EnqueueOutbound(JsonToBody(request_json))) {
-                                 finish(RpcRoe::error(
-                                     Failure::Of(Err::ProtocolError, "directory request send failed")));
-                                 return;
-                               }
-                             });
-                       });
+    runtime_.Links().OpenChannel(
+        peer_key, kDirectoryProtocolId, pp::amp::ControlJsonChannelPolicy(timeout),
+        [this, peer_key, request_json, finish, session_holder, deadline,
+         timeout](pp::amp::PeerLinkManager::ChannelRoe channel) mutable {
+          if (!channel) {
+            finish(RpcRoe::error(WrapLinkFailure(channel.error())));
+            return;
+          }
+          if (stopped_.load(std::memory_order_acquire)) {
+            finish(RpcRoe::error(Failure::Of(Err::NotStarted, "directory service stopped")));
+            return;
+          }
+          const uint32_t channel_id = *channel;
+          AmpWhenChannelOpen(
+              runtime_.Links(), peer_key, channel_id, deadline,
+              [this, peer_key, channel_id, request_json, finish, session_holder, timeout](bool open) mutable {
+                if (stopped_.load(std::memory_order_acquire)) {
+                  finish(RpcRoe::error(Failure::Of(Err::NotStarted, "directory service stopped")));
+                  return;
+                }
+                if (!open) {
+                  finish(RpcRoe::error(Failure::Of(Err::ChannelFailed, "directory channel open failed")));
+                  return;
+                }
+                *session_holder = runtime_.Links().BindChannel(
+                    peer_key, channel_id, pp::amp::ControlJsonChannelPolicy(timeout),
+                    [finish](Roe<std::vector<uint8_t>> frame) {
+                      if (!frame) {
+                        finish(RpcRoe::error(Failure::Of(Err::ProtocolError, "directory response read failed")));
+                        return false;
+                      }
+                      auto root = common::TryParseObject(std::string(frame->begin(), frame->end()));
+                      if (!root) {
+                        finish(RpcRoe::error(Failure::Of(Err::ProtocolError, "invalid directory response json")));
+                        return false;
+                      }
+                      finish(std::move(*root));
+                      return false;
+                    },
+                    // The reply channel can end with no frame (read timeout, link
+                    // dropped, server stopping): settle, or the request never does.
+                    [finish](const char* reason) {
+                      finish(RpcRoe::error(Failure::Of(
+                          Err::ChannelFailed, std::string("directory channel closed: ") + (reason ? reason : ""))));
+                    });
+                if (!*session_holder) {
+                  finish(RpcRoe::error(Failure::Of(Err::ChannelFailed, "directory channel open failed")));
+                  return;
+                }
+                if (!(*session_holder)->EnqueueOutbound(JsonToBody(request_json))) {
+                  finish(RpcRoe::error(Failure::Of(Err::ProtocolError, "directory request send failed")));
+                  return;
+                }
+              });
+        });
   });
 }
 
@@ -217,8 +214,7 @@ void DirectoryClient::ListMeshNodesAsync(std::function<void(ListRoe)> on_done) {
               state->last_failure = Failure::Of(Err::ProtocolError, "missing nodes");
             }
           } else if (op == "error") {
-            const std::string message = resp->getString("message").value_or(
-                resp->getString("code").value_or("error"));
+            const std::string message = resp->getString("message").value_or(resp->getString("code").value_or("error"));
             state->last_failure = Failure::Of(Err::ProtocolError, message);
           } else {
             state->last_failure = Failure::Of(Err::ProtocolError, "unexpected directory op");
