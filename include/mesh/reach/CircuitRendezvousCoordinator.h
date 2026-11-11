@@ -5,6 +5,7 @@
 #include "common/Module.h"
 #include "mesh/host/MeshHost.h"
 #include "mesh/reach/PeerReachRecord.h"
+#include "mesh/reach/PeerReachSelect.h"
 #include "mesh/types/MeshHopTypes.h"
 #include "mesh/types/ServiceLoad.h"
 
@@ -25,6 +26,8 @@ struct CircuitRendezvousDeps {
   std::function<std::vector<MeshHopCandidate>()> bootstrap_seeds;
   /** Circuit reach's last good relay — the sticky R1 when none was chosen / announced. */
   std::function<std::string()> last_good_relay;
+  /** The app's last good relays from earlier runs, best first (MeshHopPolicy::last_good_relays); none: none. */
+  std::function<std::vector<std::string>()> last_good_relays;
   /** What the reach record says about a peer on the current network (none: every peer Unknown). */
   std::function<PeerReachFacts(const std::string& peer_id)> reach_facts;
 };
@@ -110,6 +113,11 @@ private:
   /** The relay this node parks on first: the chosen / announced R1, else circuit reach's last good one. */
   std::string StickyRelay() const;
   std::vector<std::string> BootstrapSeedPeerIds() const;
+  /**
+   * The park's cold order: seeds first (the park waits on them), within each band the app's last good
+   * relays first (in its order), then open before busy.
+   */
+  void OrderColdWalk(std::vector<ReachCandidate>& view) const;
   /** Bootstrap seeds Connected (carrier-only ones never count) and not held down, on the io lane. */
   struct ParkCount {
     size_t usable = 0;

@@ -4,6 +4,7 @@
 #include "amp/L1/MemoryDatagramIo.h"
 #include "common/Error.h"
 #include "mesh/host/MeshHost.h"
+#include "mesh/reach/AmpCircuitHopReach.h"
 #include "mesh/reach/CircuitRendezvousCoordinator.h"
 #include "mesh/types/MeshHopTypes.h"
 
@@ -23,6 +24,9 @@ namespace pp::mesh::test {
  * DelayedDatagramIo: every exchange with it takes `rtt_ms` longer — a relay an ocean away) or is unreachable (an
  * address nothing reads: every datagram to it is lost, as to a relay behind a firewall that drops them). Time moves
  * only in RunUntil, so a test can say how long the park took, in virtual milliseconds.
+ *
+ * The dial side too: AddCaller puts a caller on the hub whose circuit reach (the product's AmpCircuitHopReach)
+ * bridges to the phone through the relays, in the order added — so a test can say how long a circuit took.
  */
 class ParkHarness {
 public:
@@ -42,6 +46,20 @@ public:
    * a Slow one takes `rtt_ms` longer for every exchange. Returns its PeerId.
    */
   pp::Roe<std::string> AddRelay(RelayKind kind, bool seed = true, int64_t rtt_ms = 500);
+
+  /**
+   * A caller on the hub, its circuit reach bridging through the relays added so far and later, in the order added
+   * (its envelope on the bench's clock). Call once.
+   */
+  pp::Roe<void> AddCaller();
+  /** The caller's circuit reach (AddCaller first). */
+  AmpCircuitHopReach& CallerReach() { return *caller_reach_; }
+  MeshHost& Caller() { return *caller_; }
+  /** The phone's PeerId: what the caller reaches. */
+  const std::string& PhonePeerId() const { return phone_peer_id_; }
+
+  /** What the app kept from earlier runs (MeshHopPolicy::last_good_relays), best first. */
+  void SetLastGoodRelays(std::vector<std::string> relays) { last_good_relays_ = std::move(relays); }
 
   CircuitRendezvousCoordinator& Park() { return park_; }
   MeshHost& Phone() { return *phone_; }
@@ -74,7 +92,11 @@ private:
   std::shared_ptr<pp::adp::MemoryDatagramHub> hub_;
   int64_t start_ms_ = 0;
   std::unique_ptr<MeshHost> phone_;
+  std::string phone_peer_id_;
   std::vector<Relay> relays_;
+  std::vector<std::string> last_good_relays_;
+  std::unique_ptr<MeshHost> caller_;
+  std::unique_ptr<AmpCircuitHopReach> caller_reach_;
   CircuitRendezvousCoordinator park_;
 };
 

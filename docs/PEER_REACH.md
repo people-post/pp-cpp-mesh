@@ -26,7 +26,7 @@ this repo, **B** = pp-browser `src/`.
 | `MeshHopPolicy::bootstrap_seeds` | B `feature/conversations/MeshConnectivityWiring.cpp:68-75` | effective list, or config only (`trusted_relays_only`); org seeds dropped when the probe failed | pushed every 5 s and on directory update | seed warm / park (M `src/reach/CircuitRendezvousCoordinator.cpp`) |
 | `MeshHopPolicy::rendezvous_candidates` | B `domain/people/MeshHopPolicy.cpp:169-209` | contacts ∪ directory ∪ DHT ∪ seeds, kept only when a circuit relay (org seed, or listed with `circuit_relay`) | none | reserve, park, `DialableRelayIds` |
 | Park surface | M `CircuitRendezvousCoordinator.cpp:248-280` | sticky R1, then Connected, then the rest | park cold-dials the selected ones, staggered 750 ms | PeerReach park gate, Accept |
-| Circuit reach relays | M `src/reach/AmpCircuitHopReach.cpp` (`PutAdvertisedRelaysFirst`, `OrderCircuitRelayAttempts`, `CircuitRelayRefusals`) | the relays the target advertised (`PeerReachRequest::advertised_relays`: a call's CallAccept names where the callee is parked), in its order; then sticky R1, Connected, the rest; a relay that refused a circuit in the last 10 min goes behind all but the advertised | 4 bridges in a 14 s envelope; a `not registered` miss retries once only on an advertised relay | `EnsureViaCircuit` |
+| Circuit reach relays | M `src/reach/AmpCircuitHopReach.cpp` (`PutAdvertisedRelaysFirst`, `OrderCircuitRelayAttempts`, `CircuitRelayRefusals`) | the relays the target advertised (`PeerReachRequest::advertised_relays`: a call's CallAccept names where the callee is parked), in its order; then sticky R1, Connected, the rest; a relay that refused a circuit in the last 10 min goes behind all but the advertised | 4 bridges in a 14 s envelope, two at once; a `not registered` miss retries once only on an advertised relay | `EnsureViaCircuit` |
 | `MeshHopPolicy::punch_introducers` | B `MeshConnectivityWiring.cpp:76-82` | contacts (Connected first), then config seeds | walk with a tried set | cold punch (M `src/reach/PunchIntroducerWalk.cpp`) |
 | Directory query peers | B `feature/conversations/ConversationsHub.cpp:916-941` | Amp directory providers, then seeds | none; every 300 s | directory refresh |
 | DHT query peers | B `feature/node/NodeMeshServices.cpp:50-68` | directory nodes, then seeds | none | DHT store / find_peer |
@@ -37,7 +37,8 @@ this repo, **B** = pp-browser `src/`.
 
 - Amp's per-peer dial backoff (1 s → 30 s); the seed park clears it before redialing.
 - `seed_dial_ok` from the reachability probe — a Client never probes, so it always reads "ok".
-- The sticky last-good relay (M `src/reach/AmpCircuitHopReach.cpp:487,532`).
+- The sticky last-good relay (M `src/reach/AmpCircuitHopReach.cpp`, `NoteRelayChosen`), for one
+  run. Across a restart only what the app keeps: `MeshHopPolicy::last_good_relays` (§ 5, the park).
 - DHT soft reputation (M `src/dht/client/DhtClient.cpp:72-101`), in memory, DHT only.
 - The directory cache's refresh backoff; a call's UI-only "seed unreachable" flag.
 - `MeshHopCandidate::recently_failed` and `residual_capacity` exist (M
@@ -198,10 +199,37 @@ Rules built on it:
   that slow seeds are still parked on, the walk's stop at two live relays, seeds first, the chosen
   R1 and the deadline. A park rule changes there first; the app lab
   (pp-browser `call_path_*_two_hops`) is the end-to-end check.
+- **After a start** the mesh knows no good relay yet (the sticky R1 lives for one run), so the cold
+  walk went in the app's order — to whichever seed was listed first (pp-browser #577: the first
+  call after a launch took 71 s; 6 of 8 seed dials then ended `handshake-timeout`).
+  `MeshHopPolicy::last_good_relays` (default empty) lets the app hand back what
+  `MeshConnectivity::SetOnRelayChosen` reported in earlier runs, best first: within each band
+  (seeds, then the other relays) those go first, then the rest — staggered as always (750 ms), so
+  a last good relay that no longer answers holds the next by the stagger only. A choice made in
+  this run (the sticky R1) still leads. Bench: `ParkTest.TheLastGoodRelayIsDialedFirstAfterAStart`,
+  `…TheOthersAreStaggeredBehindTheLastGoodRelay`. Nothing in the mesh dials seeds all at once at
+  start: a Client dials them only when the app asks (a park's cold walk, ≤3 a round, staggered;
+  overlapping rounds share Amp's dial; a missed seed redialed once within a park; the directory's
+  two chosen peers; the serial warm). Seed misses right after a launch that coincide with the
+  app's HTTP timeouts (#577's three `PollInbox` timeouts) say the network was not up yet — no dial
+  order fixes that.
 - **Circuit dial:** the relays circuit reach may bridge through leave out those held down
   (unless Connected) — a StartBridge through one would only time out. Relays the target
   advertised go first (pp-browser media-hop-reachability H013): the target knows where it holds a
   reservation; the dialer only guesses. Only those get a second try on `not registered`.
+  The walk bridges to the first two relays at once (`kCircuitParallelBridges`) and keeps two out
+  as it goes down the list: one that never answers no longer costs its whole bridge timeout (4 s)
+  before the next is tried (pp-browser #577: 9.6 s for a circuit whose first relay was silent,
+  ~3.2 s otherwise). The first bridge to ack wins and the nested link is established over it
+  alone; a second ack meanwhile is released, and once the nested link is up every bridge still
+  out is cancelled. A dropped bridge that had acked has its channel to the relay closed
+  (`CancelTunnel` only forgets a bridged tunnel), so its relay ends the splice — nothing nested
+  rides it. Both missing, the walk goes on down the list; the 4-bridge cap, the 14 s envelope,
+  the order and the refusal memory are as before. Costs: for a moment two relays each set up a
+  bridge for one reach, and the target sees a second carrier that closes at once. On a bench:
+  `src/reach/tests/circuit_walk_test.cpp` (`ParkHarness::AddCaller`: a caller whose circuit
+  reach bridges to the parked phone, virtual ms) — a silent first relay, then a live one: under
+  2 s (4.6 s one at a time); two live: one splice left, at the winner.
 - **Awaiting side:** `PeerReachRequest::await_hold_ms` keeps an await open at least that long from
   its start, waiting for the peer's circuit (a call's answerer: the caller starts only once our
   CallAccept crossed its inbox). The waiter ends it sooner by cancelling.
@@ -212,6 +240,25 @@ Rules built on it:
   same 192.168.1.0/24 look alike, so that dial gets 1.5 s (a LAN handshake takes milliseconds);
   without an answer it is abandoned and the reach parks as before. Reach only: the awaiting side
   keeps its seed link untouched.
+- **Racing the circuit** (`PeerReachRequest::race_circuit`, off by default): by default a reach
+  gives its direct dial a 12 s budget (redialing within it) and only then builds the circuit — a
+  peer the dial cannot reach costs 12 s and then the circuit (pp-browser #577: a 9 s handshake
+  timeout, the pivot at 12 s, then a 9.6 s circuit). With the option the circuit starts with the
+  dial (after its seed park, as always) and the first link to connect settles the reach: a direct
+  link that lands first still settles it Direct; a circuit that lands first, Relayed. Neither is
+  cancelled when the other wins — the circuit is shared (`AbortPending` would end every reach's),
+  and the dial's state is Amp's (`FinishDial`): a late relayed link stays as a standby, a late
+  direct link is Amp's to prefer. The racing circuit does not punch (`TryEnsureCircuitOnlyAsync`);
+  the dial keeps redialing within its budget, and the punch — the last resort — runs only once the
+  dial is done or past its budget, so it never shares the peer's path with our own dial. Only a
+  dial to a public Preferred is raced: a private one is still parked for first, and once parked it
+  is skipped and the circuit starts at once anyway (H010). Await and `exclude_direct` ignore it.
+  The reach deadline covers the circuit from its start (16 s), the dial overlap after a miss
+  (V049) and the watchdog as before. For: call pairs whose relay is the anchor anyway — any mobile
+  end (pp-browser K013), where a direct path would not be kept; pp-browser sets it there. Costs a
+  circuit (a bridge at a relay) for a pair whose direct dial would have landed. On a bench:
+  `src/reach/tests/peer_reach_race_test.cpp` (one ManualExecutor lane, virtual ms;
+  `PeerReachPorts::now_ms` is the lane's clock).
 - **Introducers:** the punch walk skips an introducer the record holds down (unless its link is
   up) and dials at most kReachMaxColdDialsPerRound introducers that are not connected, per walk.
 - **Directory / DHT query peers:** the app lists them, so the mesh offers the selection:

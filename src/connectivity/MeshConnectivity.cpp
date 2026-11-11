@@ -110,6 +110,7 @@ void MeshConnectivity::SetDeps(MeshConnectivityDeps deps) {
       ICircuitHopReach* reach = CircuitReach();
       return reach ? reach->LastGoodRelayPeerKey() : std::string();
     };
+    rendezvous.last_good_relays = [this]() { return HopPolicy()->last_good_relays; };
     rendezvous.reach_facts = reach_facts;
     rendezvous_.SetDeps(std::move(rendezvous));
   });

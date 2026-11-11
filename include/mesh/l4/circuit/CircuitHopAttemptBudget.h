@@ -25,6 +25,12 @@ inline constexpr int64_t kCircuitNestedSlackMs = 2000;
 inline constexpr int64_t kCircuitMinUsefulTryMs = 2000;
 /** Max StartBridge calls per EnsureViaCircuit (skips do not count). */
 inline constexpr std::size_t kCircuitMaxStartBridgeAttempts = 4;
+/**
+ * StartBridges out at once per EnsureViaCircuit: the first two relays are bridged to together, and
+ * the first to ack wins (the other is cancelled) — a silent first relay no longer costs a whole bridge
+ * timeout before the second is tried (pp-browser #577). Costs a second bridge at a relay, briefly.
+ */
+inline constexpr std::size_t kCircuitParallelBridges = 2;
 /** Nested Establish after a successful bridge ack (clamped by remaining envelope). */
 inline constexpr int64_t kCircuitNestedEstablishBaseMs = 8000;
 

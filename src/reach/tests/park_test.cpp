@@ -209,3 +209,45 @@ TEST(ParkTest, AFullRelayKeepsThePhonesAlreadyParkedOnIt) {
 
 } // namespace
 } // namespace pp::mesh
+
+namespace pp::mesh {
+namespace {
+
+// A node that just started knows nothing of this run yet: the relay that worked last (the app kept it,
+// MeshHopPolicy::last_good_relays) is dialed first, even listed last — and the two live ones are it and the
+// first of the others.
+TEST(ParkTest, TheLastGoodRelayIsDialedFirstAfterAStart) {
+  auto bench = MakeBench();
+  ASSERT_NE(bench, nullptr);
+  auto first = bench->AddRelay(RelayKind::Answers);
+  auto second = bench->AddRelay(RelayKind::Answers);
+  auto last_good = bench->AddRelay(RelayKind::Answers);
+  ASSERT_TRUE(first && second && last_good);
+  bench->SetLastGoodRelays({*last_good});
+
+  bench->Park().ReserveOnBootstrapSeeds();
+  ASSERT_TRUE(bench->RunUntil([&] { return bench->Parked().size() >= 2; }, 5000));
+  bench->RunUntil([] { return false; }, 2000);
+  EXPECT_TRUE(bench->ParkedOn(*last_good));
+  EXPECT_TRUE(bench->ParkedOn(*first));
+  EXPECT_FALSE(bench->ParkedOn(*second));
+}
+
+// The rest are staggered behind it, not dialed with it: a last good relay that does not answer now holds the next
+// one up by the stagger (750 ms), no more — and no less.
+TEST(ParkTest, TheOthersAreStaggeredBehindTheLastGoodRelay) {
+  auto bench = MakeBench();
+  ASSERT_NE(bench, nullptr);
+  auto live = bench->AddRelay(RelayKind::Answers);
+  auto gone = bench->AddRelay(RelayKind::Unreachable);
+  ASSERT_TRUE(live && gone);
+  bench->SetLastGoodRelays({*gone});
+
+  bench->Park().ReserveOnBootstrapSeeds();
+  ASSERT_TRUE(bench->RunUntil([&] { return bench->ParkedOn(*live); }, 10'000));
+  EXPECT_GE(bench->ElapsedMs(), 750) << "dialed together with the last good relay";
+  EXPECT_LT(bench->ElapsedMs(), 2000) << "parked " << bench->ElapsedMs() << " ms in";
+}
+
+} // namespace
+} // namespace pp::mesh

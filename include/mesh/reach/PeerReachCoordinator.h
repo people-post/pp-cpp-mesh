@@ -75,6 +75,18 @@ struct PeerReachRequest {
    * ends it sooner by cancelling. 0: the usual dial-overlap budget.
    */
   int64_t await_hold_ms = 0;
+  /**
+   * Reach: build the relay circuit at once, beside the direct dial, instead of after the dial budget
+   * (12 s), and settle on whichever link connects first — for a pair whose relay is the anchor anyway
+   * (a call with a mobile end, pp-browser K013): a peer the dial cannot reach then costs the circuit's
+   * time, not 12 s and then the circuit. The dial goes on (redials within its budget) while the
+   * circuit builds; a direct link that lands first settles the reach Direct, as without the race. The
+   * racing circuit does not punch: the punch, the last resort, waits until the dial is done. Only a
+   * dial to a public Preferred is raced — a private one is still parked for first and skipped once
+   * parked (H010; the circuit then starts at once anyway). Ignored by Await and exclude_direct (no
+   * direct dial to race). docs/PEER_REACH.md § 5.
+   */
+  bool race_circuit = false;
 };
 
 struct PeerReachResult {
@@ -98,6 +110,11 @@ struct PeerReachPorts {
    * their /24s is dialed once, briefly, before the seed park (docs/PEER_REACH.md § 5). None: never.
    */
   std::function<std::vector<std::string>()> local_listen_addrs;
+  /**
+   * The lane's clock, in ms: what the reach's deadlines are measured on (its timers run on the lane).
+   * None: the wall clock. A test with a ManualExecutor lane passes that executor's clock.
+   */
+  std::function<int64_t()> now_ms;
 };
 
 /**
@@ -231,8 +248,29 @@ private:
   void OnLanDialDone(const AttemptPtr& a, bool ok, bool connected_now, bool direct_now);
   bool MaybeStartAssociation(const AttemptPtr& a);
   void OnAssociationDone(const AttemptPtr& a, IChatPeerLinks::LinkRoe assoc, bool connected_now, bool direct_now);
+  /** What a circuit / punch step does (KickCircuit). */
+  enum class CircuitStep : uint8_t {
+    /** A circuit, then a punch when it misses (a reach after its dial). */
+    CircuitThenPunch,
+    /** A punch only (an await; its path policy may turn it off). */
+    PunchOnly,
+    /** A circuit only, beside the dial (race_circuit). */
+    RaceCircuit,
+    /** The punch after a raced circuit missed, once the dial is done (always: the last resort). */
+    PunchAfterRace,
+  };
   bool MaybeStartCircuit(const AttemptPtr& a);
-  void KickCircuit(const AttemptPtr& a, bool allow_circuit);
+  /** Mark the circuit started, cover it in the deadline, then park on a seed and kick `step`. */
+  void BeginCircuit(const AttemptPtr& a, CircuitStep step);
+  void KickCircuit(const AttemptPtr& a, CircuitStep step);
+  /** race_circuit: the dial just started — start the circuit beside it. */
+  bool MaybeRaceCircuit(const AttemptPtr& a);
+  /** While a raced circuit or dial is out: redial within the dial budget, or punch once both missed. */
+  bool MaybeRaceStep(const AttemptPtr& a);
+  bool MaybePunchAfterRace(const AttemptPtr& a);
+  /** The dial's own redials stop here: the dial budget (a race), else the reach deadline. */
+  static int64_t RedialUntilMs(const Attempt& a);
+  int64_t NowMs() const;
   void OnCircuitDone(const AttemptPtr& a, CircuitReachRoe via, bool connected_now, bool relayed_now);
 
   bool AnyConnected(const Attempt& a) const;
@@ -250,6 +288,7 @@ private:
   mutable std::mutex mu_;                                        // a leaf: never held while posting or calling out
   std::shared_ptr<pp::SerialExecutor> lane_;                     // mu_
   std::function<std::vector<std::string>()> local_listen_addrs_; // mu_
+  std::function<int64_t()> now_ms_;                              // mu_
   SeedParkAwait seed_park_;
   int64_t dial_budget_ms_;
   PeerReachId next_id_ = 1;

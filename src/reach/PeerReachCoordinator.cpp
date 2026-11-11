@@ -150,6 +150,11 @@ struct PeerReachCoordinator::Attempt {
   /** The brief same-LAN dial before the park: tried (once), and still out. */
   bool lan_dial_done = false;
   bool lan_dial_inflight = false;
+  /** A step that may punch was kicked (a direct link found afterwards reads Punched). */
+  bool punch_kicked = false;
+  /** race_circuit: the circuit was started beside the dial; then its punch, once the dial was done. */
+  bool raced = false;
+  bool race_punch_started = false;
 };
 
 PeerReachCoordinator::PeerReachCoordinator(PeerReachPorts ports)
@@ -157,6 +162,7 @@ PeerReachCoordinator::PeerReachCoordinator(PeerReachPorts ports)
       circuit_(ports.circuit),
       lane_(std::move(ports.lane)),
       local_listen_addrs_(std::move(ports.local_listen_addrs)),
+      now_ms_(std::move(ports.now_ms)),
       dial_budget_ms_(kDialBudgetMs),
       alive_(std::make_shared<std::atomic<bool>>(true)) {
   redirectLogger("PeerReach");
@@ -180,6 +186,7 @@ void PeerReachCoordinator::SetDeps(PeerReachPorts ports) {
     lane_changed = lane_ != ports.lane;
     lane_ = std::move(ports.lane);
     local_listen_addrs_ = std::move(ports.local_listen_addrs);
+    now_ms_ = std::move(ports.now_ms);
   }
   dial_.store(ports.dial, std::memory_order_release);
   circuit_.store(ports.circuit, std::memory_order_release);
@@ -192,6 +199,15 @@ void PeerReachCoordinator::SetDeps(PeerReachPorts ports) {
 std::shared_ptr<pp::SerialExecutor> PeerReachCoordinator::Lane() const {
   std::lock_guard lock(mu_);
   return lane_;
+}
+
+int64_t PeerReachCoordinator::NowMs() const {
+  std::function<int64_t()> now;
+  {
+    std::lock_guard lock(mu_);
+    now = now_ms_;
+  }
+  return now ? now() : util::NowUnixMs();
 }
 
 bool PeerReachCoordinator::OnLane() const {
@@ -506,9 +522,9 @@ void PeerReachCoordinator::Start(const AttemptPtr& a) {
   log().info << "reach start peer=" << a->Primary() << " mode=" << (a->IsAwait() ? "await" : "reach")
              << " dialable=" << (AnyDialable(*a) ? 1 : 0) << " connected=" << (connected ? 1 : 0)
              << " exclude_direct=" << (a->req.exclude_direct ? 1 : 0) << " has_circuit_reach=" << (circuit ? 1 : 0)
-             << " budget_ms=" << a->dial_budget_ms;
+             << " race_circuit=" << (a->req.race_circuit ? 1 : 0) << " budget_ms=" << a->dial_budget_ms;
 
-  a->started_ms = util::NowUnixMs();
+  a->started_ms = NowMs();
   a->deadline_ms = a->started_ms + a->dial_budget_ms;
   // Hard deadline independent of the tick chain (dogfood af934e: EnsureAssociation never called
   // back). Covers the peer's dial overlap (V049) + circuit slack, or an await's hold (H013). Must
@@ -542,7 +558,7 @@ bool PeerReachCoordinator::TrySettleConnected(const AttemptPtr& a) {
   // The relay carrier also reads "connected" — only ADP counts as direct / punched.
   if (a->req.exclude_direct || AnyCircuitHop(*a) || !AnyConnectedDirect(*a)) {
     r.kind = PeerLinkKind::Relayed;
-  } else if (a->circuit_started) {
+  } else if (a->punch_kicked) {
     r.kind = PeerLinkKind::Punched;
   } else {
     r.kind = PeerLinkKind::Direct;
@@ -572,7 +588,7 @@ void PeerReachCoordinator::Tick(const AttemptPtr& a) {
     ScheduleTick(a, kPollMs);
     return;
   }
-  if (util::NowUnixMs() >= a->deadline_ms) {
+  if (NowMs() >= a->deadline_ms) {
     // Never AbortPending a live StartBridge because punch / assoc burned the short budget.
     if (a->circuit_inflight) {
       ScheduleTick(a, kPollMs);
@@ -597,11 +613,14 @@ void PeerReachCoordinator::Tick(const AttemptPtr& a) {
     }
   }
   if (a->circuit_inflight || (a->assoc_started && !a->assoc_done)) {
-    // Assoc / circuit callbacks drive progress; keep polling for the deadline only.
-    ScheduleTick(a, kPollMs);
+    // Assoc / circuit callbacks drive progress; keep polling for the deadline only — unless the
+    // circuit races the dial (race_circuit): then the other side's redial or the punch may be due.
+    if (!MaybeRaceStep(a)) {
+      ScheduleTick(a, kPollMs);
+    }
     return;
   }
-  if (MaybeParkBeforePrivateDial(a) || MaybeStartAssociation(a) || MaybeStartCircuit(a)) {
+  if (MaybeParkBeforePrivateDial(a) || MaybeStartAssociation(a) || MaybePunchAfterRace(a) || MaybeStartCircuit(a)) {
     return;
   }
   ScheduleTick(a, kPollMs);
@@ -734,7 +753,9 @@ bool PeerReachCoordinator::MaybeStartAssociation(const AttemptPtr& a) {
       }
     });
   });
-  // Wait for assoc to finish before StartBridge so the two ADP handshakes never overlap.
+  // Wait for assoc to finish before StartBridge so the two ADP handshakes never overlap — unless the
+  // caller asked to race them (race_circuit).
+  (void)MaybeRaceCircuit(a);
   ScheduleTick(a, kPollMs);
   return true;
 }
@@ -766,7 +787,7 @@ void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, IChatPeerLinks
     // Handshake finished without a Connected link — treat like a miss for re-dial.
     log().info << "EnsureAssociation ok but not connected peer=" << a->Primary();
     ClearBackoff(*a);
-    if (util::NowUnixMs() + kAssocRedialBackoffMs < a->deadline_ms) {
+    if (NowMs() + kAssocRedialBackoffMs < RedialUntilMs(*a)) {
       a->assoc_done = false;
       rearm();
       return;
@@ -780,7 +801,7 @@ void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, IChatPeerLinks
     ClearBackoff(*a);
     // B31 / V049: re-dial within budget. assoc_done stays false so circuit / punch waits for the
     // next attempt (otherwise a 250 ms poll pivots before the peer opens its hole).
-    if (util::NowUnixMs() + kAssocRedialBackoffMs < a->deadline_ms) {
+    if (NowMs() + kAssocRedialBackoffMs < RedialUntilMs(*a)) {
       rearm();
       return;
     }
@@ -797,12 +818,20 @@ bool PeerReachCoordinator::MaybeStartCircuit(const AttemptPtr& a) {
   if (!due) {
     return false;
   }
-  a->circuit_started = true;
-  a->circuit_inflight = true;
   // Await: punch only and wait for the peer's circuit. Building our own toward the reacher fails
   // with "endpoint not registered" when fleet seeds do not see it (dogfood 072a7425).
   const bool allow_circuit = !a->IsAwait() || a->req.exclude_direct;
-  const int64_t now = util::NowUnixMs();
+  BeginCircuit(a, allow_circuit ? CircuitStep::CircuitThenPunch : CircuitStep::PunchOnly);
+  ScheduleTick(a, kPollMs);
+  return true;
+}
+
+void PeerReachCoordinator::BeginCircuit(const AttemptPtr& a, const CircuitStep step) {
+  a->circuit_started = true;
+  a->circuit_inflight = true;
+  a->punch_kicked = step != CircuitStep::RaceCircuit;
+  const bool allow_circuit = step != CircuitStep::PunchOnly;
+  const int64_t now = NowMs();
   if (allow_circuit) {
     a->deadline_ms = std::max(a->deadline_ms, now + kCircuitEnsureBudgetMs);
   } else if (a->dial_budget_ms >= kDialBudgetMs) {
@@ -814,37 +843,85 @@ bool PeerReachCoordinator::MaybeStartCircuit(const AttemptPtr& a) {
     a->deadline_ms = std::max(a->deadline_ms, a->started_ms + AwaitHoldMs(*a));
   }
   log().info << "circuit/punch start peer=" << a->Primary() << " circuit_budget_ms=" << kCircuitEnsureBudgetMs
-             << " allow_circuit=" << (allow_circuit ? 1 : 0);
+             << " allow_circuit=" << (allow_circuit ? 1 : 0)
+             << (step == CircuitStep::RaceCircuit ? " (beside the direct dial)" : "");
   // Always confirm a Connected seed before StartBridge / punch-wait: the pre-assoc park may have
   // timed out, or a later private dial dropped the hop link (dogfood 88e16f5c).
-  if (a->seed_park) {
-    a->seed_park_inflight = true;
-    a->seed_park(
-        [this, alive = alive_, lane = Lane(), a, allow_circuit](bool parked) {
-          PostOn(lane, [this, alive, a, allow_circuit, parked]() {
-            if (!alive->load(std::memory_order_acquire)) {
-              return;
-            }
-            a->seed_park_inflight = false;
-            a->seed_park_ok = parked;
-            log().info << "seed park before circuit/punch peer=" << a->Primary() << " parked=" << (parked ? 1 : 0);
-            KickCircuit(a, allow_circuit);
-          });
-        },
-        kSeedParkAwaitMs);
-  } else {
-    KickCircuit(a, allow_circuit);
+  if (!a->seed_park) {
+    KickCircuit(a, step);
+    return;
   }
+  a->seed_park_inflight = true;
+  a->seed_park(
+      [this, alive = alive_, lane = Lane(), a, step](bool parked) {
+        PostOn(lane, [this, alive, a, step, parked]() {
+          if (!alive->load(std::memory_order_acquire)) {
+            return;
+          }
+          a->seed_park_inflight = false;
+          a->seed_park_ok = parked;
+          log().info << "seed park before circuit/punch peer=" << a->Primary() << " parked=" << (parked ? 1 : 0);
+          KickCircuit(a, step);
+        });
+      },
+      kSeedParkAwaitMs);
+}
+
+bool PeerReachCoordinator::MaybeRaceCircuit(const AttemptPtr& a) {
+  // Only a dial to a public Preferred is raced: a private one shares the ADP socket with the seed
+  // park the circuit starts with (dogfood fd4e3de) — it goes after a failed park, alone, as before.
+  const bool racing = a->req.race_circuit && !a->IsAwait() && !a->req.exclude_direct;
+  if (!racing || a->circuit_started || !circuit_.load(std::memory_order_acquire) || !PreferredIsPublic(*a)) {
+    return false;
+  }
+  a->raced = true;
+  BeginCircuit(a, CircuitStep::RaceCircuit);
+  return true;
+}
+
+bool PeerReachCoordinator::MaybeRaceStep(const AttemptPtr& a) {
+  if (!a->raced) {
+    return false;
+  }
+  // The dial's redial beside the circuit (V049: the peer may be dialing us too), within its budget.
+  if (!a->assoc_started && MaybeStartAssociation(a)) {
+    return true;
+  }
+  return MaybePunchAfterRace(a);
+}
+
+bool PeerReachCoordinator::MaybePunchAfterRace(const AttemptPtr& a) {
+  if (!a->raced || a->race_punch_started || a->circuit_inflight || AnyConnected(*a)) {
+    return false;
+  }
+  // The punch shares the peer's ADP path with our dial: it waits until the dial is done (missed with
+  // its budget spent, or still out past the budget — the pivot's rule).
+  const bool dial_out = a->assoc_started && !a->assoc_done;
+  if (dial_out && NowMs() < RedialUntilMs(*a)) {
+    return false;
+  }
+  if (!a->assoc_done && !dial_out && AnyDialable(*a) && NowMs() < RedialUntilMs(*a)) {
+    return false; // a redial is due first
+  }
+  a->race_punch_started = true;
+  a->circuit_inflight = true;
+  a->punch_kicked = true;
+  log().info << "punch after the raced circuit missed peer=" << a->Primary();
+  KickCircuit(a, CircuitStep::PunchAfterRace);
   ScheduleTick(a, kPollMs);
   return true;
 }
 
-void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const bool allow_circuit) {
+int64_t PeerReachCoordinator::RedialUntilMs(const Attempt& a) {
+  return a.raced ? a.started_ms + a.dial_budget_ms : a.deadline_ms;
+}
+
+void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const CircuitStep step) {
   if (a->settled.load(std::memory_order_acquire)) {
     a->circuit_inflight = false;
     return;
   }
-  if (!allow_circuit && !a->req.allow_punch) {
+  if (step == CircuitStep::PunchOnly && !a->req.allow_punch) {
     // Punch-only await with punching off: nothing to kick — the tick waits for the peer's circuit.
     a->circuit_inflight = false;
     log().info << "await without punch (path policy) peer=" << a->Primary();
@@ -869,11 +946,24 @@ void PeerReachCoordinator::KickCircuit(const AttemptPtr& a, const bool allow_cir
       }
     });
   };
-  if (a->req.exclude_direct) {
-    // A relayed link is the point (TX-only escalation, relay standby): a direct link does not count.
-    circuit->TryEnsureRelayedAsync(a->Primary(), std::move(on_via), a->req.circuit_standby_priority);
-  } else {
-    circuit->TryEnsurePeerReachableViaAsync(a->Primary(), std::move(on_via), allow_circuit, a->req.advertised_relays);
+  switch (step) {
+    case CircuitStep::CircuitThenPunch:
+      if (a->req.exclude_direct) {
+        // A relayed link is the point (TX-only escalation, relay standby): a direct link does not count.
+        circuit->TryEnsureRelayedAsync(a->Primary(), std::move(on_via), a->req.circuit_standby_priority);
+      } else {
+        circuit->TryEnsurePeerReachableViaAsync(a->Primary(), std::move(on_via), /*allow_circuit=*/true,
+                                                a->req.advertised_relays);
+      }
+      return;
+    case CircuitStep::PunchOnly:
+    case CircuitStep::PunchAfterRace:
+      circuit->TryEnsurePeerReachableViaAsync(a->Primary(), std::move(on_via), /*allow_circuit=*/false,
+                                              a->req.advertised_relays);
+      return;
+    case CircuitStep::RaceCircuit:
+      circuit->TryEnsureCircuitOnlyAsync(a->Primary(), std::move(on_via), a->req.advertised_relays);
+      return;
   }
 }
 
@@ -892,8 +982,12 @@ void PeerReachCoordinator::OnCircuitDone(const AttemptPtr& a, CircuitReachRoe vi
     Finish(a, r);
     return;
   }
-  a->last_error =
-      via ? Failure::Of(Err::NotConnected, "peer not connected after circuit/punch") : WrapCircuitFailure(via.error());
+  // The punch after a raced circuit was the last resort: the circuit's miss says more, when there was one.
+  const bool keep_circuit_error = a->race_punch_started && a->last_error.GetCode() == Err::CircuitFailed;
+  if (!keep_circuit_error) {
+    a->last_error = via ? Failure::Of(Err::NotConnected, "peer not connected after circuit/punch")
+                        : WrapCircuitFailure(via.error());
+  }
   log().info << "circuit/punch miss peer=" << a->Primary() << " err=" << a->last_error.message
              << " via_ok=" << (via ? 1 : 0);
   // A relay-only reach (standby / TX-only escalation) is ours alone: nobody else builds that circuit.
@@ -906,7 +1000,7 @@ void PeerReachCoordinator::OnCircuitDone(const AttemptPtr& a, CircuitReachRoe vi
   // spent dial budget (#235: the caller gave up at 15 s while the callee's relay link was coming
   // up). The hard watchdog still caps the whole reach.
   const int64_t peer_window_ms = a->dial_budget_ms >= kDialBudgetMs ? kPeerDialOverlapMs : a->dial_budget_ms;
-  a->deadline_ms = std::max(a->deadline_ms, util::NowUnixMs() + peer_window_ms);
+  a->deadline_ms = std::max(a->deadline_ms, NowMs() + peer_window_ms);
   ScheduleTick(a, kPollMs);
 }
 
