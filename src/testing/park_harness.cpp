@@ -47,6 +47,7 @@ pp::Roe<std::unique_ptr<ParkHarness>> ParkHarness::Create() {
   deps.rendezvous_candidates = [raw]() { return raw->Candidates(/*seeds_only=*/false); };
   deps.bootstrap_seeds = [raw]() { return raw->Candidates(/*seeds_only=*/true); };
   deps.last_good_relay = []() { return std::string{}; };
+  deps.last_good_relays = [raw]() { return raw->last_good_relays_; };
   h->park_.SetDeps(std::move(deps));
   return h;
 }

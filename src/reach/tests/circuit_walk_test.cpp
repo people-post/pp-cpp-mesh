@@ -42,8 +42,8 @@ CircuitRun ParkThenReach(ParkHarness& bench, const std::vector<std::string>& liv
       << "the phone did not park";
   CircuitRun run;
   const int64_t start = bench.ElapsedMs();
-  bench.CallerReach().TryEnsureCircuitOnlyAsync(bench.PhonePeerId(), [&run](CircuitReachRoe r) { run.result = r; },
-                                                {});
+  auto done = [&run](CircuitReachRoe r) { run.result = r; };
+  bench.CallerReach().TryEnsureCircuitOnlyAsync(bench.PhonePeerId(), done, {});
   bench.RunUntil([&] { return run.result.has_value(); }, 30'000);
   run.took_ms = bench.ElapsedMs() - start;
   return run;

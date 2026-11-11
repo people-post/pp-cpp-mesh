@@ -37,7 +37,8 @@ this repo, **B** = pp-browser `src/`.
 
 - Amp's per-peer dial backoff (1 s → 30 s); the seed park clears it before redialing.
 - `seed_dial_ok` from the reachability probe — a Client never probes, so it always reads "ok".
-- The sticky last-good relay (M `src/reach/AmpCircuitHopReach.cpp:487,532`).
+- The sticky last-good relay (M `src/reach/AmpCircuitHopReach.cpp`, `NoteRelayChosen`), for one
+  run. Across a restart only what the app keeps: `MeshHopPolicy::last_good_relays` (§ 5, the park).
 - DHT soft reputation (M `src/dht/client/DhtClient.cpp:72-101`), in memory, DHT only.
 - The directory cache's refresh backoff; a call's UI-only "seed unreachable" flag.
 - `MeshHopCandidate::recently_failed` and `residual_capacity` exist (M
@@ -198,6 +199,20 @@ Rules built on it:
   that slow seeds are still parked on, the walk's stop at two live relays, seeds first, the chosen
   R1 and the deadline. A park rule changes there first; the app lab
   (pp-browser `call_path_*_two_hops`) is the end-to-end check.
+- **After a start** the mesh knows no good relay yet (the sticky R1 lives for one run), so the cold
+  walk went in the app's order — to whichever seed was listed first (pp-browser #577: the first
+  call after a launch took 71 s; 6 of 8 seed dials then ended `handshake-timeout`).
+  `MeshHopPolicy::last_good_relays` (default empty) lets the app hand back what
+  `MeshConnectivity::SetOnRelayChosen` reported in earlier runs, best first: within each band
+  (seeds, then the other relays) those go first, then the rest — staggered as always (750 ms), so
+  a last good relay that no longer answers holds the next by the stagger only. A choice made in
+  this run (the sticky R1) still leads. Bench: `ParkTest.TheLastGoodRelayIsDialedFirstAfterAStart`,
+  `…TheOthersAreStaggeredBehindTheLastGoodRelay`. Nothing in the mesh dials seeds all at once at
+  start: a Client dials them only when the app asks (a park's cold walk, ≤3 a round, staggered;
+  overlapping rounds share Amp's dial; a missed seed redialed once within a park; the directory's
+  two chosen peers; the serial warm). Seed misses right after a launch that coincide with the
+  app's HTTP timeouts (#577's three `PollInbox` timeouts) say the network was not up yet — no dial
+  order fixes that.
 - **Circuit dial:** the relays circuit reach may bridge through leave out those held down
   (unless Connected) — a StartBridge through one would only time out. Relays the target
   advertised go first (pp-browser media-hop-reachability H013): the target knows where it holds a

@@ -41,6 +41,14 @@ struct MeshConnectivityDeps {
  */
 struct MeshHopPolicy {
   std::vector<MeshHopCandidate> candidates;
+  /**
+   * Relays that carried this node's circuits lately, best first — what SetOnRelayChosen reported, kept
+   * by the app across restarts (the mesh remembers nothing past one). The park dials them before the
+   * others in their band (seeds, then other relays) and the rest after them, staggered as always: a
+   * node that just started goes first to the relay that worked last, not to whichever seed is listed
+   * first. Empty (the default): the policy's order.
+   */
+  std::vector<std::string> last_good_relays;
 
   /** Those allowed `role`, in the policy's order. */
   std::vector<MeshHopCandidate> WithRole(uint32_t role) const;

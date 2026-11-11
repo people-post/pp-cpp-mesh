@@ -58,6 +58,9 @@ public:
   /** The phone's PeerId: what the caller reaches. */
   const std::string& PhonePeerId() const { return phone_peer_id_; }
 
+  /** What the app kept from earlier runs (MeshHopPolicy::last_good_relays), best first. */
+  void SetLastGoodRelays(std::vector<std::string> relays) { last_good_relays_ = std::move(relays); }
+
   CircuitRendezvousCoordinator& Park() { return park_; }
   MeshHost& Phone() { return *phone_; }
   /** An answering relay's host (null for an unreachable one, or an unknown PeerId). */
@@ -91,6 +94,7 @@ private:
   std::unique_ptr<MeshHost> phone_;
   std::string phone_peer_id_;
   std::vector<Relay> relays_;
+  std::vector<std::string> last_good_relays_;
   std::unique_ptr<MeshHost> caller_;
   std::unique_ptr<AmpCircuitHopReach> caller_reach_;
   CircuitRendezvousCoordinator park_;

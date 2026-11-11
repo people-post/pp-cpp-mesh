@@ -386,18 +386,7 @@ void CircuitRendezvousCoordinator::ReserveOnBootstrapSeedsOnIo() {
                     chat->links.IsConnected(hop.peer_id) && !ReachableOnlyViaCarrier(chat->links, hop.peer_id),
                     Facts(hop.peer_id)});
   }
-  // Seeds first (stable): the park waits on them (H010), so the capped cold
-  // walk must reach them. Within each, the ones that said they are open before
-  // busy ones.
-  const std::vector<std::string> seeds = BootstrapSeedPeerIds();
-  const auto seeds_end = std::stable_partition(view.begin(), view.end(), [&seeds](const ReachCandidate& c) {
-    return std::find(seeds.begin(), seeds.end(), c.peer_id) != seeds.end();
-  });
-  const auto by_load = [this](const ReachCandidate& a, const ReachCandidate& b) {
-    return ServiceLoadRank(ParkLoad(a.peer_id)) < ServiceLoadRank(ParkLoad(b.peer_id));
-  };
-  std::stable_sort(view.begin(), seeds_end, by_load);
-  std::stable_sort(seeds_end, view.end(), by_load);
+  OrderColdWalk(view);
   auto park = std::make_shared<ColdPark>();
   park->must_dial = StickyRelay();
   const ReachSelection pick =
@@ -416,6 +405,32 @@ void CircuitRendezvousCoordinator::ReserveOnBootstrapSeedsOnIo() {
     park->hops.push_back(*it);
   }
   ReserveColdSurface(park);
+}
+
+void CircuitRendezvousCoordinator::OrderColdWalk(std::vector<ReachCandidate>& view) const {
+  // Seeds first (stable): the park waits on them (H010), so the capped cold
+  // walk must reach them. Within each, the app's last good relays first — a
+  // node that just started dials the relay that worked last before the others
+  // (pp-browser #577) — then the ones that said they are open before busy ones.
+  const std::vector<std::string> seeds = BootstrapSeedPeerIds();
+  const auto seeds_end = std::stable_partition(view.begin(), view.end(), [&seeds](const ReachCandidate& c) {
+    return std::find(seeds.begin(), seeds.end(), c.peer_id) != seeds.end();
+  });
+  const std::vector<std::string> last_good =
+      deps_.last_good_relays ? deps_.last_good_relays() : std::vector<std::string>{};
+  const auto last_good_rank = [&last_good](const std::string& peer_id) {
+    return static_cast<size_t>(std::find(last_good.begin(), last_good.end(), peer_id) - last_good.begin());
+  };
+  const auto best_first = [this, &last_good_rank](const ReachCandidate& a, const ReachCandidate& b) {
+    const size_t rank_a = last_good_rank(a.peer_id);
+    const size_t rank_b = last_good_rank(b.peer_id);
+    if (rank_a != rank_b) {
+      return rank_a < rank_b;
+    }
+    return ServiceLoadRank(ParkLoad(a.peer_id)) < ServiceLoadRank(ParkLoad(b.peer_id));
+  };
+  std::stable_sort(view.begin(), seeds_end, best_first);
+  std::stable_sort(seeds_end, view.end(), best_first);
 }
 
 void CircuitRendezvousCoordinator::ReserveColdSurface(const std::shared_ptr<ColdPark>& park) {
