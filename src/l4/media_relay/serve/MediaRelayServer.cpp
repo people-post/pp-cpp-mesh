@@ -60,6 +60,9 @@ struct MediaRelayMetrics {
   MetricCounter& dropped_stale;
   MetricCounter& dropped_not_carried;
   MetricCounter& dropped_not_attached;
+  /** Frames not sent to a participant on its control channel (no data lane) because that already held more than
+   * their deadline (MediaFallbackDeadlineMs). */
+  MetricCounter& dropped_late;
   /** Frames that came on a participant's data lane (the rest came on its
    * control channel). */
   MetricCounter& frames_data_lane;
@@ -86,6 +89,7 @@ struct MediaRelayMetrics {
           r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "stale"}}),
           r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "not_carried"}}),
           r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "not_attached"}}),
+          r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "late"}}),
           r.Counter("pp_media_relay_lane_frames_total", "Media relay data frames received, by lane.",
                     {{"lane", "data"}}),
           r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "issued"}}),
@@ -188,6 +192,8 @@ struct MediaRelayServer::Impl {
    * over, and a new session for the call id needs contact admission again.
    */
   std::chrono::milliseconds empty_session_grace{kEmptySessionGrace};
+  /** SetResetDataLanesForTest: lanes still to reset as they open. */
+  std::atomic<int> reset_lanes_for_test{0};
 
   /** Requires `mu`. */
   void DropEmptySessionsLocked(const Clock::time_point now) {
@@ -281,6 +287,7 @@ struct MediaRelayServer::Impl {
       }
       FrameHandler on_frame;
       std::shared_ptr<pp::amp::ChannelSession> channel;
+      bool fallback = false;
       {
         std::lock_guard lock(mu);
         if (part->subscriptions.find(key) == part->subscriptions.end()) {
@@ -299,7 +306,12 @@ struct MediaRelayServer::Impl {
           on_frame = part->local_on_frame;
         } else {
           channel = part->data_channel ? part->data_channel : part->channel;
+          fallback = channel && !part->data_channel;
         }
+      }
+      if (fallback && ShouldDropLateFallbackFrame(channel->MuxBacklog().oldest_age_ms, frame.channel_type)) {
+        metrics.dropped_late.Inc();
+        continue;
       }
       metrics.frames_forwarded.Inc();
       metrics.bytes_forwarded.Inc(body.size());
@@ -504,6 +516,15 @@ struct MediaRelayServer::Impl {
   void HandleInboundDataChannel(pp::amp::LinkHandle handle, const std::string& remote_peer_id,
                                 const uint32_t channel_id) {
     if (stopped.load(std::memory_order_acquire) || remote_peer_id.empty()) {
+      return;
+    }
+    if (reset_lanes_for_test.load(std::memory_order_relaxed) > 0) {
+      reset_lanes_for_test.fetch_sub(1, std::memory_order_relaxed);
+      (void)runtime->Links().WithLiveLink(handle, [channel_id](pp::amp::PeerLink& link) {
+        if (link.Mux()) {
+          (void)link.Mux()->ResetChannel(channel_id);
+        }
+      });
       return;
     }
     auto channel_holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
@@ -873,6 +894,10 @@ MediaRelayServer::MediaRelayServer(pp::amp::MeshRuntime& runtime, MetricsRegistr
 void MediaRelayServer::SetEmptySessionGraceForTest(const std::chrono::milliseconds grace) {
   std::lock_guard lock(impl_->mu);
   impl_->empty_session_grace = grace;
+}
+
+void MediaRelayServer::SetResetDataLanesForTest(const int count) {
+  impl_->reset_lanes_for_test.store(count, std::memory_order_relaxed);
 }
 
 MediaRelayServer::~MediaRelayServer() {

@@ -33,6 +33,10 @@ struct MediaRelayClientHealth {
   /** Media goes on its own best-effort lane to the hop
    * (kMediaRelayDataProtocolId), not the control channel. */
   bool data_lane = false;
+  /** Media frames this client dropped, not sent, on the control channel past their deadline (no lane). */
+  uint64_t late_drops = 0;
+  /** Media frames dropped while the hop's data lane was opening or reopening (it serves one: never reliably). */
+  uint64_t lane_wait_drops = 0;
   /** The association to the relay; none when attached to this device's own hop. */
   bool link_available = false;
   /**

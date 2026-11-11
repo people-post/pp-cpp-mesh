@@ -134,5 +134,14 @@ TEST(MediaRelayErrTest, AHopsRefusalReadsByItsCode) {
   EXPECT_EQ(MediaRelayErrFromReply("", "auth failed"), MediaRelayErr::AuthFailed);
 }
 
+// The reliable fallback's deadline per kind: audio is late sooner than video (a lost video frame costs a keyframe).
+TEST(MediaRelayLogicTest, AFallbackFrameIsLateOnlyPastItsKindsDeadline) {
+  EXPECT_FALSE(ShouldDropLateFallbackFrame(0, MediaChannelType::ReliableOrdered));
+  EXPECT_FALSE(ShouldDropLateFallbackFrame(kMediaFallbackAudioDeadlineMs, MediaChannelType::ReliableOrdered));
+  EXPECT_TRUE(ShouldDropLateFallbackFrame(kMediaFallbackAudioDeadlineMs + 1, MediaChannelType::ReliableOrdered));
+  EXPECT_FALSE(ShouldDropLateFallbackFrame(kMediaFallbackAudioDeadlineMs + 1, MediaChannelType::LatestLossy));
+  EXPECT_TRUE(ShouldDropLateFallbackFrame(kMediaFallbackVideoDeadlineMs + 1, MediaChannelType::LatestLossy));
+}
+
 } // namespace
 } // namespace pp::mesh

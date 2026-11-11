@@ -1,5 +1,7 @@
+#include "mesh/l4/media_relay/MediaRelayLogic.h"
 #include "mesh/l4/media_relay/client/MediaRelayClientCoordinator.h"
 #include "mesh/l4/media_relay/serve/MediaRelayServer.h"
+#include "mesh/l4/shared/L4ProtocolIds.h"
 #include "mesh/l4/shared/ProductChannelPolicies.h"
 #include "mesh/testing/mesh_test_harness.h"
 #include "mesh/types/RelayScope.h"
@@ -11,6 +13,7 @@
 #include "common/ValueJson.h"
 
 #include <atomic>
+#include <chrono>
 #include <future>
 #include <optional>
 #include <string>
@@ -365,6 +368,117 @@ TEST_F(MediaRelayServerClientTest, MediaTakesTheDataLaneBothWays) {
   EXPECT_EQ(hop_->RuntimeStats().data_lane_participants, 0u);
 }
 
+// A lane the hop lost (reset: busy, restarted) is opened again while the attach lasts. Once, a lane that did not open
+// left the member's media on the reliable control channel for the rest of the call, where it fell further behind each
+// second (stress lab 2026-11-10: p99 1 s later per second of run, 40 s after 50 s).
+TEST_F(MediaRelayServerClientTest, ALaneTheHopResetIsOpenedAgain) {
+  const std::string call_id = "call-lane-again";
+  MediaRelayQuoteRequest req;
+  req.session_id = call_id;
+  req.participants = 2;
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result);
+  hop_->SetResetDataLanesForTest(1);
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach(
+      "hop", quote_wait.result->quote_id, call_id, call_id, [](MediaDataFrame) {}, attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result);
+  client_->StartClientFrameReader();
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
+  ASSERT_FALSE(client_->HealthSnapshot().data_lane) << "the hop reset the first lane";
+  MediaDataFrame gap;
+  gap.stream_id = 3;
+  gap.payload = {1};
+  EXPECT_TRUE(client_->SendFrame(gap));
+  EXPECT_EQ(client_->HealthSnapshot().lane_wait_drops, 1u) << "the hop serves lanes: not on the control channel";
+
+  // The retry runs on real time (1 s after the first failure): pump until it binds, a few seconds at most.
+  const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(6);
+  while (std::chrono::steady_clock::now() < until &&
+         !(client_->HealthSnapshot().data_lane && hop_->RuntimeStats().data_lane_participants == 1)) {
+    harness_->PumpBoth();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  EXPECT_TRUE(client_->HealthSnapshot().data_lane) << "the client never opened its lane again";
+  EXPECT_EQ(hop_->RuntimeStats().data_lane_participants, 1u) << "the hop never bound the new lane";
+}
+
+// Media sent while the first lane open is in flight is dropped, not put on the reliable control channel: there it
+// was resent for seconds on a busy hop (stress lab 2026-11-11: up to 18 s late in a call's first seconds).
+TEST_F(MediaRelayServerClientTest, MediaBeforeTheLaneOpensIsNotSentReliably) {
+  const std::string call_id = "call-lane-wait";
+  MediaRelayQuoteRequest req;
+  req.session_id = call_id;
+  req.participants = 2;
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result);
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach(
+      "hop", quote_wait.result->quote_id, call_id, call_id, [](MediaDataFrame) {}, attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result);
+  ASSERT_FALSE(client_->HealthSnapshot().data_lane);
+
+  MediaDataFrame frame;
+  frame.stream_id = 3;
+  frame.payload = {1, 2, 3};
+  EXPECT_TRUE(client_->SendFrame(frame));
+  EXPECT_EQ(client_->HealthSnapshot().lane_wait_drops, 1u) << "the lane is opening: not on the control channel";
+
+  harness_->PumpUntil([&] { return client_->HealthSnapshot().data_lane; }, 800);
+  ASSERT_TRUE(client_->HealthSnapshot().data_lane);
+  EXPECT_TRUE(client_->SendFrame(frame));
+  EXPECT_EQ(client_->HealthSnapshot().lane_wait_drops, 1u) << "on the lane once it opened";
+}
+
+// Without a lane, media rides the reliable control channel, which never drops: a frame queued there waits behind every
+// one before it. Once the oldest has waited past its deadline (audio 150 ms), a new one is dropped instead (V063).
+TEST_F(MediaRelayServerClientTest, MediaOnTheControlChannelPastItsDeadlineIsDropped) {
+  const std::string call_id = "call-late-fallback";
+  MediaRelayQuoteRequest req;
+  req.session_id = call_id;
+  req.participants = 2;
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result);
+  // A hop older than the lane: it refuses the protocol, and media rides the control channel.
+  harness_->mgr_b().RemoveProtocolHandler(kMediaRelayDataProtocolId);
+  harness_->mgr_b().SetRefuseUnhandledOpens(true);
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach(
+      "hop", quote_wait.result->quote_id, call_id, call_id, [](MediaDataFrame) {}, attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result);
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
+  ASSERT_FALSE(client_->HealthSnapshot().data_lane);
+
+  // Nothing pumped: the link's reliable window fills and the rest waits in the mux.
+  MediaDataFrame frame;
+  frame.stream_id = 3;
+  frame.channel_type = MediaChannelType::ReliableOrdered; // audio
+  frame.payload.assign(900, 0x5a);
+  for (int i = 0; i < 600; ++i) {
+    frame.seq = static_cast<uint32_t>(i + 1);
+    ASSERT_TRUE(client_->SendFrame(frame));
+  }
+  EXPECT_EQ(client_->HealthSnapshot().late_drops, 0u) << "nothing waited yet";
+
+  harness_->clock->Advance(kMediaFallbackAudioDeadlineMs + 50);
+  frame.seq = 601;
+  EXPECT_TRUE(client_->SendFrame(frame)) << "a dropped frame is lost media, not a failure";
+  EXPECT_EQ(client_->HealthSnapshot().late_drops, 1u) << "queued behind more than its deadline";
+}
+
 // The leave path detaches on its own thread while the mesh pump runs: the data lane closes under the io lock like
 // the control channel. Closed under `mu` alone, its Close went through the mux the pump was using at that moment, and
 // a leaving member hung (lab group_call_placed_by_stranger, 2026-11-03). ThreadSanitizer flags it here.
@@ -636,7 +750,14 @@ TEST_F(AmpMediaRelayClientLossTest, AWriteThatFailsTheChannelDoesNotDeadlockTheS
       lost.fetch_add(1);
     }
   });
+
+  // A hop that serves no lane (it refuses the protocol): the frame goes on the control channel.
+  harness_->mgr_b().RemoveProtocolHandler(kMediaRelayDataProtocolId);
+  harness_->mgr_b().SetRefuseUnhandledOpens(true);
   Attach("sender");
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
   MediaDataFrame oversized;
   oversized.stream_id = 7;
   oversized.payload.assign(32u * 1024u * 1024u, 0xAB);

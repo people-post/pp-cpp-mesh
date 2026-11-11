@@ -13,7 +13,9 @@
 #include "common/Logger.h"
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -93,6 +95,10 @@ struct MediaRelayClientCoordinator::Impl {
   mutable std::mutex mu;
   std::atomic<bool> started{false};
   std::atomic<uint64_t> next_id{1};
+  /** Media frames dropped before the control channel because it already held more than their deadline. */
+  std::atomic<uint64_t> late_drops{0};
+  /** Media frames dropped while the hop's data lane was not open (ClientState::lane_expected). */
+  std::atomic<uint64_t> lane_wait_drops{0};
   pp::amp::MeshRuntime::IoTickId io_tick_id = 0;
   /** PostIo(raw Impl*) — Invalidate on AbortInflight (Stop calls Abort). */
   pp::Lifetime deferred;
@@ -107,6 +113,22 @@ struct MediaRelayClientCoordinator::Impl {
      * that does not serve the lane, `channel` carries the media too.
      */
     std::shared_ptr<pp::amp::ChannelSession> data_channel;
+    /**
+     * The lane is tried again while this attach lasts: an open that timed out (a busy hop, a lossy link), or a lane
+     * that ended. `lane_retry_at` empty: no retry pending.
+     */
+    bool lane_opening = false;
+    /**
+     * The hop serves a lane (reached directly, not behind a circuit, and it has not refused the protocol). While it
+     * does, media never goes on the reliable control channel: without the lane — opening, or reopened after it ended —
+     * a frame is dropped (V063). On that channel it was resent for seconds on a busy, lossy hop and arrived far too
+     * late (stress lab 2026-11-11: up to 18 s), and the queue's age (MediaFallbackDeadlineMs) does not see frames
+     * already in flight. Only a hop that refuses the lane (older than it: kOpenAckNoHandler) carries media on the
+     * control channel, bounded by that deadline.
+     */
+    bool lane_expected = false;
+    int lane_failures = 0;
+    Clock::time_point lane_retry_at{};
     std::string hop_peer_key;
     std::string call_id;
     FrameHandler on_frame;
@@ -223,6 +245,7 @@ struct MediaRelayClientCoordinator::Impl {
   void TickDeadlines() {
     DeliverClientNotices();
     const auto now = Clock::now();
+    RetryDataLaneIfDue(now);
     std::vector<MediaRelaySessionId> timed_out;
     std::vector<MediaRelaySessionId> link_lost;
     {
@@ -415,6 +438,7 @@ struct MediaRelayClientCoordinator::Impl {
     RebindClientMediaHandlers();
     if (!circuit_backed && runtime) {
       // Opened on the io tick, without `mu` (as MarkHot above).
+      client_.lane_expected = true;
       pending_client_notices_.push_back([this, hop, call_id]() { OpenDataLane(hop, call_id); });
     } else {
       LaneLog().info << "media_relay data lane: none (" << (circuit_backed ? "hop behind a circuit" : "no runtime")
@@ -440,29 +464,114 @@ struct MediaRelayClientCoordinator::Impl {
         LaneLog().info << "media_relay data lane: not opened (the attach moved on) call_id=" << call_id;
         return;
       }
+      client_.lane_opening = true;
+      client_.lane_retry_at = {};
     }
-    runtime->Links().OpenChannel(hop, kMediaRelayDataProtocolId, pp::amp::MediaRelayDataChannelPolicy(),
-                                 [this, hop, still_ours](pp::amp::PeerLinkManager::ChannelRoe opened) {
-                                   if (!opened) {
-                                     LaneLog().info << "media_relay data lane: open refused (" << opened.error().message
-                                                    << "): media on the control channel";
-                                     return; // the control channel carries the media
-                                   }
-                                   const uint32_t channel_id = *opened;
-                                   ScheduleWhenChannelOpen(hop, channel_id, Clock::now() + std::chrono::seconds(5),
-                                                           [this, hop, channel_id, still_ours](const bool open) {
-                                                             std::lock_guard lock(mu);
-                                                             if (!open || !still_ours()) {
-                                                               LaneLog().info
-                                                                   << "media_relay data lane: "
-                                                                   << (open ? "attach moved on" : "open timed out")
-                                                                   << ": media on the control channel";
-                                                               return;
-                                                             }
-                                                             BindDataLaneLocked(hop, channel_id);
-                                                             LaneLog().info << "media_relay data lane: open";
-                                                           });
-                                 });
+    runtime->Links().OpenChannel(
+        hop, kMediaRelayDataProtocolId, pp::amp::MediaRelayDataChannelPolicy(),
+        [this, hop, still_ours](pp::amp::PeerLinkManager::ChannelRoe opened) {
+          if (!opened) {
+            std::lock_guard lock(mu);
+            LaneFailedLocked(still_ours(), "open failed", opened.error().message, /*hop_serves_none=*/false);
+            return;
+          }
+          const uint32_t channel_id = *opened;
+          // The hop's answer, told to the channel before the waiter below sees it closed: a hop that does not serve
+          // the lane (older than it) says so; anything else — busy, a reset, no answer in time — may pass.
+          auto serves_none = std::make_shared<bool>(false);
+          if (pp::amp::PeerLink* link = ResolveLink(hop); link && link->Mux()) {
+            link->Mux()->SetTerminalHandler(channel_id, [serves_none](uint32_t, const char* reason) {
+              *serves_none = reason && std::strcmp(reason, pp::amp::ChannelMux::kOpenRejectedNoHandler) == 0;
+            });
+          }
+          ScheduleWhenChannelOpen(hop, channel_id, Clock::now() + kDataLaneOpenTimeout,
+                                  [this, hop, channel_id, still_ours, serves_none](const bool open) {
+                                    OnLaneOpenSettled(hop, channel_id, open, !open && *serves_none, still_ours);
+                                  });
+        });
+  }
+
+  /** On the io thread: the lane open ended — open, refused (`refused`: the hop serves no lane), or not open in time. */
+  template <typename StillOurs>
+  void OnLaneOpenSettled(const std::string& hop, const uint32_t channel_id, const bool open, const bool refused,
+                         const StillOurs& still_ours) {
+    bool unused = false;
+    {
+      std::lock_guard lock(mu);
+      const bool ours = still_ours();
+      if (open && ours) {
+        client_.lane_opening = false;
+        client_.lane_failures = 0;
+        BindDataLaneLocked(hop, channel_id);
+        LaneLog().info << "media_relay data lane: open";
+      } else {
+        unused = !refused; // a refused channel is gone already
+        const char* what = open ? "attach moved on" : refused ? "refused (the hop serves no lane)" : "open timed out";
+        LaneFailedLocked(ours, what, {}, refused);
+      }
+    }
+    if (unused) {
+      // Outside `mu`: the hop may have bound it (or bind it when its OPEN arrives), and a lane nobody reads loses
+      // that member's media. A fresh one replaces it.
+      ResetHalfOpenLane(hop, channel_id);
+    }
+  }
+
+  /** How long a lane open may take before it is tried again. */
+  static constexpr std::chrono::seconds kDataLaneOpenTimeout{5};
+
+  /** Retry backoff after the n-th failure in a row: 1, 2, 4, 8, then 10 s. */
+  static std::chrono::milliseconds DataLaneRetryDelay(const int failures) {
+    const int shift = std::clamp(failures - 1, 0, 3);
+    return std::min(std::chrono::milliseconds(1000 << shift), std::chrono::milliseconds(10000));
+  }
+
+  /**
+   * Requires `mu`. A lane open failed. A hop that serves none (`hop_serves_none`) has media on the control channel
+   * from now on; otherwise the io tick tries again after a backoff, media dropped meanwhile.
+   */
+  void LaneFailedLocked(const bool still_ours, const char* what, const std::string& detail,
+                        const bool hop_serves_none) {
+    if (!still_ours) {
+      LaneLog().info << "media_relay data lane: " << what;
+      return;
+    }
+    client_.lane_opening = false;
+    if (hop_serves_none) {
+      client_.lane_expected = false;
+      LaneLog().info << "media_relay data lane: " << what << ": media on the control channel";
+      return;
+    }
+    ++client_.lane_failures;
+    const auto delay = DataLaneRetryDelay(client_.lane_failures);
+    client_.lane_retry_at = Clock::now() + delay;
+    LaneLog().info << "media_relay data lane: " << what << (detail.empty() ? "" : " (" + detail + ")")
+                   << ": media dropped until it opens, again in " << delay.count() << " ms (failure "
+                   << client_.lane_failures << ")";
+  }
+
+  /** On the io thread: reset a lane channel that did not open in time, so the hop drops its end. */
+  void ResetHalfOpenLane(const std::string& hop, const uint32_t channel_id) {
+    if (pp::amp::PeerLink* link = ResolveLink(hop); link && link->Mux()) {
+      (void)link->Mux()->ResetChannel(channel_id);
+    }
+  }
+
+  /** Io tick, without `mu`: a lane retry that is due. */
+  void RetryDataLaneIfDue(const Clock::time_point now) {
+    std::string hop;
+    std::string call_id;
+    {
+      std::lock_guard lock(mu);
+      if (!client_.channel || client_.data_channel || client_.lane_opening || !client_.lane_expected ||
+          client_.lane_retry_at == Clock::time_point{} || now < client_.lane_retry_at) {
+        return;
+      }
+      client_.lane_retry_at = {};
+      hop = client_.hop_peer_key;
+      call_id = client_.call_id;
+    }
+    OpenDataLane(hop, call_id);
   }
 
   /** Requires `mu`. */
@@ -482,6 +591,7 @@ struct MediaRelayClientCoordinator::Impl {
             std::lock_guard lock(mu);
             if (client_.data_channel && client_.data_channel->IsClosed()) {
               client_.data_channel.reset();
+              LaneFailedLocked(static_cast<bool>(client_.channel), "lane ended", {}, /*hop_serves_none=*/false);
             }
           });
         }));
@@ -967,11 +1077,18 @@ MediaRelayRoe<void> MediaRelayClientCoordinator::Subscribe(const uint32_t stream
 
 MediaRelayRoe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame& frame) {
   std::shared_ptr<pp::amp::ChannelSession> channel;
+  bool fallback = false;
   {
     std::lock_guard lock(impl_->mu);
     // The data lane when it is open (best effort: a lost packet costs this
     // frame only), else the control channel.
     channel = impl_->client_.data_channel ? impl_->client_.data_channel : impl_->client_.channel;
+    fallback = channel && !impl_->client_.data_channel;
+    if (fallback && impl_->client_.lane_expected) {
+      // The lane is opening or reopening: lost now, rather than late on the reliable channel.
+      impl_->lane_wait_drops.fetch_add(1, std::memory_order_relaxed);
+      return {};
+    }
   }
   if (!channel) {
     // Local hop: the server fans out from our participant (outside `mu`; Fanout locks internally).
@@ -986,7 +1103,20 @@ MediaRelayRoe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame&
   // (HandleClientTransportLost) takes `mu` — enqueueing under it deadlocked the sending thread
   // and then the mesh pump. Order: io lock → mu, as the io tick.
   const std::vector<uint8_t> body = EncodeMediaDataFrame(frame);
-  if (!runtime_.WithIoLock([&]() { return channel->EnqueueOutbound(body); })) {
+  bool late = false;
+  const bool queued = runtime_.WithIoLock([&]() {
+    // On the reliable control channel a frame waits behind all it queued: past the deadline, it is lost instead.
+    if (fallback && ShouldDropLateFallbackFrame(channel->MuxBacklog().oldest_age_ms, frame.channel_type)) {
+      late = true;
+      return true;
+    }
+    return channel->EnqueueOutbound(body);
+  });
+  if (late) {
+    impl_->late_drops.fetch_add(1, std::memory_order_relaxed);
+    return {};
+  }
+  if (!queued) {
     return Failure::Of(Err::NotAttached, "not attached");
   }
   return {};
@@ -1042,6 +1172,8 @@ MediaRelayClientHealth MediaRelayClientCoordinator::HealthSnapshot() const {
     health.attached =
         impl_->client_.channel != nullptr || (impl_->local_server && impl_->local_server->IsLocalAttached());
     health.data_lane = impl_->client_.data_channel != nullptr;
+    health.late_drops = impl_->late_drops.load(std::memory_order_relaxed);
+    health.lane_wait_drops = impl_->lane_wait_drops.load(std::memory_order_relaxed);
     if (impl_->client_.channel) {
       relay_key = impl_->client_.hop_peer_key;
     }

@@ -60,6 +60,8 @@ public:
   void SetLoadMonitor(ServiceLoadMonitor* monitor);
   /** Test: how long a session outlives its last participant (default kEmptySessionGrace). */
   void SetEmptySessionGraceForTest(std::chrono::milliseconds grace);
+  /** Test: reset the next `count` data lanes participants open (a hop that lost them: busy, or restarted). */
+  void SetResetDataLanesForTest(int count);
 
   /** Drop every hosted session, pending quote and the local participant. */
   void AbortInflight();
