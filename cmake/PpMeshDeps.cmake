@@ -32,9 +32,9 @@ set(PP_AMP_BUILD_TESTS OFF CACHE BOOL "Build pp-cpp-amp tests")
 pp_mesh_dependency(pp-cpp-common pp_common
   https://github.com/people-post/pp-cpp-common.git v1.2.1)
 pp_mesh_dependency(pp-cpp-crypto pp_crypto
-  https://github.com/people-post/pp-cpp-crypto.git v1.0.0)
+  https://github.com/people-post/pp-cpp-crypto.git v1.3.0)
 pp_mesh_dependency(pp-cpp-amp pp_amp_link
-  https://github.com/people-post/pp-cpp-amp.git v5.2.0)
+  https://github.com/people-post/pp-cpp-amp.git v5.5.0)
 
 if(PP_MESH_WITH_UPNP AND NOT (ANDROID OR IOS) AND NOT TARGET libminiupnpc-static)
   set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)
