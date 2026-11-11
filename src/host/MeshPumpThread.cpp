@@ -28,6 +28,11 @@ void MeshPumpThread::Start(std::function<bool()> tick, const std::chrono::millis
   thread_ = std::thread([this]() { ThreadMain(); });
 }
 
+void MeshPumpThread::SetIdleWait(std::function<void(std::chrono::milliseconds)> wait, std::function<void()> wake) {
+  idle_wait_ = std::move(wait);
+  idle_wake_ = std::move(wake);
+}
+
 void MeshPumpThread::Stop() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -37,6 +42,9 @@ void MeshPumpThread::Stop() {
     stop_requested_ = true;
   }
   cv_.notify_all();
+  if (idle_wake_) {
+    idle_wake_();
+  }
   if (thread_.joinable()) {
     thread_.join();
   }
@@ -70,6 +78,15 @@ void MeshPumpThread::ThreadMain() {
       // the idle interval, and the busy pump there was no faster than an idle one (MeshPumpThreadTest on
       // windows-2022, v6.2.0 to v6.4.0).
       if (!YieldBreather()) {
+        break;
+      }
+      continue;
+    }
+    if (idle_wait_) {
+      // Until a datagram arrives, the interval (timers, resends) passes, or Stop wakes it.
+      idle_wait_(interval_);
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (stop_requested_) {
         break;
       }
       continue;
