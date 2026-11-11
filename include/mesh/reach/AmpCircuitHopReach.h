@@ -52,6 +52,8 @@ public:
                                       std::vector<std::string> advertised_relays) override;
   void TryEnsurePeerReachableAsync(const std::string& peer_key, CircuitReachDone on_done,
                                    bool allow_circuit = true) override;
+  void TryEnsureCircuitOnlyAsync(const std::string& peer_key, CircuitReachDone on_done,
+                                 std::vector<std::string> advertised_relays) override;
   void TryUpgradeToDirectAsync(const std::string& peer_key, CircuitReachDone on_done) override;
   void TryEnsureRelayedAsync(const std::string& peer_key, CircuitReachDone on_done,
                              CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None) override;

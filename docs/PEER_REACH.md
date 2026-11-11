@@ -212,6 +212,25 @@ Rules built on it:
   same 192.168.1.0/24 look alike, so that dial gets 1.5 s (a LAN handshake takes milliseconds);
   without an answer it is abandoned and the reach parks as before. Reach only: the awaiting side
   keeps its seed link untouched.
+- **Racing the circuit** (`PeerReachRequest::race_circuit`, off by default): by default a reach
+  gives its direct dial a 12 s budget (redialing within it) and only then builds the circuit — a
+  peer the dial cannot reach costs 12 s and then the circuit (pp-browser #577: a 9 s handshake
+  timeout, the pivot at 12 s, then a 9.6 s circuit). With the option the circuit starts with the
+  dial (after its seed park, as always) and the first link to connect settles the reach: a direct
+  link that lands first still settles it Direct; a circuit that lands first, Relayed. Neither is
+  cancelled when the other wins — the circuit is shared (`AbortPending` would end every reach's),
+  and the dial's state is Amp's (`FinishDial`): a late relayed link stays as a standby, a late
+  direct link is Amp's to prefer. The racing circuit does not punch (`TryEnsureCircuitOnlyAsync`);
+  the dial keeps redialing within its budget, and the punch — the last resort — runs only once the
+  dial is done or past its budget, so it never shares the peer's path with our own dial. Only a
+  dial to a public Preferred is raced: a private one is still parked for first, and once parked it
+  is skipped and the circuit starts at once anyway (H010). Await and `exclude_direct` ignore it.
+  The reach deadline covers the circuit from its start (16 s), the dial overlap after a miss
+  (V049) and the watchdog as before. For: call pairs whose relay is the anchor anyway — any mobile
+  end (pp-browser K013), where a direct path would not be kept; pp-browser sets it there. Costs a
+  circuit (a bridge at a relay) for a pair whose direct dial would have landed. On a bench:
+  `src/reach/tests/peer_reach_race_test.cpp` (one ManualExecutor lane, virtual ms;
+  `PeerReachPorts::now_ms` is the lane's clock).
 - **Introducers:** the punch walk skips an introducer the record holds down (unless its link is
   up) and dials at most kReachMaxColdDialsPerRound introducers that are not connected, per walk.
 - **Directory / DHT query peers:** the app lists them, so the mesh offers the selection:

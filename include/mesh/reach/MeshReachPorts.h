@@ -139,6 +139,15 @@ public:
     TryEnsurePeerReachableAsync(peer_key, std::move(on_done), allow_circuit);
   }
   /**
+   * The circuit step of TryEnsurePeerReachableViaAsync alone: no punch after a miss. For a reach that
+   * builds its circuit beside its own direct dial (PeerReachRequest::race_circuit) and punches only
+   * once that dial is done. OK once the peer is Connected.
+   */
+  virtual void TryEnsureCircuitOnlyAsync(const std::string& peer_key, CircuitReachDone on_done,
+                                         std::vector<std::string> advertised_relays) {
+    TryEnsurePeerReachableViaAsync(peer_key, std::move(on_done), /*allow_circuit=*/true, std::move(advertised_relays));
+  }
+  /**
    * A relayed link to the peer even when a direct one is up (TX-only escalation, a call's relay
    * standby — k6): a circuit only, never a punch; OK once a relay carrier link is Connected.
    */

@@ -255,6 +255,41 @@ void AmpCircuitHopReach::TryEnsurePeerReachableViaAsync(const std::string& peer_
   }
 }
 
+void AmpCircuitHopReach::TryEnsureCircuitOnlyAsync(const std::string& peer_key, CircuitReachDone on_done,
+                                                   std::vector<std::string> advertised_relays) {
+  if (!on_done) {
+    return;
+  }
+  if (peer_key.empty()) {
+    on_done(Failure::Of(Err::BadRequest, "missing peer"));
+    return;
+  }
+  auto run = [this, peer_key, advertised_relays = std::move(advertised_relays),
+              on_done = std::move(on_done)]() mutable {
+    if (links_.IsConnected(peer_key)) {
+      on_done(CircuitReachRoe());
+      return;
+    }
+    AmpReachLog().info << "TryEnsureCircuitOnly circuit beside the direct dial target=" << peer_key;
+    EnsureViaCircuitAsync(
+        peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
+        /*nested_session=*/true,
+        [this, peer_key, on_done = std::move(on_done)](CircuitReachRoe via) mutable {
+          if (links_.IsConnected(peer_key)) {
+            on_done(CircuitReachRoe());
+            return;
+          }
+          on_done(via ? CircuitReachRoe(Failure::Of(Err::NotConnected, "peer not connected after circuit")) : via);
+        },
+        CircuitStandbyPriority::None, std::move(advertised_relays));
+  };
+  if (post_io_) {
+    post_io_(std::move(run));
+  } else {
+    run();
+  }
+}
+
 void AmpCircuitHopReach::TryEnsureRelayedAsync(const std::string& peer_key, CircuitReachDone on_done,
                                                const CircuitStandbyPriority standby_priority) {
   if (!on_done) {
