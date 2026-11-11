@@ -40,6 +40,7 @@ pp::Roe<std::unique_ptr<ParkHarness>> ParkHarness::Create() {
     return phone.error();
   }
   h->phone_ = std::move(*phone);
+  h->phone_peer_id_ = peer_id;
   ParkHarness* raw = h.get();
   CircuitRendezvousDeps deps;
   deps.mesh = [raw]() { return raw->phone_.get(); };
@@ -52,6 +53,13 @@ pp::Roe<std::unique_ptr<ParkHarness>> ParkHarness::Create() {
 
 ParkHarness::~ParkHarness() {
   park_.Invalidate();
+  if (caller_reach_) {
+    caller_reach_->AbortPending();
+    caller_reach_.reset(); // before the host whose circuit client it holds
+  }
+  if (caller_) {
+    caller_->Stop();
+  }
   if (phone_) {
     phone_->Stop();
   }
@@ -151,6 +159,37 @@ std::vector<MeshHopCandidate> ParkHarness::Candidates(const bool seeds_only) con
   return out;
 }
 
+pp::Roe<void> ParkHarness::AddCaller() {
+  std::string peer_id;
+  std::string multiaddr;
+  auto caller = MakeHost(BenchAddress(100), &peer_id, &multiaddr);
+  if (!caller) {
+    return caller.error();
+  }
+  caller_ = std::move(*caller);
+  auto circuit = caller_->CircuitDeps();
+  auto chat = caller_->ChatDeps();
+  if (!circuit || !chat) {
+    return pp::Error("park harness: the caller has no circuit client");
+  }
+  caller_reach_ = std::make_unique<AmpCircuitHopReach>(
+      circuit->tunnel, circuit->hops, circuit->links, chat->io.io_pump,
+      [this](const std::string& exclude) {
+        std::vector<std::string> ids;
+        for (const Relay& relay : relays_) {
+          if (relay.peer_id != exclude) {
+            (void)caller_->ChatDeps()->links.RegisterEndpoint(relay.peer_id, relay.multiaddr);
+            ids.push_back(relay.peer_id);
+          }
+        }
+        return ids;
+      },
+      AmpCircuitHopReach::TryPunchAsync{}, AmpCircuitHopReach::TryPunchViaIntroducerAsync{}, chat->io.post_io,
+      chat->io.post_after);
+  caller_reach_->SetClock([clock = clock_]() { return clock->NowMs(); });
+  return {};
+}
+
 MeshHost* ParkHarness::RelayHost(const std::string& peer_id) {
   for (auto& relay : relays_) {
     if (relay.peer_id == peer_id) {
@@ -166,6 +205,9 @@ int64_t ParkHarness::ElapsedMs() const {
 
 void ParkHarness::TickAll() {
   phone_->Tick();
+  if (caller_) {
+    caller_->Tick();
+  }
   for (auto& relay : relays_) {
     if (relay.host) {
       relay.host->Tick();
