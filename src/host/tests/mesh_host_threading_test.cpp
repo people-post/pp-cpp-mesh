@@ -159,5 +159,39 @@ TEST(MeshPumpThreadTest, StartStopJoins) {
   pump.Stop();
 }
 
+// An idle pump waits the way its host says (the socket's readiness), capped by its interval, and Stop ends that
+// wait at once: a long wait never holds a Stop.
+TEST(MeshPumpThreadTest, AnIdleWaitIsTheHostsAndStopEndsIt) {
+  std::mutex mu;
+  std::condition_variable cv;
+  bool woken = false;
+  std::atomic<int> waits{0};
+  std::atomic<int64_t> asked_ms{0};
+  MeshPumpThread pump;
+  pump.SetIdleWait(
+      [&](const std::chrono::milliseconds most) {
+        asked_ms.store(most.count());
+        waits.fetch_add(1);
+        std::unique_lock lock(mu);
+        cv.wait_for(lock, most, [&] { return woken; });
+      },
+      [&] {
+        {
+          std::lock_guard lock(mu);
+          woken = true;
+        }
+        cv.notify_all();
+      });
+  pump.Start([] { return false; }, std::chrono::milliseconds(10000));
+  for (int i = 0; i < 200 && waits.load() == 0; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_GE(waits.load(), 1) << "an idle pump waited the host's way";
+  EXPECT_EQ(asked_ms.load(), 10000) << "capped by its interval";
+  const auto began = std::chrono::steady_clock::now();
+  pump.Stop();
+  EXPECT_LT(std::chrono::steady_clock::now() - began, std::chrono::seconds(2)) << "Stop woke the wait";
+}
+
 } // namespace
 } // namespace pp::mesh

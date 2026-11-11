@@ -15,8 +15,10 @@ namespace pp::mesh {
  * coordinator must not run this work.
  *
  * A tick that says more is waiting (its drain used the whole budget) is followed by the next at once; only an idle
- * one waits `interval`. A fixed wait after every tick capped what a node could take in — the kernel dropped the rest
- * of a busy socket's datagrams while the pump slept (pp-browser stress lab, 2026-11-06).
+ * one waits, at most `interval`. A fixed wait after every tick capped what a node could take in — the kernel dropped
+ * the rest of a busy socket's datagrams while the pump slept (pp-browser stress lab, 2026-11-06). With an idle wait
+ * set (SetIdleWait: the socket's readiness), the wait also ends as a datagram arrives: a blind 5 ms let a busy
+ * socket's 208 KiB buffer overflow between ticks (2026-11-11).
  */
 class MeshPumpThread {
 public:
@@ -39,6 +41,12 @@ public:
   /** Signal stop and join. Idempotent. */
   void Stop();
 
+  /**
+   * Before Start: how an idle pump waits (`wait(interval)`, on the pump thread, without the runtime's lock — e.g.
+   * the endpoint's socket poll) and how Stop ends that wait (`wake`, from the stopping thread). Unset: a timed wait.
+   */
+  void SetIdleWait(std::function<void(std::chrono::milliseconds)> wait, std::function<void()> wake);
+
   bool IsRunning() const { return running_.load(std::memory_order_acquire); }
   /**
    * The share of the last full second the pump spent in ticks (0..1), not waiting: 1 is a pump that never catches
@@ -57,6 +65,8 @@ private:
   std::function<bool()> tick_;
   std::function<void()> on_thread_start_;
   std::function<void()> on_thread_exit_;
+  std::function<void(std::chrono::milliseconds)> idle_wait_;
+  std::function<void()> idle_wake_;
   std::chrono::milliseconds interval_{kDefaultInterval};
   std::thread thread_;
   std::mutex mutex_;

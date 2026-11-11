@@ -174,7 +174,11 @@ void MeshHost::StartOwnedThreads() {
   }
   l4_on_workers_.store(true, std::memory_order_release);
   if (!pump_.IsRunning()) {
-    // The pump is the runtime's only driver: a drive from any other thread is refused (and counted).
+    // The pump is the runtime's only driver: a drive from any other thread is refused (and counted). Idle, it waits
+    // on the endpoint's socket, outside the runtime's lock.
+    pump_.SetIdleWait(
+        [this](const std::chrono::milliseconds most) { (void)amp_->Runtime().GetEndpoint().WaitReadable(most); },
+        [this]() { amp_->Runtime().GetEndpoint().WakeIdleWait(); });
     pump_.Start([this]() { return PumpTick(); }, MeshPumpThread::kDefaultInterval,
                 [this]() { amp_->Runtime().ClaimDriver(); }, [this]() { amp_->Runtime().ReleaseDriver(); });
   }
