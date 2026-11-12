@@ -301,8 +301,7 @@ struct CircuitClientCoordinator::Impl {
     }
     if (decision == CircuitBridgeAckDecision::Fail) {
       const std::string text = root->getString("error").value_or("");
-      TearDown(tunnel, false, false,
-               FromRefusal(CircuitRefusalFromAck(root->getString("code").value_or(""), text), text));
+      TearDown(tunnel, false, false, FromRefusal(CircuitRefusalFromAck(root->getString("code").value_or("")), text));
       return false;
     }
     tunnel.resolved_multiaddr = root->getString("resolved_multiaddr").value_or("");

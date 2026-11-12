@@ -10,7 +10,7 @@ namespace {
 TEST(PunchLogicTest, ConnectRoundTrip) {
   PunchConnectRequest req;
   req.target_peer_id = "12D3KooWTarget";
-  req.addrs = {"/ip4/192.168.1.10/udp/19001/adp/1.0.0/p2p/12D3KooWSelf"};
+  req.addrs = {"/ip4/192.168.1.10/udp/19001/adp/2/p2p/12D3KooWSelf"};
   req.window_ms = 1500;
   req.reason = "cold";
 
@@ -28,37 +28,37 @@ TEST(PunchLogicTest, ConnectRoundTrip) {
 
 TEST(PunchLogicTest, SanitizeDropsNonAdpAndCaps) {
   std::vector<std::string> in = {
-      "/ip4/1.2.3.4/udp/9/adp/1.0.0/p2p/12D3KooWA",
+      "/ip4/1.2.3.4/udp/9/adp/2/p2p/12D3KooWA",
       "/ip4/1.2.3.4/tcp/9",
-      "/ip4/1.2.3.4/udp/9/adp/1.0.0/p2p/12D3KooWA",
+      "/ip4/1.2.3.4/udp/9/adp/2/p2p/12D3KooWA",
       "not-a-multiaddr",
   };
   for (int i = 0; i < 10; ++i) {
-    in.push_back("/ip4/9.9.9." + std::to_string(i) + "/udp/9/adp/1.0.0/p2p/12D3KooWB");
+    in.push_back("/ip4/9.9.9." + std::to_string(i) + "/udp/9/adp/2/p2p/12D3KooWB");
   }
   const auto out = SanitizePunchAddrs(in, 8);
   EXPECT_LE(out.size(), 8u);
   for (const std::string& ma : out) {
-    EXPECT_NE(ma.find("/adp/1.0.0/"), std::string::npos);
+    EXPECT_NE(ma.find("/adp/2/"), std::string::npos);
   }
 }
 
 // #235: a peer's link-local / loopback / unspecified candidates are never dialable from here.
 TEST(PunchLogicTest, DialableDropsUndialableHosts) {
-  const std::string lan = "/ip4/192.168.1.20/udp/9/adp/1.0.0/p2p/12D3KooWA";
-  const std::string global_v6 = "/ip6/2001:db8::20/udp/9/adp/1.0.0/p2p/12D3KooWA";
-  const std::string wildcard = "/ip4/0.0.0.0/udp/9/adp/1.0.0/p2p/12D3KooWA";
+  const std::string lan = "/ip4/192.168.1.20/udp/9/adp/2/p2p/12D3KooWA";
+  const std::string global_v6 = "/ip6/2001:db8::20/udp/9/adp/2/p2p/12D3KooWA";
+  const std::string wildcard = "/ip4/0.0.0.0/udp/9/adp/2/p2p/12D3KooWA";
   const std::vector<std::string> in = {
-      "/ip4/169.254.132.227/udp/9/adp/1.0.0/p2p/12D3KooWA",
-      "/ip6/fe80::1/udp/9/adp/1.0.0/p2p/12D3KooWA",
-      "/ip4/127.0.0.1/udp/9/adp/1.0.0/p2p/12D3KooWA",
+      "/ip4/169.254.132.227/udp/9/adp/2/p2p/12D3KooWA",
+      "/ip6/fe80::1/udp/9/adp/2/p2p/12D3KooWA",
+      "/ip4/127.0.0.1/udp/9/adp/2/p2p/12D3KooWA",
       wildcard,
       lan,
       global_v6,
   };
   EXPECT_EQ(DialablePunchAddrs(in), (std::vector<std::string>{lan, global_v6}));
   // The sync list the introducer builds leads with what it observes; a wildcard self-report is fine.
-  const std::string observed = "/ip4/198.51.100.7/udp/4242/adp/1.0.0/p2p/12D3KooWA";
+  const std::string observed = "/ip4/198.51.100.7/udp/4242/adp/2/p2p/12D3KooWA";
   EXPECT_EQ(WithObservedPunchAddr(observed, {wildcard}), (std::vector<std::string>{observed}));
   // Wire hygiene alone keeps a wildcard self-report: the introducer supplies the real address.
   EXPECT_EQ(SanitizePunchAddrs({wildcard}), (std::vector<std::string>{wildcard}));
@@ -73,7 +73,7 @@ TEST(PunchLogicTest, WindowOpenBounds) {
 TEST(PunchLogicTest, OfferRoundTrip) {
   PunchOffer offer;
   offer.initiator_peer_id = "12D3KooWInitiator";
-  offer.addrs = {"/ip4/10.0.0.1/udp/9/adp/1.0.0/p2p/12D3KooWInitiator"};
+  offer.addrs = {"/ip4/10.0.0.1/udp/9/adp/2/p2p/12D3KooWInitiator"};
   offer.epoch_id = "ep-offer";
   offer.window_ms = 1500;
   auto root = common::TryParseObject(EncodePunchOffer(offer));
@@ -88,7 +88,7 @@ TEST(PunchLogicTest, OfferRoundTrip) {
 TEST(PunchLogicTest, SyncAndResultRoundTrip) {
   PunchSync sync;
   sync.epoch_id = "ep-1";
-  sync.peer_addrs = {"/ip4/10.0.0.2/udp/7/adp/1.0.0/p2p/12D3KooWC"};
+  sync.peer_addrs = {"/ip4/10.0.0.2/udp/7/adp/2/p2p/12D3KooWC"};
   sync.window_ms = 2000;
   auto sync_root = common::TryParseObject(EncodePunchSync(sync));
   ASSERT_TRUE(sync_root);
@@ -108,7 +108,7 @@ TEST(PunchLogicTest, SyncAndResultRoundTrip) {
   EXPECT_EQ(result_decoded->winner_multiaddr, result.winner_multiaddr);
 }
 
-// A failed result carries its code on the wire; one from a peer before codes is read from its text.
+// A failed result carries its code on the wire; its text is for logs only, and no code is a plain failure.
 TEST(PunchLogicTest, AFailedResultCarriesItsCode) {
   PunchResult refused;
   refused.epoch_id = "ep-2";
@@ -122,9 +122,16 @@ TEST(PunchLogicTest, AFailedResultCarriesItsCode) {
   EXPECT_FALSE(decoded->ok);
   EXPECT_EQ(decoded->refusal, PunchRefusal::TargetUnknown) << "by its code, not its text";
 
-  EXPECT_EQ(PunchRefusalFromResult("", "punch: target endpoint unknown to introducer"), PunchRefusal::TargetUnknown);
-  EXPECT_EQ(PunchRefusalFromResult("", "punch: target declines this initiator"), PunchRefusal::Declined);
-  EXPECT_EQ(PunchRefusalFromResult("from_the_future", "declines"), PunchRefusal::Generic) << "a code wins over text";
+  EXPECT_EQ(PunchRefusalFromResult(""), PunchRefusal::Generic) << "text alone says nothing";
+  EXPECT_EQ(PunchRefusalFromResult("from_the_future"), PunchRefusal::Generic);
+  PunchResult no_code;
+  no_code.epoch_id = "ep-3";
+  no_code.error = "punch: target declines this initiator";
+  auto plain = common::TryParseObject(EncodePunchResult(no_code));
+  ASSERT_TRUE(plain);
+  auto plain_decoded = DecodePunchResult(*plain);
+  ASSERT_TRUE(plain_decoded);
+  EXPECT_EQ(plain_decoded->refusal, PunchRefusal::Generic) << "not read from its text";
 }
 
 TEST(PunchLogicTest, PickPunchIntroducerPrefersConnectedContact) {
@@ -170,8 +177,8 @@ TEST(PunchLogicTest, PickPunchIntroducerSkipsAlsoExclude) {
 // k7: the introducer leads each side's candidates with the endpoint it observes for the peer (its
 // NAT mapping) — a peer behind NAT rarely knows that address itself.
 TEST(PunchLogicTest, ObservedEndpointLeadsTheCandidates) {
-  const std::string priv = "/ip4/10.0.1.5/udp/4001/adp/1.0.0/p2p/QmA";
-  const std::string observed = "/ip4/203.0.113.9/udp/4001/adp/1.0.0/p2p/QmA";
+  const std::string priv = "/ip4/10.0.1.5/udp/4001/adp/2/p2p/QmA";
+  const std::string observed = "/ip4/203.0.113.9/udp/4001/adp/2/p2p/QmA";
   EXPECT_EQ(WithObservedPunchAddr(observed, {priv}), (std::vector<std::string>{observed, priv}));
   EXPECT_EQ(WithObservedPunchAddr(observed, {observed, priv}), (std::vector<std::string>{observed, priv}))
       << "no duplicate when the peer already knew it";

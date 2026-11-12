@@ -90,32 +90,13 @@ inline const char* PunchRefusalWire(const PunchRefusal refusal) {
   return "";
 }
 
-/** A failed result's refusal. Peers before the `code` field sent text only: it is read here, and nowhere else. */
-inline PunchRefusal PunchRefusalFromResult(const std::string_view code, const std::string_view legacy_text) {
+/** A failed result's refusal from its `code`; a missing or unknown code (a newer peer's) is a plain failure. */
+inline PunchRefusal PunchRefusalFromResult(const std::string_view code) {
   for (const PunchRefusal refusal : {PunchRefusal::TargetUnknown, PunchRefusal::Declined, PunchRefusal::NoCandidates,
                                      PunchRefusal::SendFailed, PunchRefusal::BadRequest, PunchRefusal::NoPath}) {
-    if (!code.empty() && code == PunchRefusalWire(refusal)) {
+    if (code == PunchRefusalWire(refusal)) {
       return refusal;
     }
-  }
-  if (!code.empty()) {
-    return PunchRefusal::Generic; // a code from a newer peer
-  }
-  const auto has = [legacy_text](const char* needle) { return legacy_text.find(needle) != std::string_view::npos; };
-  if (has("declines")) {
-    return PunchRefusal::Declined;
-  }
-  if (has("introducer") || has("not registered")) {
-    return PunchRefusal::TargetUnknown;
-  }
-  if (has("no candidates")) {
-    return PunchRefusal::NoCandidates;
-  }
-  if (has("invalid")) {
-    return PunchRefusal::BadRequest;
-  }
-  if (has("failed to send")) {
-    return PunchRefusal::SendFailed;
   }
   return PunchRefusal::Generic;
 }
