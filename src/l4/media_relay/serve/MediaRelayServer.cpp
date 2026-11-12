@@ -316,11 +316,19 @@ struct MediaRelayServer::Impl {
       metrics.frames_forwarded.Inc();
       metrics.bytes_forwarded.Inc(body.size());
       if (on_frame) {
-        on_frame(frame);
+        if (frame.payload.empty() && body.size() > kMediaFrameHeaderBytes) {
+          // The local participant takes the frame itself; a remote sender's was decoded header-only.
+          if (auto full = DecodeMediaDataFrame(body)) {
+            on_frame(*full);
+          }
+        } else {
+          on_frame(frame);
+        }
         continue;
       }
       if (channel) {
-        (void)channel->EnqueueOutbound(body);
+        // From the bytes as they came: with nothing queued ahead the mux encodes straight from them, no copy per member.
+        (void)channel->EnqueueOutbound(std::span<const uint8_t>(body));
         if (from_remote) {
           relayed_bytes.fetch_add(body.size(), std::memory_order_relaxed);
         }
@@ -385,7 +393,7 @@ struct MediaRelayServer::Impl {
       std::lock_guard lock(mu);
       return HandleParticipantControl(session, part, *root);
     }
-    auto frame = DecodeMediaDataFrame(body);
+    auto frame = DecodeMediaDataFrameHeader(body); // forwarded as it came: the payload is not copied
     if (!frame) {
       return true;
     }

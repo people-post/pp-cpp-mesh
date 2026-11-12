@@ -824,7 +824,7 @@ void AmpCircuitHopReach::FinishWalk(const WalkPtr& walk, CircuitReachRoe result)
     circuit_.CancelTunnel(bridge->id);
     AmpReachLog().info << "EnsureViaCircuit cancel the other bridge relay=" << bridge->relay;
   }
-  if (auto done = std::move(walk->on_done)) {
+  if (auto done = std::exchange(walk->on_done, nullptr)) { // exchange: a moved-from std::function may keep its target
     done(std::move(result));
   }
 }

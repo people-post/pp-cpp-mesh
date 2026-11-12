@@ -154,6 +154,11 @@ protected:
   void TearDown() override {
     reach_->CancelAll();
     reach_.reset();
+    // A stopping runtime drops its lane's tasks; this lane is the test's, so run them out. A pending dial or
+    // circuit completion captures the lane, and left queued it kept the lane alive (LeakSanitizer).
+    for (int i = 0; i < 1000 && !lane_->Idle(); ++i) {
+      lane_->AdvanceBy(Ms(1000));
+    }
   }
 
   struct Outcome {

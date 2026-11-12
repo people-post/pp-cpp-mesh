@@ -78,7 +78,7 @@ std::vector<uint8_t> EncodeMediaDataFrame(const MediaDataFrame& frame) {
   return HeaderThen(frame, frame.payload);
 }
 
-Roe<MediaDataFrame> DecodeMediaDataFrame(const std::vector<uint8_t>& body) {
+Roe<MediaDataFrame> DecodeMediaDataFrameHeader(const std::span<const uint8_t> body) {
   if (body.size() < kMediaFrameHeaderBytes) {
     return Error("media frame too short");
   }
@@ -96,7 +96,14 @@ Roe<MediaDataFrame> DecodeMediaDataFrame(const std::vector<uint8_t>& body) {
   frame.stream_id = GetU32(body.data() + 2);
   frame.seq = GetU32(body.data() + 6);
   frame.instance = GetU64(body.data() + 10);
-  frame.payload.assign(body.begin() + static_cast<std::ptrdiff_t>(kMediaFrameHeaderBytes), body.end());
+  return frame;
+}
+
+Roe<MediaDataFrame> DecodeMediaDataFrame(const std::vector<uint8_t>& body) {
+  auto frame = DecodeMediaDataFrameHeader(body);
+  if (frame) {
+    frame->payload.assign(body.begin() + static_cast<std::ptrdiff_t>(kMediaFrameHeaderBytes), body.end());
+  }
   return frame;
 }
 
