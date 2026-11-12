@@ -255,11 +255,21 @@ TEST_F(CircuitRelayServerClientTest, ABridgeToAPeerNotParkedSaysSoByItsCode) {
   target.target_protocol = kAmpBridgeTargetProtocol;
   BridgeWait wait;
   ASSERT_TRUE(client_->StartBridge("relay", target, {}, {}, wait.Fn(), 2000));
-  // The relay waits for the target on real time (its far-leg deadline), not the harness clock.
-  const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  // The relay waits for the target on real time (its far-leg deadline), and its tick is due on the harness
+  // clock: that clock follows real time here, or a slow loop (macOS and Windows sleep a timer tick) never reached
+  // the tick's due time while the deadline passed.
+  const auto start = std::chrono::steady_clock::now();
+  const auto until = start + std::chrono::seconds(5);
+  int64_t advanced_ms = 0;
   while (!wait.done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < until) {
     harness_->PumpAll();
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    const int64_t elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+    if (elapsed_ms > advanced_ms) {
+      harness_->clock->Advance(elapsed_ms - advanced_ms);
+      advanced_ms = elapsed_ms;
+    }
   }
   ASSERT_TRUE(wait.done.load(std::memory_order_acquire));
   ASSERT_FALSE(wait.result);
