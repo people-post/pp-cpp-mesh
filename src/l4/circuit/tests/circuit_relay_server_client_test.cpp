@@ -306,7 +306,8 @@ TEST(CircuitBundleLogicLimitsTest, TimeoutsAreBoundedAndProtocolsAllowListed) {
   EXPECT_EQ(CircuitRequestTimeoutMs(12000, 8000, 30000), 12000);
   EXPECT_EQ(CircuitRequestTimeoutMs(2'000'000'000, 8000, 30000), 30000);
   EXPECT_TRUE(CircuitTargetProtocolAllowed(pp::amp::kAmpCircuitCarrierProtocolId));
-  EXPECT_TRUE(CircuitTargetProtocolAllowed(kMediaRelayProtocolId));
+  EXPECT_FALSE(CircuitTargetProtocolAllowed(kMediaRelayProtocolId))
+      << "a hop behind a circuit is reached by a nested link";
   EXPECT_TRUE(CircuitTargetProtocolAllowed(kCircuitRelayProtocolId));
   EXPECT_TRUE(CircuitTargetProtocolAllowed("/test/node-probe-bridge/1.0.0"));
   EXPECT_FALSE(CircuitTargetProtocolAllowed("/pp-mesh/dht/1.0.0"));

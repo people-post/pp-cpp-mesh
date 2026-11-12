@@ -240,14 +240,12 @@ public:
       }
       // L3.25b: successful punch may leave a Connected PeerLink under PeerId before/without
       // a separate endpoint row — SoftMigrate should still treat that as direct-dialable.
+      // A hop reached through a circuit is Connected too: by a link nested through it.
       if (amp_links_->IsConnected(peer_key)) {
         return true;
       }
     }
-    // Relay-hop dialability is media-relay-specific. Realtime-protocol circuit hops
-    // must not mark a peer dialable for quote/attach (TryEnsurePeerReachable covers
-    // peers and is protocol-keyed).
-    return amp_hops_ && static_cast<bool>(amp_hops_->Find(peer_key, kMediaRelayProtocolId));
+    return false;
   }
 
   bool IsConnected(const std::string& peer_key) const override {

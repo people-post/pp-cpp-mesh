@@ -14,7 +14,7 @@ int64_t CircuitRequestTimeoutMs(const std::optional<int64_t> requested, const in
 
 bool CircuitTargetProtocolAllowed(const std::string_view protocol) {
   return protocol == pp::amp::kAmpCircuitCarrierProtocolId || protocol == kCircuitRelayProtocolId ||
-         protocol == kMediaRelayProtocolId || protocol.starts_with("/test/");
+         protocol.starts_with("/test/");
 }
 
 CircuitAdmitDecision DecideCircuitAdmit(const CircuitAdmitContext& ctx) {

@@ -14,8 +14,8 @@ inline constexpr const char* kMediaRelayProtocolId = kDatagramRelayProtocolId;
 /**
  * A media-relay participant's data lane: media frames to and from the hop, best
  * effort (MediaRelayDataChannelPolicy), beside its control channel
- * (kMediaRelayProtocolId, reliable). Without one (a hop behind a circuit, or
- * one that does not serve it) the control channel carries the media as well.
+ * (kMediaRelayProtocolId, reliable: quote, attach, subscribe — never media). Both
+ * ride the same link, direct or nested through a circuit.
  */
 inline constexpr const char* kMediaRelayDataProtocolId = "/pp-mesh/media-relay-data/1.0.0";
 

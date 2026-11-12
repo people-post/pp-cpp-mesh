@@ -30,12 +30,9 @@ enum class MediaRelayClientLoss : uint8_t {
 /** The client's view of its relay session, in the relay's own terms (the app maps it for its chrome). */
 struct MediaRelayClientHealth {
   bool attached = false;
-  /** Media goes on its own best-effort lane to the hop
-   * (kMediaRelayDataProtocolId), not the control channel. */
+  /** The best-effort data lane to the hop (kMediaRelayDataProtocolId) is open: media goes and comes only there. */
   bool data_lane = false;
-  /** Media frames this client dropped, not sent, on the control channel past their deadline (no lane). */
-  uint64_t late_drops = 0;
-  /** Media frames dropped while the hop's data lane was opening or reopening (it serves one: never reliably). */
+  /** Media frames dropped while the hop's data lane was opening or reopening (never sent on the control channel). */
   uint64_t lane_wait_drops = 0;
   /** The association to the relay; none when attached to this device's own hop. */
   bool link_available = false;
