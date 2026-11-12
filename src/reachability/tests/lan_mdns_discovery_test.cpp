@@ -3,7 +3,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace pp::mesh {
 namespace {
@@ -63,6 +66,35 @@ TEST(LanMdnsDiscoveryTest, BuildAdpMultiaddrNeedsAPort) {
   peer.peer_id_base58 = "QmTestPeer";
   peer.host_ip = "192.168.1.42";
   EXPECT_FALSE(LanMdnsDiscovery::BuildAdpMultiaddr(peer).has_value());
+}
+
+// pp-browser #596: a socket that stayed "readable" with nothing to read spun the discovery thread at a full core.
+// Every empty read now waits longer, up to a second, and a run of them reopens the socket.
+TEST(LanMdnsEmptyReadsTest, AnEmptyReadWaitsLongerAndARunReopens) {
+  using std::chrono::milliseconds;
+  LanMdnsEmptyReads reads;
+  const std::vector<int64_t> waits = {50, 100, 200, 400, 800, 1000, 1000};
+  for (size_t i = 0; i < waits.size(); ++i) {
+    const auto next = reads.OnEmpty();
+    EXPECT_EQ(next.wait, milliseconds(waits[i])) << "empty read " << i + 1;
+    EXPECT_FALSE(next.reopen) << "empty read " << i + 1;
+  }
+  EXPECT_TRUE(reads.OnEmpty().reopen) << "the eighth empty read in a row reopens the socket";
+  EXPECT_FALSE(reads.OnEmpty().reopen);
+}
+
+TEST(LanMdnsEmptyReadsTest, APacketEndsTheRun) {
+  LanMdnsEmptyReads reads;
+  for (int i = 0; i < 5; ++i) {
+    (void)reads.OnEmpty();
+  }
+  reads.OnPacket();
+  const auto next = reads.OnEmpty();
+  EXPECT_EQ(next.wait, LanMdnsEmptyReads::kFirstWait);
+  for (int i = 1; i < LanMdnsEmptyReads::kReopenEvery - 1; ++i) {
+    EXPECT_FALSE(reads.OnEmpty().reopen);
+  }
+  EXPECT_TRUE(reads.OnEmpty().reopen) << "the count starts again after a packet";
 }
 
 } // namespace

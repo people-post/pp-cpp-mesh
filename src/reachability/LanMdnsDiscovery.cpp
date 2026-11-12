@@ -371,8 +371,21 @@ void LanMdnsDiscovery::ThreadMain() {
 
   int64_t last_browse_ms = 0;
   int64_t last_announce_ms = 0;
+  LanMdnsEmptyReads empty_reads;
+  // A closed socket's wait returns at once, and an empty read is no packet: either way, wait before the next
+  // turn instead of spinning (in slices, so Stop is not held for long).
+  const auto pause = [this](const std::chrono::milliseconds wait) {
+    for (auto left = wait; left.count() > 0 && !stop_requested_.load(); left -= std::chrono::milliseconds(50)) {
+      std::this_thread::sleep_for(std::min(left, std::chrono::milliseconds(50)));
+    }
+  };
 
   while (!stop_requested_.load()) {
+    if (!socket.IsOpen()) {
+      pause(empty_reads.OnEmpty().wait);
+      (void)socket.Open(static_cast<uint16_t>(kMdnsPort), kMdnsMulticast);
+      continue;
+    }
     const bool readable = socket.WaitReadable(200);
 
     const int64_t now_ms =
@@ -402,7 +415,14 @@ void LanMdnsDiscovery::ThreadMain() {
       uint8_t buf[9000];
       const int n = socket.Recv(buf, sizeof(buf));
       if (n > 0) {
+        empty_reads.OnPacket();
         HandlePacket(buf, static_cast<size_t>(n));
+      } else {
+        const LanMdnsEmptyReads::Next next = empty_reads.OnEmpty();
+        if (next.reopen) {
+          (void)socket.Open(static_cast<uint16_t>(kMdnsPort), kMdnsMulticast); // Open closes the old one first
+        }
+        pause(next.wait);
       }
     }
   }
