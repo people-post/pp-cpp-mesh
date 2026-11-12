@@ -180,7 +180,8 @@ struct MediaRelayServer::Impl {
     return runtime->Links().FindLink(peer_key);
   }
 
-  void Tick() {
+  /** Io tick. At the runtime's cadence while sessions or quotes are kept (their expiries); idle without. */
+  std::chrono::milliseconds Tick() {
     std::lock_guard lock(mu);
     const auto now = Clock::now();
     quotes.Expire(now);
@@ -188,6 +189,8 @@ struct MediaRelayServer::Impl {
     // Also between requests: other services' replies say this level ("loads"), and a level only a request moved
     // would stay full after the calls ended, with no one asking again.
     (void)PublishLoadLocked();
+    return hosts_by_call.empty() && quotes.size() == 0 ? pp::amp::MeshRuntime::kIoTickIdle
+                                                       : std::chrono::milliseconds(0);
   }
 
   /**
@@ -899,7 +902,12 @@ void MediaRelayServer::Start() {
     return;
   }
   impl_->stopped.store(false, std::memory_order_release);
-  impl_->io_tick_id = runtime_.AddIoTick(impl_->lifetime.Bind([impl = impl_.get()] { impl->Tick(); }));
+  auto tick = impl_->lifetime.Bind([impl = impl_.get()](std::chrono::milliseconds* due) { *due = impl->Tick(); });
+  impl_->io_tick_id = runtime_.AddIoDueTick([tick = std::move(tick)] {
+    auto due = pp::amp::MeshRuntime::kIoTickIdle; // stopped: nothing due
+    tick(&due);
+    return due;
+  });
   runtime_.Links().SetProtocolHandler(
       kMediaRelayProtocolId,
       impl_->lifetime.Bind(

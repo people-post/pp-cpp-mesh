@@ -7,6 +7,7 @@
 #include "mesh/dht/serve/DhtServer.h"
 
 #include "amp/link/MeshRuntime.h"
+#include <chrono>
 #include <functional>
 #include <optional>
 #include <string>
@@ -49,6 +50,16 @@ public:
     client_.PublishSelfIfDue();
     client_.RefreshIfDue();
     client_.SweepIfDue();
+  }
+  /**
+   * How soon Tick has something to look at again: its gate check (every second) while it takes part or sweeps held-
+   * down contacts; never while stopped or doing neither (MeshRuntime::kIoTickIdle). Io lane.
+   */
+  std::chrono::milliseconds TickInterval() const {
+    if (!client_.IsStarted() || (!config_.participate && !config_.reach_held_down)) {
+      return pp::amp::MeshRuntime::kIoTickIdle;
+    }
+    return std::chrono::milliseconds(DhtClient::kGateCheckMs);
   }
 
   void FindPeer(const std::string& target_peer_id, std::function<void(FindPeerRoe)> on_done) {

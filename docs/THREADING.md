@@ -22,6 +22,20 @@ A mesh runs on two kinds of thread:
 
 Frame size caps: `pp::amp::AmpChannelLimits`.
 
+**When the pump runs.** `MeshPumpThread` drives when a datagram arrives (it waits on the socket),
+when the runtime's next deadline comes (`MeshRuntime::Drive` returns it: timers, resends, the link
+walk's keepalives and timeouts, the io ticks'; at most `kMaxIdleWait`, 1 s), and when another
+thread's change on the lane is due sooner (`MeshRuntime::SetWakeHandler` → `MeshPumpThread::Wake`:
+a post, a sooner timer, a reliable send, or any change while it waits past the 50 ms housekeeping
+interval). Mesh io ticks say when they are next due (`AddIoDueTick`): the load sample and the DHT
+gate once a second, circuit tunnels and reservations at their deadlines, the media relay while it
+keeps sessions; a tick that polls state other events change (a link gone) is run soon after those
+events. It waited 5 ms at a time before — 200 wakeups a second on an idle phone (pp-browser #596).
+A wait that ends for nothing again and again (a socket "ready" with nothing to read) does not spin:
+the pump waits plainly (no poll; at least 5 ms) for a second, and a receive that fails reaches the
+host, which checks the socket and reopens a dead one (`UdpSocketCheckReason::ReceiveError`, at most
+every `kReceiveErrorCheckGap`).
+
 ## Rules
 
 1. **The mesh never calls app code synchronously.** What the mesh needs from the app is **pushed**: the

@@ -238,7 +238,8 @@ struct MediaRelayClientCoordinator::Impl {
     return ResolveLink(session.hop_peer_key) == nullptr;
   }
 
-  void TickDeadlines() {
+  /** Io tick. At the runtime's cadence while it has sessions, an attach or notices; idle without. */
+  std::chrono::milliseconds TickDeadlines() {
     DeliverClientNotices();
     const auto now = Clock::now();
     FailAttachPastDeadline(now);
@@ -279,6 +280,9 @@ struct MediaRelayClientCoordinator::Impl {
         TearDown(*session, false, Failure::Of(Err::Timeout, "media-relay timed out"));
       }
     }
+    std::lock_guard lock(mu);
+    return sessions.empty() && pending_client_notices_.empty() && !client_.channel ? pp::amp::MeshRuntime::kIoTickIdle
+                                                                                   : std::chrono::milliseconds(0);
   }
 
   void FinishQuote(Session& session, MediaRelayRoe<MediaRelayQuote> result) {
@@ -858,7 +862,13 @@ void MediaRelayClientCoordinator::Start() {
   if (impl_->started.exchange(true, std::memory_order_acq_rel)) {
     return;
   }
-  impl_->io_tick_id = runtime_.AddIoTick(impl_->lifetime.Bind([impl = impl_.get()] { impl->TickDeadlines(); }));
+  auto tick =
+      impl_->lifetime.Bind([impl = impl_.get()](std::chrono::milliseconds* due) { *due = impl->TickDeadlines(); });
+  impl_->io_tick_id = runtime_.AddIoDueTick([tick = std::move(tick)] {
+    auto due = pp::amp::MeshRuntime::kIoTickIdle; // stopped: nothing due
+    tick(&due);
+    return due;
+  });
 }
 
 void MediaRelayClientCoordinator::Stop() {

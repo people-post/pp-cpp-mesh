@@ -178,10 +178,15 @@ struct CircuitClientCoordinator::Impl {
     return !(dialing && runtime->Links().GetLinkSnapshot(relay).has_endpoint);
   }
 
-  void TickDeadlines() {
+  /**
+   * Io tick: tunnels whose link went (a poll: link drops are activity, so the runtime runs it soon after one) or
+   * whose deadline passed. Returns how soon the next deadline is (MeshRuntime::kIoTickIdle: none).
+   */
+  std::chrono::milliseconds TickDeadlines() {
     const auto now = Clock::now();
     std::vector<CircuitTunnelId> timed_out;
     std::vector<CircuitTunnelId> link_lost;
+    auto next = Clock::time_point::max();
     {
       std::lock_guard lock(mu);
       for (auto& [_, tunnel] : tunnels) {
@@ -195,10 +200,13 @@ struct CircuitClientCoordinator::Impl {
         if (tunnel->deadline.time_since_epoch().count() == 0) {
           continue;
         }
-        if (now >= tunnel->deadline &&
-            (tunnel->phase == CircuitTunnelPhase::Reserved ||
-             (CircuitTunnelPhaseIsActive(tunnel->phase) && tunnel->phase != CircuitTunnelPhase::Bridging))) {
-          timed_out.push_back(tunnel->id);
+        if (tunnel->phase == CircuitTunnelPhase::Reserved ||
+            (CircuitTunnelPhaseIsActive(tunnel->phase) && tunnel->phase != CircuitTunnelPhase::Bridging)) {
+          if (now >= tunnel->deadline) {
+            timed_out.push_back(tunnel->id);
+          } else {
+            next = std::min(next, tunnel->deadline);
+          }
         }
       }
     }
@@ -216,6 +224,8 @@ struct CircuitClientCoordinator::Impl {
                                                               : "circuit-relay bridge timed out"));
       }
     }
+    return next == Clock::time_point::max() ? pp::amp::MeshRuntime::kIoTickIdle
+                                            : std::chrono::ceil<std::chrono::milliseconds>(next - now);
   }
 
   void Finish(Tunnel& tunnel, BridgeRoe result) {
@@ -511,7 +521,13 @@ void CircuitClientCoordinator::Start() {
     return;
   }
   impl_->stopped.store(false, std::memory_order_release);
-  impl_->io_tick_id = runtime_.AddIoTick(impl_->lifetime.Bind([impl = impl_.get()] { impl->TickDeadlines(); }));
+  auto tick =
+      impl_->lifetime.Bind([impl = impl_.get()](std::chrono::milliseconds* due) { *due = impl->TickDeadlines(); });
+  impl_->io_tick_id = runtime_.AddIoDueTick([tick = std::move(tick)] {
+    auto due = pp::amp::MeshRuntime::kIoTickIdle; // stopped: nothing due
+    tick(&due);
+    return due;
+  });
 }
 
 void CircuitClientCoordinator::Stop() {
