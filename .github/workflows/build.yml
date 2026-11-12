@@ -66,3 +66,28 @@ jobs:
         run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DPP_MESH_WITH_UPNP=ON
       - name: Build
         run: cmake --build build -j 2 --target pp_mesh_reachability
+
+  # AddressSanitizer + LeakSanitizer + UBSan over the whole suite (as pp-cpp-amp): ownership cycles
+  # and use-after-frees pass every other job silently — self-owning park waits leaked each punch's
+  # callbacks and session until a local sanitizer run found them.
+  sanitize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: |
+          flags="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug \
+            -DPP_MESH_BUILD_TESTS=ON \
+            -DCMAKE_C_FLAGS="$flags" -DCMAKE_CXX_FLAGS="$flags" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build -j 4
+
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure --no-tests=error -j 4

@@ -55,8 +55,11 @@ inline void AmpScheduleWhenChannelOpen(const std::function<void(std::function<vo
     return;
   }
 
+  // Each posted task owns the attempt, which reaches itself only weakly: a strong self-capture was a
+  // cycle that leaked every wait's `done` and all it holds (LeakSanitizer).
   auto attempt = std::make_shared<std::function<void()>>();
-  *attempt = [post_io, is_open, deadline, done = std::move(done), aborted, attempt]() mutable {
+  *attempt = [post_io, is_open, deadline, done = std::move(done), aborted,
+              weak_attempt = std::weak_ptr<std::function<void()>>(attempt)]() mutable {
     if (aborted && aborted()) {
       done(false);
       return;
@@ -69,7 +72,9 @@ inline void AmpScheduleWhenChannelOpen(const std::function<void(std::function<vo
       done(false);
       return;
     }
-    post_io([attempt]() { (*attempt)(); });
+    if (auto self = weak_attempt.lock()) {
+      post_io([self = std::move(self)]() { (*self)(); });
+    }
   };
   post_io([attempt]() { (*attempt)(); });
 }
@@ -106,8 +111,10 @@ inline void AmpScheduleUntilSettled(const std::function<void(std::function<void(
     return;
   }
   if (post_io) {
+    // Owned by the posted task, weakly by itself (as AmpScheduleWhenChannelOpen).
     auto poll = std::make_shared<std::function<void()>>();
-    *poll = [post_io, settled, deadline, on_timeout = std::move(on_timeout), poll]() mutable {
+    *poll = [post_io, settled, deadline, on_timeout = std::move(on_timeout),
+             weak_poll = std::weak_ptr<std::function<void()>>(poll)]() mutable {
       if (settled->load(std::memory_order_acquire)) {
         return;
       }
@@ -117,11 +124,13 @@ inline void AmpScheduleUntilSettled(const std::function<void(std::function<void(
         }
         return;
       }
-      post_io([poll, settled]() {
-        if (!settled->load(std::memory_order_acquire)) {
-          (*poll)();
-        }
-      });
+      if (auto self = weak_poll.lock()) {
+        post_io([self = std::move(self), settled]() {
+          if (!settled->load(std::memory_order_acquire)) {
+            (*self)();
+          }
+        });
+      }
     };
     post_io([poll]() { (*poll)(); });
     return;
