@@ -224,7 +224,6 @@ TEST_F(CircuitRelayServerClientTest, BridgeForwardsReversePayload) {
 
 TEST_F(CircuitRelayServerClientTest, StrangerRefusedWhenContactsOnly) {
   CircuitRelayAdmissionPolicy policy;
-  policy.prefer_contacts_only = true;
   policy.serve_scope_mask = kRelayScopeLinkSiteSocial;
   policy.contact_peer_ids = {"not-the-client"};
   relay_->SetAdmissionPolicy(std::move(policy));

@@ -29,8 +29,9 @@ pp::amp::PeerLinkManager::Err          (pp-cpp-amp; docs/ADR_LINK_PLANE.md)
 ## Codes on the wire
 
 A refusal a peer sends carries a `code` string beside its `error` text. The codes are part of the
-protocol; the text is not. A reply without `code` (an older peer) is classified from its text, in
-one legacy function per protocol, and only there.
+protocol; the text is not, and is never read. A refusal without a `code`, or with one this build does not know
+(a newer peer's), is a plain failure (`Generic`): `CircuitRefusalFromAck`, `PunchRefusalFromResult`. (media_relay's
+`MediaRelayErrFromReply` still classifies a code-less reply from its text.)
 
 Circuit and media_relay replies, refusals and acks alike, may also carry the node's `load` for the service asked
 (`open` / `busy` / `full` / `draining`, docs/PEER_REACH.md § 5a), and `loads` for every service it serves. A `busy` refusal from a node that says `full` or

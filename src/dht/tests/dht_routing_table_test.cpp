@@ -34,7 +34,7 @@ std::string Pid(int i) {
 
 std::string Ma(int a, int b, int c, int d) {
   return "/ip4/" + std::to_string(a) + "." + std::to_string(b) + "." + std::to_string(c) + "." + std::to_string(d) +
-         "/udp/1/adp/1.0.0";
+         "/udp/1/adp/2";
 }
 
 // The contract's key: BLAKE2b-256 over the domain and the PeerId's multihash bytes.

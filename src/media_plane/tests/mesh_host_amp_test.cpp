@@ -163,7 +163,7 @@ TEST(MeshHostAmpTest, ConnectivityWiresOnAmpWithoutTheMediaRelayClient) {
     media_relay.Wire();
 
     ASSERT_NE(connectivity.Dial(), nullptr);
-    const std::string peer_ma = "/ip4/203.0.113.9/udp/4001/adp/1.0.0/p2p/12D3KooWConnectivityPeer";
+    const std::string peer_ma = "/ip4/203.0.113.9/udp/4001/adp/2/p2p/12D3KooWConnectivityPeer";
     EXPECT_TRUE(connectivity.Dial()->RegisterEndpoint("12D3KooWConnectivityPeer", peer_ma))
         << "the dial registry has the Amp links";
     EXPECT_NE(connectivity.CircuitReach(), nullptr) << "circuit reach needs only the circuit client";

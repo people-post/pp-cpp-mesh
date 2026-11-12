@@ -13,8 +13,6 @@ namespace pp::mesh {
 
 /** Provider admission (nf / N023): scope mask + contact PeerIds. */
 struct CircuitRelayAdmissionPolicy {
-  /** When true and contact_peer_ids non-empty, refuse non-contact dialers (legacy; see serve_scope_mask). */
-  bool prefer_contacts_only = false;
   RelayScopeMask serve_scope_mask = kRelayScopeVolunteerServe;
   std::unordered_set<std::string> contact_peer_ids;
 };
@@ -65,39 +63,12 @@ inline const char* CircuitRefusalWire(const CircuitRefusal refusal) {
   return "";
 }
 
-/**
- * A relay's refusal from its ack. Relays before the `code` field sent text only: that text is read
- * here, and nowhere else.
- */
-inline CircuitRefusal CircuitRefusalFromAck(const std::string_view code, const std::string_view legacy_text) {
-  for (const CircuitRefusal refusal :
-       {CircuitRefusal::TargetNotReserved, CircuitRefusal::TargetUnreachable, CircuitRefusal::Busy,
-        CircuitRefusal::Refused, CircuitRefusal::NotReady, CircuitRefusal::BadRequest}) {
-    if (!code.empty() && code == CircuitRefusalWire(refusal)) {
+/** A relay's refusal from its ack's `code`; a missing or unknown code (a newer relay's) is a plain failure. */
+inline CircuitRefusal CircuitRefusalFromAck(const std::string_view code) {
+  for (const CircuitRefusal refusal : kCircuitRefusalReasons) {
+    if (refusal != CircuitRefusal::Generic && code == CircuitRefusalWire(refusal)) {
       return refusal;
     }
-  }
-  if (!code.empty()) {
-    return CircuitRefusal::Generic; // a code from a newer relay
-  }
-  const auto has = [legacy_text](const char* needle) { return legacy_text.find(needle) != std::string_view::npos; };
-  if (has("not registered")) {
-    return CircuitRefusal::TargetNotReserved;
-  }
-  if (has("relay busy")) {
-    return CircuitRefusal::Busy;
-  }
-  if (has("stranger") || has("peer id unknown")) {
-    return CircuitRefusal::Refused;
-  }
-  if (has("not ready")) {
-    return CircuitRefusal::NotReady;
-  }
-  if (has("unsupported op") || has("invalid") || has("missing")) {
-    return CircuitRefusal::BadRequest;
-  }
-  if (has("timed out") || has("dial") || has("transport") || has("channel")) {
-    return CircuitRefusal::TargetUnreachable;
   }
   return CircuitRefusal::Generic;
 }

@@ -633,7 +633,8 @@ void DhtClient::AskForPeer(const DhtLookupCandidate& candidate, const std::strin
               from_subject = true;
               self_answer = *parsed;
             } else if (parsed->public_key_b64.empty()) {
-              continue; // an older publisher's record: not checkable from here — dropped
+              saw_bad = true; // every node serves a record with its key: one without is malformed
+              continue;
             } else if (!VerifyPeerRoutingRecordStandalone(*parsed)) {
               saw_bad = true; // carries a key, and does not check out
               continue;

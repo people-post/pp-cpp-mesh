@@ -34,7 +34,7 @@ enum class MeshService : uint8_t {
 inline constexpr std::size_t kMeshServiceCount = 3;
 
 enum class ServiceLoad : uint8_t {
-  /** Not said (an older node), or what it said is stale. */
+  /** Not said (a node that keeps no levels), or what it said is stale. */
   Unknown,
   /** Prefer it. */
   Open,
@@ -70,7 +70,7 @@ class ServiceLoadMonitor;
 void SetLoadFields(common::Object& reply, ServiceLoad load, const ServiceLoadMonitor* monitor);
 /** MeshServiceName's inverse; false for a name this node does not know. */
 bool MeshServiceFromName(std::string_view name, MeshService& out);
-/** A reply's `"load"`; Unknown when absent (an older node) or not a known word.
+/** A reply's `"load"`; Unknown when absent (a node that keeps no levels) or not a known word.
  */
 ServiceLoad LoadField(const common::Object& reply);
 

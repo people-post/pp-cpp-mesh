@@ -114,7 +114,7 @@ void NoteReplyLoads(PeerLoadBook& book, const std::string& peer_id, const MeshSe
   book.Note(peer_id, replying, LoadField(reply), now_ms);
   const common::Object* loads = reply.getObject("loads");
   if (!loads) {
-    return; // an older node: only the service that replied
+    return; // a node that keeps no levels: only the service that replied
   }
   for (const auto& [name, value] : loads->entries()) {
     MeshService service;
@@ -214,7 +214,7 @@ int64_t PeerLoadBook::NowMs() {
 void PeerLoadBook::Note(const std::string& peer_id, const MeshService service, const ServiceLoad load,
                         const int64_t now_ms) {
   if (peer_id.empty() || load == ServiceLoad::Unknown) {
-    return; // an older node says nothing: keep what a newer reply said
+    return; // said nothing: keep what an earlier reply said
   }
   std::lock_guard lock(mu_);
   if (!entries_.contains(peer_id) && entries_.size() >= kMaxPeers) {

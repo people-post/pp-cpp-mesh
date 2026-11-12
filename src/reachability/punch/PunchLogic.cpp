@@ -161,7 +161,7 @@ std::optional<PunchResult> DecodePunchResult(const common::Object& root) {
   msg.winner_multiaddr = root.getString("winner_multiaddr").value_or("");
   msg.error = root.getString("error").value_or("");
   if (!msg.ok) {
-    msg.refusal = PunchRefusalFromResult(root.getString("code").value_or(""), msg.error);
+    msg.refusal = PunchRefusalFromResult(root.getString("code").value_or(""));
   }
   return msg;
 }

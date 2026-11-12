@@ -9,9 +9,6 @@ TEST(CircuitServeDialPolicyTest, PeerIdOnlyRequiresLiveFarLeg) {
   EXPECT_FALSE(pp::mesh::CircuitPeerIdOnlyHasLiveFarLeg(0));
   EXPECT_TRUE(pp::mesh::CircuitPeerIdOnlyHasLiveFarLeg(1));
   EXPECT_EQ(pp::mesh::kCircuitTargetPeerNotRegistered, "circuit target peer endpoint not registered");
-  // Relays before the ack's `code` sent that text only: it still reads as not reserved.
-  EXPECT_EQ(pp::mesh::CircuitRefusalFromAck("", pp::mesh::kCircuitTargetPeerNotRegistered),
-            pp::mesh::CircuitRefusal::TargetNotReserved);
 }
 
 TEST(CircuitServeDialPolicyTest, ClearMaWhenReserved) {
@@ -50,19 +47,16 @@ TEST(CircuitServeDialPolicyTest, ArmFarLegWaitDeadlineUsesMaxWhenNoTunnel) {
   EXPECT_EQ(pp::mesh::CircuitServeDialArmFarLegWaitDeadlineMs(now, 0), now + pp::mesh::kCircuitServeDialFarLegWaitMs);
 }
 
-// A relay's refusal by its ack's code (docs/ERRORS.md); the text only for relays before codes.
-TEST(CircuitRefusalTest, TheAckCodeDecidesAndOldTextStillReads) {
+// A relay's refusal by its ack's code (docs/ERRORS.md); the text is for logs only.
+TEST(CircuitRefusalTest, TheAckCodeDecides) {
   using pp::mesh::CircuitRefusal;
   using pp::mesh::CircuitRefusalFromAck;
   using pp::mesh::CircuitRefusalWire;
   for (const CircuitRefusal refusal :
        {CircuitRefusal::TargetNotReserved, CircuitRefusal::TargetUnreachable, CircuitRefusal::Busy,
         CircuitRefusal::Refused, CircuitRefusal::NotReady, CircuitRefusal::BadRequest}) {
-    EXPECT_EQ(CircuitRefusalFromAck(CircuitRefusalWire(refusal), "unrelated words"), refusal);
+    EXPECT_EQ(CircuitRefusalFromAck(CircuitRefusalWire(refusal)), refusal);
   }
-  EXPECT_EQ(CircuitRefusalFromAck("a_newer_code", "relay busy"), CircuitRefusal::Generic);
-  EXPECT_EQ(CircuitRefusalFromAck("", "relay busy: standby refused"), CircuitRefusal::Busy);
-  EXPECT_EQ(CircuitRefusalFromAck("", "relay scope: stranger refused"), CircuitRefusal::Refused);
-  EXPECT_EQ(CircuitRefusalFromAck("", "relay target stream timed out"), CircuitRefusal::TargetUnreachable);
-  EXPECT_EQ(CircuitRefusalFromAck("", "unsupported op"), CircuitRefusal::BadRequest);
+  EXPECT_EQ(CircuitRefusalFromAck("a_newer_code"), CircuitRefusal::Generic);
+  EXPECT_EQ(CircuitRefusalFromAck(""), CircuitRefusal::Generic) << "no code is a plain failure, whatever the text";
 }

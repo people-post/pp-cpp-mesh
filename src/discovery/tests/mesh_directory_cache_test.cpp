@@ -52,7 +52,7 @@ TEST(MeshDirectoryCacheTest, NodesFromHitsPreservesNameFields) {
   hit.capabilities.ledger_gateway = true;
   DirectoryEndpoint ep;
   ep.peer_id = "12D3KooWNode";
-  ep.multiaddrs = {"/ip4/9.9.9.9/udp/443/adp/1.0.0/p2p/12D3KooWNode"};
+  ep.multiaddrs = {"/ip4/9.9.9.9/udp/443/adp/2/p2p/12D3KooWNode"};
   hit.endpoints.push_back(ep);
 
   const auto nodes = MeshDirectoryNodesFromHits({hit});
@@ -165,7 +165,7 @@ TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
   node.set("circuit_relay", true);
   node.set("media_relay", true);
   std::vector<common::Value> mas;
-  mas.emplace_back("/ip4/1.1.1.1/udp/443/adp/1.0.0/p2p/12D3KooWCached");
+  mas.emplace_back("/ip4/1.1.1.1/udp/443/adp/2/p2p/12D3KooWCached");
   node.set("multiaddrs", common::makeArray(std::move(mas)));
   std::vector<common::Value> rows;
   rows.emplace_back(std::make_shared<common::Object>(std::move(node)));
@@ -251,7 +251,7 @@ TEST(NameDirectoryTest, ListServiceMapsMeshNodes) {
   hit.seq = 3;
   DirectoryEndpoint ep;
   ep.peer_id = "12D3KooWList";
-  ep.multiaddrs = {"/ip4/1.2.3.4/udp/443/adp/1.0.0/p2p/12D3KooWList"};
+  ep.multiaddrs = {"/ip4/1.2.3.4/udp/443/adp/2/p2p/12D3KooWList"};
   hit.endpoints.push_back(ep);
   fake.mesh_nodes.push_back(hit);
 

@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <string>
+
 namespace pp::mesh {
 namespace {
 
@@ -31,7 +34,22 @@ TEST(LanMdnsDiscoveryTest, AnAnnouncementGivesTheAmpAddress) {
   EXPECT_EQ(peers[0].host_ip, "192.168.1.42");
   EXPECT_EQ(peers[0].amp_udp_port, 19001);
   EXPECT_EQ(LanMdnsDiscovery::BuildAdpMultiaddr(peers[0]),
-            std::optional<std::string>("/ip4/192.168.1.42/udp/19001/adp/1.0.0/p2p/QmTestPeer"));
+            std::optional<std::string>("/ip4/192.168.1.42/udp/19001/adp/2/p2p/QmTestPeer"));
+}
+
+// An announcement says its wire version (TXT `wire=`): one of another version, or one that says none (a build
+// before it), is not dialed, as an address of another wire version is not.
+TEST(LanMdnsDiscoveryTest, AnAnnouncementOfAnotherWireOrNoneIsNotHeard) {
+  const auto packet = LanMdnsDiscovery::EncodeAnnouncement("QmTestPeer", 19001, {"192.168.1.42"});
+  const std::string ours = "wire=2";
+  const auto at = std::search(packet.begin(), packet.end(), ours.begin(), ours.end());
+  ASSERT_NE(at, packet.end()) << "the TXT record says our wire version";
+  auto other = packet;
+  other[static_cast<size_t>(at - packet.begin()) + ours.size() - 1] = '3';
+  EXPECT_TRUE(LanMdnsDiscovery::ParseAnnouncement(other.data(), other.size()).empty());
+  auto none = packet;
+  none[static_cast<size_t>(at - packet.begin())] = 'x';
+  EXPECT_TRUE(LanMdnsDiscovery::ParseAnnouncement(none.data(), none.size()).empty());
 }
 
 TEST(LanMdnsDiscoveryTest, NothingToAnnounceWithoutAPortOrAnAddress) {
