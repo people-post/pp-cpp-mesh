@@ -74,37 +74,24 @@ inline const char* MediaRelayRefusalWire(const MediaRelayRefusal refusal) {
   return "";
 }
 
-/** A hop's refusal, as the client's failure code. Hops before the `code` field sent text only: it is read here. */
-inline MediaRelayErr MediaRelayErrFromReply(const std::string_view code, const std::string_view legacy_text) {
-  MediaRelayRefusal refusal = MediaRelayRefusal::Generic;
-  bool known = false;
-  for (const MediaRelayRefusal candidate :
-       {MediaRelayRefusal::Busy, MediaRelayRefusal::Refused, MediaRelayRefusal::NotReady, MediaRelayRefusal::AuthFailed,
-        MediaRelayRefusal::UnknownQuote, MediaRelayRefusal::BadRequest}) {
-    if (!code.empty() && code == MediaRelayRefusalWire(candidate)) {
-      refusal = candidate;
-      known = true;
-    }
+/** A hop's refusal, as the client's failure code: by its reply's `code` only. A missing or unknown code is a plain
+ * failure (Generic), never read from the text. */
+inline MediaRelayErr MediaRelayErrFromCode(const std::string_view code) {
+  if (code == MediaRelayRefusalWire(MediaRelayRefusal::Busy)) {
+    return MediaRelayErr::HopBusy;
   }
-  if (!known && code.empty()) {
-    const auto has = [legacy_text](const char* needle) { return legacy_text.find(needle) != std::string_view::npos; };
-    refusal = has("busy")            ? MediaRelayRefusal::Busy
-              : has("stranger")      ? MediaRelayRefusal::Refused
-              : has("not ready")     ? MediaRelayRefusal::NotReady
-              : has("auth failed")   ? MediaRelayRefusal::AuthFailed
-              : has("unknown quote") ? MediaRelayRefusal::UnknownQuote
-                                     : MediaRelayRefusal::Generic;
+  if (code == MediaRelayRefusalWire(MediaRelayRefusal::AuthFailed)) {
+    return MediaRelayErr::AuthFailed;
   }
-  switch (refusal) {
-    case MediaRelayRefusal::Busy:
-      return MediaRelayErr::HopBusy;
-    case MediaRelayRefusal::AuthFailed:
-      return MediaRelayErr::AuthFailed;
-    case MediaRelayRefusal::UnknownQuote:
-      return MediaRelayErr::UnknownQuote;
-    default:
-      return MediaRelayErr::HopRefused;
+  if (code == MediaRelayRefusalWire(MediaRelayRefusal::UnknownQuote)) {
+    return MediaRelayErr::UnknownQuote;
   }
+  if (code == MediaRelayRefusalWire(MediaRelayRefusal::Refused) ||
+      code == MediaRelayRefusalWire(MediaRelayRefusal::NotReady) ||
+      code == MediaRelayRefusalWire(MediaRelayRefusal::BadRequest)) {
+    return MediaRelayErr::HopRefused;
+  }
+  return MediaRelayErr::Generic;
 }
 
 } // namespace pp::mesh

@@ -59,10 +59,10 @@ Failure Aborted() {
   return Failure::Of(Err::Aborted, "media-relay aborted");
 }
 
-/** A hop's refusal from its reply (its code; older hops' text). */
+/** A hop's refusal from its reply: classified by its code; the text only says more. */
 Failure Refusal(const common::Object& root, const char* fallback) {
   const std::string text = root.getString("error").value_or("");
-  return Failure::Of(MediaRelayErrFromReply(root.getString("code").value_or(""), text),
+  return Failure::Of(MediaRelayErrFromCode(root.getString("code").value_or("")),
                      detail::AppendFrom("media-relay: refused", "hop", text.empty() ? std::string(fallback) : text));
 }
 
