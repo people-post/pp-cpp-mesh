@@ -73,8 +73,10 @@ TEST(MediaFrameCodecTest, OlderVersionsAreRefused) {
     bytes[0] = first;
     EXPECT_FALSE(DecodeMediaDataFrame(bytes)) << int(first);
   }
-  bytes[0] = 0x3C; // version 3, channel type 3 (none)
-  EXPECT_FALSE(DecodeMediaDataFrame(bytes));
+  for (const uint8_t first : {uint8_t{0x38}, uint8_t{0x3C}}) { // version 3, channel type 2 (best effort, gone) and 3
+    bytes[0] = first;
+    EXPECT_FALSE(DecodeMediaDataFrame(bytes)) << "channel type " << ((first >> 2) & 3);
+  }
   EXPECT_FALSE(DecodeMediaDataFrame(std::vector<uint8_t>(kMediaFrameHeaderBytes - 1, 0x30)));
 }
 
@@ -137,7 +139,7 @@ TEST(MediaFrameCodecTest, AnAlteredHeaderOrAnotherKeyContextOrEpochDoesNotOpen) 
   f.mark = 0;
   EXPECT_TRUE(fails(f));
   f = sealed;
-  f.channel_type = MediaChannelType::BestEffort;
+  f.channel_type = MediaChannelType::Forward;
   EXPECT_TRUE(fails(f));
   f = sealed;
   f.instance ^= 1;
@@ -168,8 +170,8 @@ TEST(MediaFrameCodecTest, KnownAnswer) {
   EXPECT_EQ(Hex(f.payload), "68bcbba0b054709c8a28b16b9b1b151fd0ec9827");
 }
 
-TEST(MediaFrameCodecTest, AudioIsOrderedAndVideoLatestWins) {
-  EXPECT_EQ(MediaChannelTypeFor(kMediaChannelAudio), MediaChannelType::ReliableOrdered);
+TEST(MediaFrameCodecTest, AudioIsForwardedAndVideoLatestWins) {
+  EXPECT_EQ(MediaChannelTypeFor(kMediaChannelAudio), MediaChannelType::Forward);
   EXPECT_EQ(MediaChannelTypeFor(VideoChannel(1)), MediaChannelType::LatestLossy);
 }
 
