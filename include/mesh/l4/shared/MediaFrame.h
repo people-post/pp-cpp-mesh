@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <span>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -65,6 +66,11 @@ std::array<uint8_t, kMediaFrameHeaderBytes> EncodeMediaFrameHeader(const MediaDa
 std::vector<uint8_t> EncodeMediaDataFrame(const MediaDataFrame& frame);
 /** A frame from the wire; an older version, a bad type or a short body is refused. */
 Roe<MediaDataFrame> DecodeMediaDataFrame(const std::vector<uint8_t>& body);
+/**
+ * The frame's header fields only (`payload` left empty): a relay forwards the encoded bytes as they came and needs
+ * no copy of the payload.
+ */
+Roe<MediaDataFrame> DecodeMediaDataFrameHeader(std::span<const uint8_t> body);
 
 /** A fresh sender instance: random (libsodium) and nonzero. Drawn wherever a sender's seq counters start. */
 uint64_t NewMediaSenderInstance();

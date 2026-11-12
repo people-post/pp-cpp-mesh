@@ -340,7 +340,11 @@ TEST_F(MediaRelayServerClientTest, MediaTakesTheDataLaneBothWays) {
   EXPECT_EQ(hop_->RuntimeStats().data_lane_participants, 1u) << "the hop never bound it to the participant";
 
   std::atomic<int> local_frames{0};
-  ASSERT_TRUE(hop_client_->AttachAsLocalHop(call_id, [&local_frames](MediaDataFrame) { local_frames.fetch_add(1); }));
+  std::vector<uint8_t> local_payload; // the hop forwards remote frames header-decoded; its own participant gets it all
+  ASSERT_TRUE(hop_client_->AttachAsLocalHop(call_id, [&](MediaDataFrame frame) {
+    local_payload = frame.payload;
+    local_frames.fetch_add(1);
+  }));
   ASSERT_TRUE(client_->Subscribe(7, 0));
   ASSERT_TRUE(hop_client_->Subscribe(8, 0));
   for (int i = 0; i < 40; ++i) {
@@ -354,6 +358,7 @@ TEST_F(MediaRelayServerClientTest, MediaTakesTheDataLaneBothWays) {
   harness_->PumpUntil([&] { return local_frames.load() >= 1; }, 800);
   EXPECT_GE(local_frames.load(), 1) << "the guest's media on its data lane did "
                                        "not reach the hop's participant";
+  EXPECT_EQ(local_payload, (std::vector<uint8_t>{4, 5, 6})) << "with its payload";
 
   MediaDataFrame to_guest;
   to_guest.stream_id = 7;
