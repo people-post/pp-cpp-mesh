@@ -127,14 +127,6 @@ bool MediaRelayAuthStubOk(const std::string& auth, const std::string& call_id) {
   return !auth.empty() && auth == call_id;
 }
 
-int64_t MediaFallbackDeadlineMs(const MediaChannelType channel_type) {
-  return channel_type == MediaChannelType::LatestLossy ? kMediaFallbackVideoDeadlineMs : kMediaFallbackAudioDeadlineMs;
-}
-
-bool ShouldDropLateFallbackFrame(const int64_t backlog_oldest_age_ms, const MediaChannelType channel_type) {
-  return backlog_oldest_age_ms > MediaFallbackDeadlineMs(channel_type);
-}
-
 bool ShouldDropStaleLossyFrame(const bool has_last, const uint32_t last_seq, const uint32_t seq, const uint8_t mark) {
   return has_last && seq < last_seq && mark == 0;
 }

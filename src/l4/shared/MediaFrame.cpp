@@ -60,7 +60,7 @@ constexpr size_t kMaxGuardEntries = 64;
 } // namespace
 
 MediaChannelType MediaChannelTypeFor(const uint16_t channel_id) {
-  return IsAudioChannel(channel_id) ? MediaChannelType::ReliableOrdered : MediaChannelType::LatestLossy;
+  return IsAudioChannel(channel_id) ? MediaChannelType::Forward : MediaChannelType::LatestLossy;
 }
 
 std::array<uint8_t, kMediaFrameHeaderBytes> EncodeMediaFrameHeader(const MediaDataFrame& frame) {
@@ -86,7 +86,7 @@ Roe<MediaDataFrame> DecodeMediaDataFrameHeader(const std::span<const uint8_t> bo
     return Error("unsupported media frame version");
   }
   const uint8_t type = (body[0] >> 2) & 0x03;
-  if (type > static_cast<uint8_t>(MediaChannelType::BestEffort)) {
+  if (type > static_cast<uint8_t>(MediaChannelType::LatestLossy)) {
     return Error("bad media channel type");
   }
   MediaDataFrame frame;

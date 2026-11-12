@@ -246,7 +246,6 @@ void MeshHost::EnsureAmpL4Coordinators() {
     amp_media_relay_client_ =
         std::make_unique<MediaRelayClientCoordinator>(amp_->Runtime(), amp_media_relay_server_.get());
   }
-  amp_media_relay_client_->SetCircuitHopRegistry(amp_circuit_hops_.get());
   amp_circuit_server_->SetLoadMonitor(&own_load_);
   amp_media_relay_server_->SetLoadMonitor(&own_load_);
   amp_circuit_client_->SetPeerLoadBook(&peer_loads_);

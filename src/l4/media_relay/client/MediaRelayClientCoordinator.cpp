@@ -6,7 +6,6 @@
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/PeerLink.h"
 #include "mesh/l4/media_relay/MediaRelayFrames.h"
-#include "mesh/l4/media_relay/MediaRelayLogic.h"
 #include "common/ValueJson.h"
 #include "mesh/shared/AmpChannelOpen.h"
 #include "common/Lifetime.h"
@@ -60,10 +59,10 @@ Failure Aborted() {
   return Failure::Of(Err::Aborted, "media-relay aborted");
 }
 
-/** A hop's refusal from its reply (its code; older hops' text). */
+/** A hop's refusal from its reply: classified by its code; the text only says more. */
 Failure Refusal(const common::Object& root, const char* fallback) {
   const std::string text = root.getString("error").value_or("");
-  return Failure::Of(MediaRelayErrFromReply(root.getString("code").value_or(""), text),
+  return Failure::Of(MediaRelayErrFromCode(root.getString("code").value_or("")),
                      detail::AppendFrom("media-relay: refused", "hop", text.empty() ? std::string(fallback) : text));
 }
 
@@ -91,13 +90,10 @@ struct MediaRelayClientCoordinator::Impl {
   std::atomic<PeerLoadBook*> loads{nullptr};
   pp::amp::MeshRuntime* runtime = nullptr;
   MediaRelayServer* local_server = nullptr;
-  AmpCircuitHopRegistry* circuit_hops = nullptr;
   mutable std::mutex mu;
   std::atomic<bool> started{false};
   std::atomic<uint64_t> next_id{1};
-  /** Media frames dropped before the control channel because it already held more than their deadline. */
-  std::atomic<uint64_t> late_drops{0};
-  /** Media frames dropped while the hop's data lane was not open (ClientState::lane_expected). */
+  /** Media frames dropped while the hop's data lane was not open (opening, or reopening after it ended). */
   std::atomic<uint64_t> lane_wait_drops{0};
   pp::amp::MeshRuntime::IoTickId io_tick_id = 0;
   /** PostIo(raw Impl*) — Invalidate on AbortInflight (Stop calls Abort). */
@@ -108,25 +104,22 @@ struct MediaRelayClientCoordinator::Impl {
   struct ClientState {
     std::shared_ptr<pp::amp::ChannelSession> channel;
     /**
-     * The data lane to the hop (kMediaRelayDataProtocolId) once it opened:
-     * media goes and comes there. Until then, on a hop behind a circuit, or one
-     * that does not serve the lane, `channel` carries the media too.
+     * The data lane to the hop (kMediaRelayDataProtocolId) once it opened: media goes and comes there, and only
+     * there. The control channel (`channel`) never carries media: while the lane is not open, media is dropped.
      */
     std::shared_ptr<pp::amp::ChannelSession> data_channel;
+    /**
+     * The attach is reported once its lane opened (`attach_done`, with `attach_result`), or failed: a hop that does
+     * not serve the lane, or a lane not open by `attach_deadline`, fails it — no media path, not a usable hop.
+     */
+    AttachFinished attach_done;
+    MediaRelayAttachResult attach_result;
+    Clock::time_point attach_deadline{};
     /**
      * The lane is tried again while this attach lasts: an open that timed out (a busy hop, a lossy link), or a lane
      * that ended. `lane_retry_at` empty: no retry pending.
      */
     bool lane_opening = false;
-    /**
-     * The hop serves a lane (reached directly, not behind a circuit, and it has not refused the protocol). While it
-     * does, media never goes on the reliable control channel: without the lane — opening, or reopened after it ended —
-     * a frame is dropped (V063). On that channel it was resent for seconds on a busy, lossy hop and arrived far too
-     * late (stress lab 2026-11-11: up to 18 s), and the queue's age (MediaFallbackDeadlineMs) does not see frames
-     * already in flight. Only a hop that refuses the lane (older than it: kOpenAckNoHandler) carries media on the
-     * control channel, bounded by that deadline.
-     */
-    bool lane_expected = false;
     int lane_failures = 0;
     Clock::time_point lane_retry_at{};
     std::string hop_peer_key;
@@ -190,7 +183,6 @@ struct MediaRelayClientCoordinator::Impl {
     std::string auth_stub;
     std::string session_token;
     std::shared_ptr<pp::amp::ChannelSession> channel;
-    bool circuit_backed = false;
     QuoteFinished on_quote;
     AttachFinished on_attach;
     FrameHandler on_frame;
@@ -227,24 +219,29 @@ struct MediaRelayClientCoordinator::Impl {
     AmpWhenChannelOpen(runtime->Links(), peer_key, channel_id, deadline, std::move(done));
   }
 
+  /** The hop's link our channels ride: the Connected one OpenChannel took (direct, or nested through a circuit). */
   pp::amp::PeerLink* ResolveLink(const std::string& peer_key) const {
     if (!runtime || peer_key.empty()) {
       return nullptr;
+    }
+    if (pp::amp::PeerLink* live = runtime->Links().ResolveConnectedLink(peer_key)) {
+      return live;
     }
     return runtime->Links().FindLink(peer_key);
   }
 
   /** PeerLink drop leaves ChannelSession mux_ dangling — tear down before L4 touches it. */
   bool PeerLinkMissing(const Session& session) const {
-    if (!runtime || session.hop_peer_key.empty() || session.circuit_backed) {
+    if (!runtime || session.hop_peer_key.empty()) {
       return false;
     }
-    return runtime->Links().FindLink(session.hop_peer_key) == nullptr;
+    return ResolveLink(session.hop_peer_key) == nullptr;
   }
 
   void TickDeadlines() {
     DeliverClientNotices();
     const auto now = Clock::now();
+    FailAttachPastDeadline(now);
     RetryDataLaneIfDue(now);
     std::vector<MediaRelaySessionId> timed_out;
     std::vector<MediaRelaySessionId> link_lost;
@@ -335,6 +332,9 @@ struct MediaRelayClientCoordinator::Impl {
    * that lock first (io → mu), or takes the channels out and closes them after `mu` (Detach).
    */
   void DetachClientLocked() {
+    if (client_.attach_done) {
+      FinishPendingAttachLocked(Aborted());
+    }
     if (client_.data_channel) {
       CloseQuietSlot(client_.data_channel, ResolveLink(client_.hop_peer_key));
     }
@@ -395,6 +395,12 @@ struct MediaRelayClientCoordinator::Impl {
     if (!client_.channel) {
       return;
     }
+    if (client_.attach_done) {
+      // Lost before its lane opened: the attach fails, nothing was reported attached.
+      FinishPendingAttachLocked(Failure::Of(Err::Closed, "media-relay channel closed before its data lane opened"));
+      DetachClientLocked();
+      return;
+    }
     if (client_.data_channel) {
       CloseQuietSlot(client_.data_channel, ResolveLink(client_.hop_peer_key));
       client_.data_channel.reset();
@@ -406,14 +412,41 @@ struct MediaRelayClientCoordinator::Impl {
     (void)reason;
   }
 
-  /** Move channel to client_ then erase Session — never touch `session` after erase ([A027]). */
-  void AdoptClientChannel(Session& session) {
+  /**
+   * Requires `mu`. Reports the attach waiting for its lane (`client_.attach_done`), once: ok when the lane opened,
+   * else why not. Called under `mu`, as a bundle's own FinishAttach.
+   */
+  void FinishPendingAttachLocked(MediaRelayRoe<MediaRelayAttachResult> result) {
+    AttachFinished done = std::move(client_.attach_done);
+    client_.attach_done = nullptr;
+    client_.attach_deadline = {};
+    if (done) {
+      done(std::move(result));
+    }
+  }
+
+  /** Io tick: an attach whose lane did not open in its time fails (its control channel closes). */
+  void FailAttachPastDeadline(const Clock::time_point now) {
+    std::lock_guard lock(mu);
+    if (!client_.attach_done || client_.attach_deadline == Clock::time_point{} || now < client_.attach_deadline) {
+      return;
+    }
+    LaneLog().info << "media_relay data lane: not open in the attach's time: attach failed call_id=" << client_.call_id;
+    FinishPendingAttachLocked(Failure::Of(Err::Timeout, "media-relay: data lane did not open"));
+    DetachClientLocked();
+  }
+
+  /**
+   * Move channel to client_ then erase Session — never touch `session` after erase ([A027]). The attach is
+   * reported once the data lane opens (`done`, FinishPendingAttachLocked).
+   */
+  void AdoptClientChannel(Session& session, AttachFinished done, MediaRelayAttachResult result) {
     auto channel = std::move(session.channel);
     const std::string hop = session.hop_peer_key;
     const std::string call_id = session.call_id;
     FrameHandler on_frame = std::move(session.on_frame);
     const uint64_t id = session.id.value;
-    const bool circuit_backed = session.circuit_backed;
+    const auto deadline = session.deadline;
     sessions.erase(id);
 
     const bool replaced = static_cast<bool>(client_.channel);
@@ -426,7 +459,7 @@ struct MediaRelayClientCoordinator::Impl {
     // evicted after 5 s of silence. Hot keepalives carry an echo. Never cleared on detach — the
     // same node is often our circuit relay, whose reservation needs the hot tier too. Marked on the
     // io tick, without `mu` (the link strand calls into us holding its own lock).
-    if (!circuit_backed && runtime) {
+    if (runtime) {
       pending_client_notices_.push_back([rt = runtime, hop]() { rt->Links().MarkHot(hop); });
     }
     client_.channel = std::move(channel);
@@ -435,21 +468,18 @@ struct MediaRelayClientCoordinator::Impl {
     client_.on_frame = std::move(on_frame);
     client_.reader_started = false;
     client_.subscriptions.clear();
+    client_.attach_done = std::move(done);
+    client_.attach_result = std::move(result);
+    client_.attach_deadline = deadline;
     RebindClientMediaHandlers();
-    if (!circuit_backed && runtime) {
-      // Opened on the io tick, without `mu` (as MarkHot above).
-      client_.lane_expected = true;
-      pending_client_notices_.push_back([this, hop, call_id]() { OpenDataLane(hop, call_id); });
-    } else {
-      LaneLog().info << "media_relay data lane: none (" << (circuit_backed ? "hop behind a circuit" : "no runtime")
-                     << "): media on the control channel call_id=" << call_id;
-    }
+    // Opened on the io tick, without `mu` (as MarkHot above).
+    pending_client_notices_.push_back([this, hop, call_id]() { OpenDataLane(hop, call_id); });
   }
 
   /**
-   * The data lane to `hop` for the attach to `call_id`: its media off the
-   * control channel, best effort. Not opened (an old hop, a lost race) leaves
-   * the media on the control channel; ended, the media goes back there.
+   * The data lane to `hop` for the attach to `call_id`: its media, best effort, on the same link as its control
+   * channel (direct, or nested through a circuit). Not open yet, or ended: media is dropped and the lane tried
+   * again. A hop that does not serve it is no media hop: the attach fails (or, attached, the session is lost).
    */
   void OpenDataLane(const std::string& hop, const std::string& call_id) {
     if (!runtime) {
@@ -477,7 +507,7 @@ struct MediaRelayClientCoordinator::Impl {
           }
           const uint32_t channel_id = *opened;
           // The hop's answer, told to the channel before the waiter below sees it closed: a hop that does not serve
-          // the lane (older than it) says so; anything else — busy, a reset, no answer in time — may pass.
+          // the lane says so; anything else — busy, a reset, no answer in time — may pass.
           auto serves_none = std::make_shared<bool>(false);
           if (pp::amp::PeerLink* link = ResolveLink(hop); link && link->Mux()) {
             link->Mux()->SetTerminalHandler(channel_id, [serves_none](uint32_t, const char* reason) {
@@ -504,6 +534,9 @@ struct MediaRelayClientCoordinator::Impl {
         client_.lane_failures = 0;
         BindDataLaneLocked(hop, channel_id);
         LaneLog().info << "media_relay data lane: open";
+        if (client_.attach_done) {
+          FinishPendingAttachLocked(client_.attach_result);
+        }
       } else {
         unused = !refused; // a refused channel is gone already
         const char* what = open ? "attach moved on" : refused ? "refused (the hop serves no lane)" : "open timed out";
@@ -527,8 +560,10 @@ struct MediaRelayClientCoordinator::Impl {
   }
 
   /**
-   * Requires `mu`. A lane open failed. A hop that serves none (`hop_serves_none`) has media on the control channel
-   * from now on; otherwise the io tick tries again after a backoff, media dropped meanwhile.
+   * Requires `mu`. A lane open failed. A hop that serves none (`hop_serves_none`) is no media hop: an attach waiting
+   * for its lane fails, an attached session is lost (its observers re-attach elsewhere). Otherwise the io tick tries
+   * again after a backoff, media dropped meanwhile. Closing the control channel here resolves the hop's link: the
+   * callers run on the io thread (io → mu).
    */
   void LaneFailedLocked(const bool still_ours, const char* what, const std::string& detail,
                         const bool hop_serves_none) {
@@ -538,8 +573,13 @@ struct MediaRelayClientCoordinator::Impl {
     }
     client_.lane_opening = false;
     if (hop_serves_none) {
-      client_.lane_expected = false;
-      LaneLog().info << "media_relay data lane: " << what << ": media on the control channel";
+      LaneLog().info << "media_relay data lane: " << what << ": not a media hop call_id=" << client_.call_id;
+      if (client_.attach_done) {
+        FinishPendingAttachLocked(Failure::Of(Err::HopRefused, "media-relay: the hop serves no data lane"));
+      } else {
+        NotifyClientObserversLocked(MediaRelayClientLoss::TransportLost);
+      }
+      DetachClientLocked();
       return;
     }
     ++client_.lane_failures;
@@ -563,7 +603,7 @@ struct MediaRelayClientCoordinator::Impl {
     std::string call_id;
     {
       std::lock_guard lock(mu);
-      if (!client_.channel || client_.data_channel || client_.lane_opening || !client_.lane_expected ||
+      if (!client_.channel || client_.data_channel || client_.lane_opening ||
           client_.lane_retry_at == Clock::time_point{} || now < client_.lane_retry_at) {
         return;
       }
@@ -597,6 +637,9 @@ struct MediaRelayClientCoordinator::Impl {
         }));
   }
 
+  /** Requires `mu`. Attached to a remote hop: its attach reported (its lane opened once). */
+  bool RemoteAttachedLocked() const { return client_.channel != nullptr && !client_.attach_done; }
+
   /** Requires `mu`. Quote reply, or accept → attach replies, on a bundle's channel. */
   bool HandleSessionFrame(const MediaRelaySessionId id, Roe<std::vector<uint8_t>> frame) {
     auto* session = Find(id);
@@ -628,14 +671,12 @@ struct MediaRelayClientCoordinator::Impl {
       auto quote = ParseQuoteResponse(*root);
       session->phase = MediaRelayBundlePhase::Closing;
       FinishQuote(*session, std::move(quote));
-      // Direct quote channels are one-shot; circuit hops must stay open for attach.
-      if (session->channel && !session->circuit_backed) {
+      // A quote channel is one-shot: the attach opens its own.
+      if (session->channel) {
         CloseQuietSlot(session->channel, ResolveLink(session->hop_peer_key));
-        sessions.erase(id.value);
-        return false;
       }
       sessions.erase(id.value);
-      return true;
+      return false;
     }
     if (session->role != MediaRelayBundleRole::ClientAttach) {
       return true;
@@ -674,32 +715,12 @@ struct MediaRelayClientCoordinator::Impl {
       MediaRelayAttachResult out;
       out.ok = true;
       out.session_token = session->session_token;
-      FinishAttach(*session, std::move(out));
-      AdoptClientChannel(*session);
+      // Reported once the data lane opens: the session is no media path before it.
+      AttachFinished done = std::move(session->on_attach);
+      session->on_attach = nullptr;
+      session->finished = true;
+      AdoptClientChannel(*session, std::move(done), std::move(out));
       return true;
-    }
-    return true;
-  }
-
-  bool TryBeginOnCircuitHop(Session& session, const std::string& outbound_json,
-                            const MediaRelayBundlePhase wait_phase) {
-    if (!circuit_hops) {
-      return false;
-    }
-    auto hop = circuit_hops->Find(session.hop_peer_key, kMediaRelayProtocolId);
-    if (!hop || !hop->session) {
-      return false;
-    }
-    session.channel = hop->session;
-    session.circuit_backed = true;
-    const MediaRelaySessionId id = session.id;
-    session.channel->SetFrameHandler([this, id](Roe<std::vector<uint8_t>> frame) {
-      std::lock_guard lock(mu);
-      return HandleSessionFrame(id, std::move(frame));
-    });
-    session.phase = wait_phase;
-    if (!session.channel->EnqueueOutbound(JsonToBody(outbound_json))) {
-      TearDown(session, false, Failure::Of(Err::ChannelFailed, "failed to send on circuit hop"));
     }
     return true;
   }
@@ -789,9 +810,6 @@ struct MediaRelayClientCoordinator::Impl {
     req.set("video_levels", VideoLevelsToJson(request.video_levels));
     req.set("video_parallel", int64_t{request.video_parallel});
     const std::string json = common::DumpJson(req);
-    if (TryBeginOnCircuitHop(session, json, MediaRelayBundlePhase::WaitQuote)) {
-      return;
-    }
     OpenAndSend(session, json, MediaRelayBundlePhase::WaitQuote, "failed to send quote");
   }
 
@@ -802,9 +820,6 @@ struct MediaRelayClientCoordinator::Impl {
     accept_req.set("op", "accept");
     accept_req.set("quote_id", session.quote_id);
     const std::string json = common::DumpJson(accept_req);
-    if (TryBeginOnCircuitHop(session, json, MediaRelayBundlePhase::WaitAccept)) {
-      return;
-    }
     OpenAndSend(session, json, MediaRelayBundlePhase::WaitAccept, "failed to send accept");
   }
 
@@ -814,8 +829,9 @@ struct MediaRelayClientCoordinator::Impl {
     std::optional<Failure> why;
     if (!started.load(std::memory_order_acquire)) {
       why = Failure::Of(Err::NotStarted, "media-relay service not started");
-    } else if (!runtime->Links().GetLinkSnapshot(hop_peer_key).has_endpoint &&
-               !(circuit_hops && circuit_hops->Find(hop_peer_key, kMediaRelayProtocolId))) {
+    } else if (const auto link = runtime->Links().GetLinkSnapshot(hop_peer_key);
+               !link.has_endpoint && link.phase != pp::amp::PeerLinkPhase::Connected) {
+      // Neither an address nor a link (a hop behind a circuit is reached by a link nested through it).
       why = Failure::Of(Err::HopNoEndpoint, "hop peer endpoint not registered");
     }
     if (!why) {
@@ -862,11 +878,6 @@ bool MediaRelayClientCoordinator::IsStarted() const {
 
 void MediaRelayClientCoordinator::SetPeerLoadBook(PeerLoadBook* book) {
   impl_->loads.store(book, std::memory_order_release);
-}
-
-void MediaRelayClientCoordinator::SetCircuitHopRegistry(AmpCircuitHopRegistry* hops) {
-  std::lock_guard lock(impl_->mu);
-  impl_->circuit_hops = hops;
 }
 
 void MediaRelayClientCoordinator::AbortInflight() {
@@ -1077,15 +1088,13 @@ MediaRelayRoe<void> MediaRelayClientCoordinator::Subscribe(const uint32_t stream
 
 MediaRelayRoe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame& frame) {
   std::shared_ptr<pp::amp::ChannelSession> channel;
-  bool fallback = false;
   {
     std::lock_guard lock(impl_->mu);
-    // The data lane when it is open (best effort: a lost packet costs this
-    // frame only), else the control channel.
-    channel = impl_->client_.data_channel ? impl_->client_.data_channel : impl_->client_.channel;
-    fallback = channel && !impl_->client_.data_channel;
-    if (fallback && impl_->client_.lane_expected) {
-      // The lane is opening or reopening: lost now, rather than late on the reliable channel.
+    // The data lane only (best effort: a lost packet costs this frame only). Never the control channel: there a
+    // frame is resent and waits behind the ones before it, arriving later and later (V065).
+    channel = impl_->client_.data_channel;
+    if (!channel && impl_->client_.channel) {
+      // Attached to a remote hop, the lane opening or reopening: lost now, never late.
       impl_->lane_wait_drops.fetch_add(1, std::memory_order_relaxed);
       return {};
     }
@@ -1103,19 +1112,7 @@ MediaRelayRoe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame&
   // (HandleClientTransportLost) takes `mu` — enqueueing under it deadlocked the sending thread
   // and then the mesh pump. Order: io lock → mu, as the io tick.
   const std::vector<uint8_t> body = EncodeMediaDataFrame(frame);
-  bool late = false;
-  const bool queued = runtime_.WithIoLock([&]() {
-    // On the reliable control channel a frame waits behind all it queued: past the deadline, it is lost instead.
-    if (fallback && ShouldDropLateFallbackFrame(channel->MuxBacklog().oldest_age_ms, frame.channel_type)) {
-      late = true;
-      return true;
-    }
-    return channel->EnqueueOutbound(body);
-  });
-  if (late) {
-    impl_->late_drops.fetch_add(1, std::memory_order_relaxed);
-    return {};
-  }
+  const bool queued = runtime_.WithIoLock([&]() { return channel->EnqueueOutbound(body); });
   if (!queued) {
     return Failure::Of(Err::NotAttached, "not attached");
   }
@@ -1152,7 +1149,7 @@ void MediaRelayClientCoordinator::Detach() {
 
 bool MediaRelayClientCoordinator::IsAttached() const {
   std::lock_guard lock(impl_->mu);
-  return impl_->client_.channel != nullptr || (impl_->local_server && impl_->local_server->IsLocalAttached());
+  return impl_->RemoteAttachedLocked() || (impl_->local_server && impl_->local_server->IsLocalAttached());
 }
 
 bool MediaRelayClientCoordinator::IsLocalHopAttached() const {
@@ -1169,10 +1166,8 @@ MediaRelayClientHealth MediaRelayClientCoordinator::HealthSnapshot() const {
   std::string relay_key;
   {
     std::lock_guard lock(impl_->mu);
-    health.attached =
-        impl_->client_.channel != nullptr || (impl_->local_server && impl_->local_server->IsLocalAttached());
+    health.attached = impl_->RemoteAttachedLocked() || (impl_->local_server && impl_->local_server->IsLocalAttached());
     health.data_lane = impl_->client_.data_channel != nullptr;
-    health.late_drops = impl_->late_drops.load(std::memory_order_relaxed);
     health.lane_wait_drops = impl_->lane_wait_drops.load(std::memory_order_relaxed);
     if (impl_->client_.channel) {
       relay_key = impl_->client_.hop_peer_key;

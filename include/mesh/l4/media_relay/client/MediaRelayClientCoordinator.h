@@ -1,7 +1,6 @@
 #pragma once
 
 #include "amp/link/MeshRuntime.h"
-#include "mesh/l4/circuit/client/AmpCircuitHopRegistry.h"
 #include "mesh/l4/media_relay/MediaRelayBundleLogic.h"
 #include "mesh/l4/media_relay/MediaRelayErr.h"
 #include "mesh/l4/media_relay/MediaRelayTypes.h"
@@ -19,8 +18,9 @@ namespace pp::mesh {
 /**
  * Client side of `/pp-mesh/datagram-relay/1.0.0` on MeshRuntime ([A022]): outbound quote and
  * accept → attach bundles to a hop, then the one attached client session (subscribe / send /
- * frames / loss observers). Circuit-backed hops adopt sessions from AmpCircuitHopRegistry (D9 step
- * 5c). MeshHost owns one when Amp is up; `AmpMediaRelayClient` adapts it to `IMediaRelayClient`
+ * frames / loss observers). Both its channels — control (reliable) and the data lane (best effort, all
+ * media) — ride the hop's link: direct, or nested through a circuit relay when the hop is reachable only
+ * that way (reached before the quote, ICircuitHopReach). MeshHost owns one when Amp is up; `AmpMediaRelayClient` adapts it to `IMediaRelayClient`
  * ([A020]).
  *
  * `local_server` (optional, must outlive this) is this node's `MediaRelayServer`: when the hop is
@@ -50,7 +50,6 @@ public:
   /** Where the hops' own group-call levels go as their replies say them
    * (MeshHost's PeerLoadBook). */
   void SetPeerLoadBook(PeerLoadBook* book);
-  void SetCircuitHopRegistry(AmpCircuitHopRegistry* hops);
 
   MediaRelaySessionId StartQuote(const std::string& hop_peer_key, const MediaRelayQuoteRequest& request,
                                  QuoteFinished on_finished, int timeout_ms = 8000);

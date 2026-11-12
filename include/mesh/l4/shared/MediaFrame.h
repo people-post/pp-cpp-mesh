@@ -35,16 +35,17 @@ inline constexpr size_t kMediaFrameTagBytes = 16;
 inline constexpr size_t kMediaFrameNonceBytes = 24;
 
 /**
- * The relay QoS class of a channel's frames (not a codec). Only LatestLossy changes a hop's behaviour (it drops stale
- * non-keyframes); ReliableOrdered is a label, forwarded best effort like the rest (MEDIA_CHANNELS.md).
+ * What a relay may do with a channel's frames (its QoS class, not a codec), two bits of the header. Every frame rides
+ * best effort; this says only whether a relay may drop a stale one (MEDIA_CHANNELS.md § Channel type).
  */
 enum class MediaChannelType : uint8_t {
-  ReliableOrdered = 0,
+  /** Forwarded as it came, every frame (audio). */
+  Forward = 0,
+  /** A non-keyframe older than one a subscriber already has is dropped (video). */
   LatestLossy = 1,
-  BestEffort = 2,
 };
 
-/** The QoS class a sender stamps on a channel's frames: audio ReliableOrdered (a label), video LatestLossy. */
+/** The class a sender stamps on a channel's frames: audio Forward, video LatestLossy. */
 MediaChannelType MediaChannelTypeFor(uint16_t channel_id);
 
 /** One frame: the clear header's fields, and `payload` — sealed (ciphertext + tag) on the wire, opaque to a hop. */
@@ -52,7 +53,7 @@ struct MediaDataFrame {
   uint32_t stream_id = 0;
   /** A media channel (MediaChannel.h): 0 audio, 0x11–0x1F video levels; one byte on the wire. */
   uint16_t channel_id = 0;
-  MediaChannelType channel_type = MediaChannelType::BestEffort;
+  MediaChannelType channel_type = MediaChannelType::Forward;
   uint32_t seq = 0;
   /** 1 on a keyframe (video), else 0. */
   uint8_t mark = 0;

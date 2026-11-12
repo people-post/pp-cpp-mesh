@@ -10,7 +10,7 @@ pp_mesh_add_folder_library(media_relay
     client/MediaRelayClientCoordinator.cpp
     client/AmpMediaRelayClient.cpp
     
-  DEPS circuit shared)
+  DEPS shared)
 
 if(PP_MESH_BUILD_TESTS)
   add_subdirectory(tests)
