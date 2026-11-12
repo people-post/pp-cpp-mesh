@@ -29,8 +29,9 @@ struct LanMdnsDiscoveredPeer {
 
 /**
  * Minimal multicast DNS announcer/browser for contacts-only LAN discovery (ns2).
- * Announces the local PeerId (TXT `peer=`) and the Amp UDP listen port (SRV) when listening;
- * browse results are filtered upstream.
+ * Announces the local PeerId (TXT `peer=`), its amp wire version (TXT `wire=`) and the Amp UDP listen port (SRV)
+ * when listening; an announcement of another wire version, or one that says none, is not a browse result. Browse
+ * results are filtered upstream.
  */
 class LanMdnsDiscovery {
 public:
@@ -54,10 +55,10 @@ public:
   void SetAdvertisement(const std::string& peer_id_base58, int amp_udp_port,
                         const std::vector<std::string>& lan_ipv4_addrs);
 
-  /** Build `/ip4/…/udp/…/adp/1.0.0/p2p/…` from a browse result (the legacy token: the TXT record says no wire version). */
+  /** Build `/ip4/…/udp/…/adp/<wire>/p2p/…` from a browse result (always of our wire version). */
   static std::optional<std::string> BuildAdpMultiaddr(const LanMdnsDiscoveredPeer& peer);
 
-  /** The announcement packet (PTR, SRV with the Amp UDP port, TXT `peer=`, A per address); empty when incomplete. */
+  /** The announcement packet (PTR, SRV with the Amp UDP port, TXT `peer=` `wire=`, A per address); empty when incomplete. */
   static std::vector<uint8_t> EncodeAnnouncement(const std::string& peer_id_base58, int amp_udp_port,
                                                  const std::vector<std::string>& lan_ipv4_addrs);
   /** The peers an mDNS packet announces (each with an address and a port). */

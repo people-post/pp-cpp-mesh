@@ -274,7 +274,7 @@ TEST(AmpDhtProtocolTest, ARecordIsPublishedAtTheClosestBehindTheGate) {
   const int64_t first_seq = node_r.LocalRecord(h->peer_id_b)->seq;
 
   // New addresses: published again without waiting for ttl / 2.
-  const std::string moved_to = "/ip4/198.51.100.7/udp/9/adp/1.0.0/p2p/" + h->peer_id_b;
+  const std::string moved_to = "/ip4/198.51.100.7/udp/9/adp/2/p2p/" + h->peer_id_b;
   {
     std::lock_guard lock(b_addrs_mu);
     b_addrs = {h->ma_b, moved_to};

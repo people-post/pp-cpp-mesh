@@ -23,7 +23,7 @@ TEST(DhtRecordCodecTest, SignVerifyRoundTrip) {
   record.seq = 3;
   record.ttl_seconds = 3600;
   record.issued_at = 1'700'000'000;
-  record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/1.0.0/p2p/12D3KooWTestPeer"};
+  record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/2/p2p/12D3KooWTestPeer"};
 
   auto signed_record = SignPeerRoutingRecord(record, keys->secret_key);
   ASSERT_TRUE(static_cast<bool>(signed_record));
@@ -42,7 +42,7 @@ TEST(DhtRecordCodecTest, SignVerifyRoundTripWithCapabilities) {
   record.seq = 4;
   record.ttl_seconds = 3600;
   record.issued_at = 1'700'000'100;
-  record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/1.0.0/p2p/12D3KooWTestPeer"};
+  record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/2/p2p/12D3KooWTestPeer"};
   record.capabilities = PeerRoutingCapabilities{.circuit_relay = true, .media_relay = true};
 
   auto signed_record = SignPeerRoutingRecord(record, keys->secret_key);
@@ -71,7 +71,7 @@ TEST(DhtRecordCodecTest, ARecordWithItsKeyChecksOnItsOwn) {
   record.seq = 1;
   record.ttl_seconds = 3600;
   record.issued_at = 1'700'000'000;
-  record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/1.0.0/p2p/" + record.peer_id};
+  record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/2/p2p/" + record.peer_id};
   auto signed_record = SignPeerRoutingRecord(record, keys->secret_key);
   ASSERT_TRUE(static_cast<bool>(signed_record));
 
@@ -88,7 +88,7 @@ TEST(DhtRecordCodecTest, ARecordWithItsKeyChecksOnItsOwn) {
   EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(wrong_key));
 
   PeerRoutingRecord altered = *parsed; // the right key, the signed fields changed
-  altered.multiaddrs = {"/ip4/198.51.100.9/udp/443/adp/1.0.0/p2p/" + record.peer_id};
+  altered.multiaddrs = {"/ip4/198.51.100.9/udp/443/adp/2/p2p/" + record.peer_id};
   EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(altered));
 }
 
@@ -96,7 +96,7 @@ TEST(DhtRecordCodecTest, ARecordWithItsKeyChecksOnItsOwn) {
 TEST(DhtRecordCodecTest, CloserPeersKeepOnlyWellFormedHints) {
   const std::string a = "QmTWkSQAcGsETogTFKrPJ3GzdHG3vP9UwXVyp2HeK9YBvP";
   const std::string b = "QmeKYz9h9AozszFqAkRzwxx4xGheEMYRVrLHuh7EMG7Bie";
-  const auto ma = [](const std::string& peer) { return "/ip4/203.0.113.7/udp/443/adp/1.0.0/p2p/" + peer; };
+  const auto ma = [](const std::string& peer) { return "/ip4/203.0.113.7/udp/443/adp/2/p2p/" + peer; };
   common::Object response;
   response.set("closer_peers", DhtCloserPeersToArray({
                                    {a, ma(a)},
@@ -119,7 +119,7 @@ TEST(DhtRecordCodecTest, RejectsExpiredRecord) {
   record.seq = 1;
   record.ttl_seconds = 10;
   record.issued_at = 1;
-  record.multiaddrs = {"/ip4/203.0.113.2/udp/443/adp/1.0.0/p2p/12D3KooWExpired"};
+  record.multiaddrs = {"/ip4/203.0.113.2/udp/443/adp/2/p2p/12D3KooWExpired"};
   EXPECT_TRUE(PeerRoutingRecordExpired(record, 1000));
 }
 
@@ -131,7 +131,7 @@ TEST(DhtRecordCodecTest, OverflowingIssuedAtPlusTtlIsExpired) {
   record.seq = 1;
   record.ttl_seconds = std::numeric_limits<int64_t>::max();
   record.issued_at = std::numeric_limits<int64_t>::max() - 5;
-  record.multiaddrs = {"/ip4/203.0.113.3/udp/443/adp/1.0.0/p2p/12D3KooWOverflow"};
+  record.multiaddrs = {"/ip4/203.0.113.3/udp/443/adp/2/p2p/12D3KooWOverflow"};
   EXPECT_TRUE(PeerRoutingRecordExpired(record, 1000));
 }
 
@@ -142,7 +142,7 @@ TEST(DhtRecordStoreTest, ClampsEffectiveExpiryWithoutRewritingSignedTtl) {
   record.seq = 1;
   record.ttl_seconds = 365 * 24 * 3600; // one year — far past the store's 24h cap
   record.issued_at = static_cast<int64_t>(std::time(nullptr)) - 2 * 24 * 3600; // issued 2 days ago
-  record.multiaddrs = {"/ip4/203.0.113.4/udp/443/adp/1.0.0/p2p/12D3KooWLongTtl"};
+  record.multiaddrs = {"/ip4/203.0.113.4/udp/443/adp/2/p2p/12D3KooWLongTtl"};
 
   // Not expired under the record's own (signed) one-year ttl, but 2 elapsed days is already
   // past the store's 24h effective cap: Put must reject it rather than rewriting ttl_seconds
@@ -158,7 +158,7 @@ TEST(DhtRecordStoreTest, FreshRecordWithLongTtlIsStillLive) {
   record.seq = 1;
   record.ttl_seconds = 365 * 24 * 3600;
   record.issued_at = static_cast<int64_t>(std::time(nullptr));
-  record.multiaddrs = {"/ip4/203.0.113.6/udp/443/adp/1.0.0/p2p/12D3KooWFreshLongTtl"};
+  record.multiaddrs = {"/ip4/203.0.113.6/udp/443/adp/2/p2p/12D3KooWFreshLongTtl"};
 
   ASSERT_TRUE(store.Put(record));
   EXPECT_TRUE(store.Get(record.peer_id).has_value());
@@ -176,7 +176,7 @@ TEST(DhtRecordStoreTest, RejectsNewPeerWhenFullOfLiveRecords) {
     record.seq = 1;
     record.ttl_seconds = 60;
     record.issued_at = now;
-    record.multiaddrs = {"/ip4/203.0.113.5/udp/443/adp/1.0.0/p2p/12D3KooWBulk" + std::to_string(i)};
+    record.multiaddrs = {"/ip4/203.0.113.5/udp/443/adp/2/p2p/12D3KooWBulk" + std::to_string(i)};
     EXPECT_TRUE(store.Put(record));
   }
   EXPECT_EQ(store.Size(), 50u);
@@ -190,7 +190,7 @@ TEST(DhtRecordCodecTest, RejectsMultiaddrPeerMismatch) {
   object.set("ttl_seconds", int64_t{3600});
   object.set("issued_at", int64_t{1'700'000'000});
   object.set("multiaddrs",
-             common::makeArray(std::vector<common::Value>{"/ip4/1.2.3.4/udp/443/adp/1.0.0/p2p/12D3KooWPeerB"}));
+             common::makeArray(std::vector<common::Value>{"/ip4/1.2.3.4/udp/443/adp/2/p2p/12D3KooWPeerB"}));
   object.set("signature_b64", "AA==");
   object.set("signature_alg", "ml-dsa-65");
 

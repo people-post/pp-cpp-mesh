@@ -13,7 +13,7 @@ namespace {
 constexpr const char* kPeer = "12D3KooWPeerListenBook";
 
 std::string Ma(const std::string& host, int port) {
-  return "/ip4/" + host + "/udp/" + std::to_string(port) + "/adp/1.0.0/p2p/" + kPeer;
+  return "/ip4/" + host + "/udp/" + std::to_string(port) + "/adp/2/p2p/" + kPeer;
 }
 
 // Without a mesh (no dial registry): the listen book still ranks and merges, the best dialable

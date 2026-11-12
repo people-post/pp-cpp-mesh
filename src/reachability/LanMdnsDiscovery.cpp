@@ -1,5 +1,6 @@
 #include "mesh/reachability/LanMdnsDiscovery.h"
 
+#include "amp/link/AdpMultiaddr.h"
 #include "amp/link/Types.h"
 #include "mesh/reachability/LanMdnsSocket.h"
 
@@ -15,6 +16,9 @@ namespace {
 constexpr uint16_t kDnsTypePtr = 12;
 constexpr uint16_t kDnsTypeSrv = 33;
 constexpr uint16_t kDnsTypeTxt = 16;
+/** TXT strings: the announcer's PeerId and its amp wire version (the `/adp/<N>/` an address of it says). */
+constexpr const char* kTxtPeerPrefix = "peer=";
+constexpr const char* kTxtWirePrefix = "wire=";
 constexpr uint16_t kDnsTypeA = 1;
 constexpr uint16_t kDnsClassIn = 1;
 constexpr int kMdnsPort = 5353;
@@ -210,12 +214,14 @@ std::vector<uint8_t> BuildAnnouncementPacket(const std::string& peer_id, int amp
     }
   }
 
-  // TXT peer id
+  // TXT: the peer id and our wire version
   {
     std::vector<uint8_t> txt;
-    const std::string peer_line = "peer=" + peer_id;
-    txt.push_back(static_cast<uint8_t>(peer_line.size()));
-    txt.insert(txt.end(), peer_line.begin(), peer_line.end());
+    for (const std::string& line :
+         {std::string(kTxtPeerPrefix) + peer_id, std::string(kTxtWirePrefix) + pp::amp::AdpMultiaddrVersionToken()}) {
+      txt.push_back(static_cast<uint8_t>(line.size()));
+      txt.insert(txt.end(), line.begin(), line.end());
+    }
     AppendRecord(packet, instance, kDnsTypeTxt, 120, txt, true);
     answer_count++;
   }
@@ -238,8 +244,10 @@ struct TxtPeerFields {
   std::string peer_id;
 };
 
+/** A TXT record's peer id, when it says our wire version (one that says another, or none, is not dialed). */
 std::optional<TxtPeerFields> ParseTxtPeerFields(const std::vector<uint8_t>& rdata) {
   TxtPeerFields out;
+  bool our_wire = false;
   size_t pos = 0;
   while (pos < rdata.size()) {
     const uint8_t len = rdata[pos++];
@@ -248,12 +256,13 @@ std::optional<TxtPeerFields> ParseTxtPeerFields(const std::vector<uint8_t>& rdat
     }
     const std::string line(reinterpret_cast<const char*>(rdata.data() + pos), len);
     pos += len;
-    constexpr std::string_view kPeerPrefix = "peer=";
-    if (line.rfind(std::string(kPeerPrefix), 0) == 0) {
-      out.peer_id = line.substr(kPeerPrefix.size());
+    if (line.rfind(kTxtPeerPrefix, 0) == 0) {
+      out.peer_id = line.substr(std::string_view(kTxtPeerPrefix).size());
+    } else if (line.rfind(kTxtWirePrefix, 0) == 0) {
+      our_wire = line.substr(std::string_view(kTxtWirePrefix).size()) == pp::amp::AdpMultiaddrVersionToken();
     }
   }
-  if (out.peer_id.empty()) {
+  if (out.peer_id.empty() || !our_wire) {
     return std::nullopt;
   }
   return out;
@@ -348,9 +357,9 @@ std::optional<std::string> LanMdnsDiscovery::BuildAdpMultiaddr(const LanMdnsDisc
   if (peer.peer_id_base58.empty() || peer.host_ip.empty() || peer.amp_udp_port <= 0) {
     return std::nullopt;
   }
-  // The TXT record says no wire version: the legacy token says none either (dialed; version negotiation decides).
-  return "/ip4/" + peer.host_ip + "/udp/" + std::to_string(peer.amp_udp_port) + "/adp/" +
-         pp::amp::kAdpMultiaddrLegacyVersion + "/p2p/" + peer.peer_id_base58;
+  // Only an announcement of our wire version is parsed (its TXT `wire=`), so the address says ours.
+  return "/ip4/" + peer.host_ip + pp::amp::AdpUdpSegment(static_cast<uint16_t>(peer.amp_udp_port)) + "/p2p/" +
+         peer.peer_id_base58;
 }
 
 void LanMdnsDiscovery::ThreadMain() {

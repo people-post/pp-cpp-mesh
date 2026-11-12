@@ -117,7 +117,7 @@ TEST(DialBackServerClientTest, ProbeRejectsTargetNotMatchingObservedHost) {
   // must not become an open "dial anywhere for anyone" relay for an arbitrary third party.
   // ServeProbe drops it during host filtering (before it ever reaches the dial walk), so the
   // filtered set is empty and the probe reports it as such (see ProbeFiltersToObservedHost...).
-  const std::string third_party = "/ip4/203.0.113.9/udp/9999/adp/1.0.0/p2p/" + harness->peer_id_a;
+  const std::string third_party = "/ip4/203.0.113.9/udp/9999/adp/2/p2p/" + harness->peer_id_a;
   auto probed = client.Probe("seed", {third_party}, 2000);
   ASSERT_TRUE(static_cast<bool>(probed)) << probed.error().message;
   EXPECT_FALSE(probed->ok);
@@ -147,7 +147,7 @@ TEST(DialBackServerClientTest, ProbeFiltersToObservedHostBeforeCappingTargetCoun
 
   std::vector<std::string> targets;
   for (int i = 0; i < 4; ++i) {
-    targets.push_back("/ip4/203.0.113." + std::to_string(9 + i) + "/udp/9999/adp/1.0.0/p2p/" + harness->peer_id_a);
+    targets.push_back("/ip4/203.0.113." + std::to_string(9 + i) + "/udp/9999/adp/2/p2p/" + harness->peer_id_a);
   }
   targets.push_back(harness->ma_a); // the one target that matches the client's observed host
 
@@ -213,7 +213,7 @@ TEST(DialBackServerClientTest, GlobalV6TargetIsDialedOverAV4Link) {
   seed.Start();
   client.Start();
 
-  const std::string global_v6 = "/ip6/2001:4860:4860::8888/udp/9999/adp/1.0.0/p2p/" + harness->peer_id_a;
+  const std::string global_v6 = "/ip6/2001:4860:4860::8888/udp/9999/adp/2/p2p/" + harness->peer_id_a;
   auto probed = client.Probe("seed", {global_v6}, 2000);
   ASSERT_TRUE(static_cast<bool>(probed)) << probed.error().message;
   // Nothing answers at that address in the harness, so the dial itself fails — but the seed tried

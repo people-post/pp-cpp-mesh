@@ -20,58 +20,58 @@ TEST(MeshHopDialTest, RelayAdmissionAllowsContactOrPublicStrangers) {
 }
 
 TEST(MeshHopDialTest, MultiaddrHasPrivateIpv4Host) {
-  EXPECT_TRUE(MultiaddrHasPrivateIpv4Host("/ip4/192.168.1.132/udp/59286/adp/1.0.0/p2p/x"));
+  EXPECT_TRUE(MultiaddrHasPrivateIpv4Host("/ip4/192.168.1.132/udp/59286/adp/2/p2p/x"));
   EXPECT_TRUE(MultiaddrHasPrivateIpv4Host("/ip4/10.0.0.1/tcp/18517/p2p/x"));
   EXPECT_TRUE(MultiaddrHasPrivateIpv4Host("/ip4/172.16.0.5/tcp/1/p2p/x"));
-  EXPECT_FALSE(MultiaddrHasPrivateIpv4Host("/ip4/54.198.185.139/udp/4001/adp/1.0.0/p2p/x"));
+  EXPECT_FALSE(MultiaddrHasPrivateIpv4Host("/ip4/54.198.185.139/udp/4001/adp/2/p2p/x"));
   EXPECT_FALSE(MultiaddrHasPrivateIpv4Host("/ip4/1.2.3.4/tcp/443/p2p/x"));
   EXPECT_FALSE(MultiaddrHasPrivateIpv4Host(""));
   // Global /ip6 is not a private IPv4 host (Wide PreferLocal / public-hop filters).
-  EXPECT_FALSE(MultiaddrHasPrivateIpv4Host("/ip6/2001:db8::1/udp/4001/adp/1.0.0/p2p/x"));
-  EXPECT_FALSE(MultiaddrHasPrivateIpv4Host("/ip6/::1/udp/4001/adp/1.0.0/p2p/x"));
-  EXPECT_FALSE(MultiaddrHasPrivateIpv4Host("/ip6/fe80::1/udp/4001/adp/1.0.0/p2p/x"));
+  EXPECT_FALSE(MultiaddrHasPrivateIpv4Host("/ip6/2001:db8::1/udp/4001/adp/2/p2p/x"));
+  EXPECT_FALSE(MultiaddrHasPrivateIpv4Host("/ip6/::1/udp/4001/adp/2/p2p/x"));
+  EXPECT_FALSE(MultiaddrHasPrivateIpv4Host("/ip6/fe80::1/udp/4001/adp/2/p2p/x"));
 }
 
 TEST(MeshHopDialTest, MultiaddrHasPublicDialHost) {
-  EXPECT_TRUE(MultiaddrHasPublicDialHost("/ip4/203.0.113.10/udp/1/adp/1.0.0/p2p/x"));
-  EXPECT_TRUE(MultiaddrHasPublicDialHost("/ip6/2001:db8::1/udp/1/adp/1.0.0/p2p/x"));
-  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip4/10.0.0.1/udp/1/adp/1.0.0/p2p/x"));
-  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip4/127.0.0.1/udp/1/adp/1.0.0/p2p/x"));
-  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip6/fe80::1/udp/1/adp/1.0.0/p2p/x"));
-  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip6/fd12::1/udp/1/adp/1.0.0/p2p/x"));
-  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip6/::/udp/1/adp/1.0.0/p2p/x"));
-  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip6/::1/udp/1/adp/1.0.0/p2p/x"));
+  EXPECT_TRUE(MultiaddrHasPublicDialHost("/ip4/203.0.113.10/udp/1/adp/2/p2p/x"));
+  EXPECT_TRUE(MultiaddrHasPublicDialHost("/ip6/2001:db8::1/udp/1/adp/2/p2p/x"));
+  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip4/10.0.0.1/udp/1/adp/2/p2p/x"));
+  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip4/127.0.0.1/udp/1/adp/2/p2p/x"));
+  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip6/fe80::1/udp/1/adp/2/p2p/x"));
+  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip6/fd12::1/udp/1/adp/2/p2p/x"));
+  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip6/::/udp/1/adp/2/p2p/x"));
+  EXPECT_FALSE(MultiaddrHasPublicDialHost("/ip6/::1/udp/1/adp/2/p2p/x"));
   EXPECT_FALSE(MultiaddrHasPublicDialHost(""));
 }
 
 TEST(MeshHopDialTest, CircuitHopDialBookAllowsRegister) {
   // CollectDialableCircuitRelayIds / WarmBootstrapSeedSessions gate (dogfood sendto poison).
-  EXPECT_TRUE(CircuitHopDialBookAllowsRegister("/ip4/203.0.113.10/udp/4001/adp/1.0.0/p2p/hop"));
-  EXPECT_TRUE(CircuitHopDialBookAllowsRegister("/ip6/2001:db8::1/udp/4001/adp/1.0.0/p2p/hop"));
-  EXPECT_FALSE(CircuitHopDialBookAllowsRegister("/ip4/10.0.0.1/udp/4001/adp/1.0.0/p2p/hop"));
-  EXPECT_FALSE(CircuitHopDialBookAllowsRegister("/ip4/192.168.1.5/udp/4001/adp/1.0.0/p2p/hop"));
-  EXPECT_FALSE(CircuitHopDialBookAllowsRegister("/ip4/127.0.0.1/udp/4001/adp/1.0.0/p2p/hop"));
+  EXPECT_TRUE(CircuitHopDialBookAllowsRegister("/ip4/203.0.113.10/udp/4001/adp/2/p2p/hop"));
+  EXPECT_TRUE(CircuitHopDialBookAllowsRegister("/ip6/2001:db8::1/udp/4001/adp/2/p2p/hop"));
+  EXPECT_FALSE(CircuitHopDialBookAllowsRegister("/ip4/10.0.0.1/udp/4001/adp/2/p2p/hop"));
+  EXPECT_FALSE(CircuitHopDialBookAllowsRegister("/ip4/192.168.1.5/udp/4001/adp/2/p2p/hop"));
+  EXPECT_FALSE(CircuitHopDialBookAllowsRegister("/ip4/127.0.0.1/udp/4001/adp/2/p2p/hop"));
   EXPECT_FALSE(CircuitHopDialBookAllowsRegister(""));
 }
 
 TEST(MeshHopDialTest, CircuitHopMultiaddrIsUdpDialable) {
   // Dogfood 084055: capability ingest Preferred=/ip4/0.0.0.0 → sendto. Skip only wildcard bind.
   EXPECT_FALSE(CircuitHopMultiaddrIsUdpDialable(""));
-  EXPECT_FALSE(CircuitHopMultiaddrIsUdpDialable("/ip4/0.0.0.0/udp/53523/adp/1.0.0/p2p/hop"));
-  EXPECT_FALSE(CircuitHopMultiaddrIsUdpDialable("/ip6/::/udp/4001/adp/1.0.0/p2p/hop"));
-  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip4/203.0.113.10/udp/4001/adp/1.0.0/p2p/hop"));
-  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip4/10.0.0.1/udp/4001/adp/1.0.0/p2p/hop"));
-  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip4/192.168.1.5/udp/4001/adp/1.0.0/p2p/hop"));
-  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip4/127.0.0.1/udp/4001/adp/1.0.0/p2p/hop"));
-  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip6/2001:db8::1/udp/4001/adp/1.0.0/p2p/hop"));
-  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip6/::1/udp/4001/adp/1.0.0/p2p/hop"));
+  EXPECT_FALSE(CircuitHopMultiaddrIsUdpDialable("/ip4/0.0.0.0/udp/53523/adp/2/p2p/hop"));
+  EXPECT_FALSE(CircuitHopMultiaddrIsUdpDialable("/ip6/::/udp/4001/adp/2/p2p/hop"));
+  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip4/203.0.113.10/udp/4001/adp/2/p2p/hop"));
+  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip4/10.0.0.1/udp/4001/adp/2/p2p/hop"));
+  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip4/192.168.1.5/udp/4001/adp/2/p2p/hop"));
+  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip4/127.0.0.1/udp/4001/adp/2/p2p/hop"));
+  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip6/2001:db8::1/udp/4001/adp/2/p2p/hop"));
+  EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/ip6/::1/udp/4001/adp/2/p2p/hop"));
   EXPECT_TRUE(CircuitHopMultiaddrIsUdpDialable("/memory/1/p2p/hop"));
 }
 
 TEST(MeshHopDialTest, PreferredDialMultiaddrPrefersGlobalIpv6) {
-  const std::string lan = "/ip4/192.168.1.10/udp/4001/adp/1.0.0/p2p/12D3KooWLan";
-  const std::string pub4 = "/ip4/203.0.113.10/udp/4001/adp/1.0.0/p2p/12D3KooWPub";
-  const std::string v6 = "/ip6/2001:db8::9/udp/4001/adp/1.0.0/p2p/12D3KooWIpv6";
+  const std::string lan = "/ip4/192.168.1.10/udp/4001/adp/2/p2p/12D3KooWLan";
+  const std::string pub4 = "/ip4/203.0.113.10/udp/4001/adp/2/p2p/12D3KooWPub";
+  const std::string v6 = "/ip6/2001:db8::9/udp/4001/adp/2/p2p/12D3KooWIpv6";
   EXPECT_EQ(PreferredDialMultiaddr({lan, pub4, v6}), v6);
   EXPECT_EQ(PreferredDialMultiaddr({lan, pub4}), pub4);
   EXPECT_EQ(PreferredDialMultiaddr({lan}), lan);
