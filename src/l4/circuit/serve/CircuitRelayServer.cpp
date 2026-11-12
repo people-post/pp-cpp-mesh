@@ -477,9 +477,14 @@ struct CircuitRelayServer::Impl {
     }
   }
 
-  void TickDeadlines() {
+  /**
+   * Io tick: tunnels whose link went (a poll, run soon after link drops), far-leg waits and deadlines that passed,
+   * reservations that expired or closed. Returns how soon the next of those deadlines is (kIoTickIdle: none).
+   */
+  std::chrono::milliseconds TickDeadlines() {
     const auto now = Clock::now();
     const int64_t now_ms = SteadyMs(now);
+    auto next = Clock::time_point::max();
     std::vector<CircuitTunnelId> timed_out;
     std::vector<CircuitTunnelId> link_lost;
     std::vector<CircuitTunnelId> far_wait_expired;
@@ -495,22 +500,29 @@ struct CircuitRelayServer::Impl {
           continue;
         }
         // Deadline event for event-driven ServeDial far-leg wait (not a poll-resume).
-        if (tunnel->phase == CircuitTunnelPhase::ServeDial && tunnel->serve_far_wait_deadline_ms != 0 &&
-            now_ms >= tunnel->serve_far_wait_deadline_ms) {
-          far_wait_expired.push_back(tunnel->id);
-          continue;
+        if (tunnel->phase == CircuitTunnelPhase::ServeDial && tunnel->serve_far_wait_deadline_ms != 0) {
+          if (now_ms >= tunnel->serve_far_wait_deadline_ms) {
+            far_wait_expired.push_back(tunnel->id);
+            continue;
+          }
+          next = std::min(next, now + std::chrono::milliseconds(tunnel->serve_far_wait_deadline_ms - now_ms));
         }
         if (tunnel->deadline.time_since_epoch().count() == 0) {
           continue;
         }
-        if (now >= tunnel->deadline && CircuitTunnelPhaseIsActive(tunnel->phase) &&
-            tunnel->phase != CircuitTunnelPhase::Bridging) {
-          timed_out.push_back(tunnel->id);
+        if (CircuitTunnelPhaseIsActive(tunnel->phase) && tunnel->phase != CircuitTunnelPhase::Bridging) {
+          if (now >= tunnel->deadline) {
+            timed_out.push_back(tunnel->id);
+          } else {
+            next = std::min(next, tunnel->deadline);
+          }
         }
       }
       for (auto& [peer_id, res] : reservations) {
         if (now >= res.deadline || !res.session || res.session->IsClosed()) {
           expired_reserves.push_back(peer_id);
+        } else {
+          next = std::min(next, res.deadline);
         }
       }
     }
@@ -559,6 +571,8 @@ struct CircuitRelayServer::Impl {
     // would stay full after the parks ended, with no one asking again.
     std::lock_guard lock(mu);
     (void)PublishLoadLocked(MeshService::Park);
+    return next == Clock::time_point::max() ? pp::amp::MeshRuntime::kIoTickIdle
+                                            : std::chrono::ceil<std::chrono::milliseconds>(next - now);
   }
 
   void ArmBridge(Tunnel& tunnel) {
@@ -984,7 +998,13 @@ void CircuitRelayServer::Start() {
     return;
   }
   impl_->stopped.store(false, std::memory_order_release);
-  impl_->io_tick_id = runtime_.AddIoTick(impl_->lifetime.Bind([impl = impl_.get()] { impl->TickDeadlines(); }));
+  auto tick =
+      impl_->lifetime.Bind([impl = impl_.get()](std::chrono::milliseconds* due) { *due = impl->TickDeadlines(); });
+  impl_->io_tick_id = runtime_.AddIoDueTick([tick = std::move(tick)] {
+    auto due = pp::amp::MeshRuntime::kIoTickIdle; // stopped: nothing due
+    tick(&due);
+    return due;
+  });
   impl_->peer_connected_listener_id_ = runtime_.Links().AddPeerConnectedListener(
       impl_->lifetime.Bind([impl = impl_.get()](const std::string& peer_id) { impl->NotifyFarLegReady(peer_id); }));
   runtime_.Links().SetProtocolHandler(

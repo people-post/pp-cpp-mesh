@@ -8,6 +8,7 @@
 #include "mesh/l4/media_relay/MediaRelayTypes.h"
 #include "mesh/reachability/dial_back/DialBackTypes.h"
 #include "mesh/reachability/punch/PunchTypes.h"
+#include <algorithm>
 #include <array>
 
 #include "mesh/host/MeshPorts.h"
@@ -147,6 +148,7 @@ Roe<void> MeshHost::StartAmpFromConfig(const MeshHostConfig& config) {
   // at once instead of waiting out its request timeout.
   (*stack)->Runtime().SetRefuseUnhandledOpens(true);
   amp_ = std::move(*stack);
+  WatchReceiveErrors();
   ApplyAddressDisclosureToAmp();
   InstallMeshLinkEventLog(amp_->Runtime());
   InstallMeshLinkMetrics(amp_->Runtime(), metrics_);
@@ -175,18 +177,41 @@ void MeshHost::StartOwnedThreads() {
   l4_on_workers_.store(true, std::memory_order_release);
   if (!pump_.IsRunning()) {
     // The pump is the runtime's only driver: a drive from any other thread is refused (and counted). Idle, it waits
-    // on the endpoint's socket, outside the runtime's lock.
+    // on the endpoint's socket, outside the runtime's lock, until the runtime's next deadline; work another thread
+    // puts on the lane that is due sooner wakes it (MeshRuntime::SetWakeHandler).
     pump_.SetIdleWait(
-        [this](const std::chrono::milliseconds most) { (void)amp_->Runtime().GetEndpoint().WaitReadable(most); },
+        [this](const std::chrono::milliseconds most) { return amp_->Runtime().GetEndpoint().WaitReadable(most); },
         [this]() { amp_->Runtime().GetEndpoint().WakeIdleWait(); });
-    pump_.Start([this]() { return PumpTick(); }, MeshPumpThread::kDefaultInterval,
+    amp_->Runtime().SetWakeHandler([this]() { pump_.Wake(); });
+    pump_.Start([this]() { return PumpTick(); }, MeshPumpThread::kMaxIdleWait,
                 [this]() { amp_->Runtime().ClaimDriver(); }, [this]() { amp_->Runtime().ReleaseDriver(); });
   }
 }
 
 void MeshHost::StopOwnedThreads() {
   pump_.Stop();
+  if (amp_) {
+    amp_->Runtime().SetWakeHandler(nullptr);
+  }
   l4_on_workers_.store(false, std::memory_order_release);
+}
+
+void MeshHost::WatchReceiveErrors() {
+  if (amp_) {
+    amp_->GetEndpoint().SetReceiveErrorObserver([this](const Error& error) { OnReceiveError(error); });
+  }
+}
+
+void MeshHost::OnReceiveError(const Error& error) {
+  // On the io lane (inside the drive). A dead socket fails every round: one check (and log line) now and then.
+  const int64_t now = amp_ ? amp_->GetEndpoint().GetClock().NowMs() : 0;
+  if (last_receive_error_check_ms_ != std::numeric_limits<int64_t>::min() &&
+      now - last_receive_error_check_ms_ < kReceiveErrorCheckGap.count()) {
+    return;
+  }
+  last_receive_error_check_ms_ = now;
+  MeshHostLog().warning << "udp receive failed (" << error.message << "); checking the socket";
+  EnsureUdpSocketAlive(UdpSocketCheckReason::ReceiveError);
 }
 
 std::function<void(std::function<void()>)> MeshHost::MakeL4WorkerPost(std::shared_ptr<pp::Executor> executor) const {
@@ -295,10 +320,12 @@ void MeshHost::EnsureAmpL4Coordinators() {
       amp_->Runtime().Links().SetInboundAdmission(
           [this]() { return !pump_saturated_.load(std::memory_order_relaxed); });
     }
-    load_tick_ = amp_->Runtime().AddIoTick([this, sample, gauges, io_busy, udp_drops, udp_rcvbuf, refused_busy]() {
+    // Once a second (it samples a second's busy share and drops), whether or not anything else is due.
+    load_tick_ = amp_->Runtime().AddIoDueTick([this, sample, gauges, io_busy, udp_drops, udp_rcvbuf,
+                                               refused_busy]() -> std::chrono::milliseconds {
       const int64_t now = PeerLoadBook::NowMs();
       if (now - sample->at_ms < 1000 || !amp_) {
-        return;
+        return std::chrono::milliseconds(std::clamp<int64_t>(1000 - (now - sample->at_ms), 1, 1000));
       }
       const double seconds = sample->at_ms == 0 ? 1.0 : static_cast<double>(now - sample->at_ms) / 1000.0;
       sample->at_ms = now;
@@ -326,6 +353,7 @@ void MeshHost::EnsureAmpL4Coordinators() {
         g.level->Set(static_cast<double>(own_load_.Level(service)));
         g.pressure->Set(own_load_.Pressure(service));
       }
+      return std::chrono::seconds(1);
     });
   }
   auto io_pump = MakeL4IoPump();
@@ -343,7 +371,10 @@ void MeshHost::EnsureAmpL4Coordinators() {
   if (!amp_dht_) {
     amp_dht_ = std::make_unique<AmpDhtProtocol>(amp_->Runtime(), post_worker);
     // Self-publish when due, on the lane with the rest of the DHT's state.
-    dht_tick_ = amp_->Runtime().AddIoTick([dht = amp_dht_.get()]() { dht->Tick(); });
+    dht_tick_ = amp_->Runtime().AddIoDueTick([dht = amp_dht_.get()]() {
+      dht->Tick();
+      return dht->TickInterval();
+    });
   }
   if (!amp_directory_) {
     amp_directory_ = std::make_unique<AmpDirectoryProtocol>(amp_->Runtime(), io_pump, post_worker);
@@ -470,6 +501,7 @@ void MeshHost::StopAmp() {
   amp_clock_.reset();
   amp_listen_multiaddr_.clear();
   amp_last_error_.clear();
+  last_receive_error_check_ms_ = std::numeric_limits<int64_t>::min();
 }
 
 Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std::string listen_multiaddr,
@@ -481,6 +513,7 @@ Roe<void> MeshHost::AttachAmpStack(std::unique_ptr<pp::amp::AmpStack> stack, std
   // Set before EnsureAmpL4Coordinators: L4 captures MakeL4IoPump (empty under MeshPump).
   prefer_mesh_pump_ = drive == AttachDrive::MeshPump;
   amp_ = std::move(stack);
+  WatchReceiveErrors();
   ApplyAddressDisclosureToAmp();
   amp_->Start();
   amp_listen_multiaddr_ = std::move(listen_multiaddr);
@@ -555,13 +588,19 @@ void MeshHost::Tick() {
   }
 }
 
-bool MeshHost::PumpTick() {
+MeshPumpThread::Turn MeshHost::PumpTick() {
+  MeshPumpThread::Turn turn;
   if (!amp_) {
-    return false;
+    turn.next_due = MeshPumpThread::kMaxIdleWait;
+    return turn;
   }
-  const uint64_t before = amp_->Runtime().GetEndpoint().Stats().rx_datagrams;
-  Tick();
-  return amp_->Runtime().GetEndpoint().Stats().rx_datagrams - before >= pp::adp::kDefaultPumpBudget;
+  // Sole Drive entry under the pump (Tick is the same drive for manual hosts).
+  const pp::amp::DriveResult drive = amp_->Runtime().Drive();
+  turn.received = drive.received;
+  turn.worked = drive.worked;
+  turn.more = drive.received >= pp::adp::kDefaultPumpBudget;
+  turn.next_due = drive.next_due;
+  return turn;
 }
 
 void MeshHost::RunOnLane(const std::function<void()>& task) {

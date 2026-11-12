@@ -216,6 +216,44 @@ TEST_F(UdpSocketProbeTest, ANetworkChangeChecksTheSocketAndReopensADeadOne) {
   host_.SetOnUdpSocketCheck({});
 }
 
+// A receive that fails (iOS's defunct socket says ENOTCONN on every read) checks the socket and reopens a dead one:
+// before, Endpoint::Pump dropped the error and the socket stayed dead until the next network change or foreground.
+TEST_F(UdpSocketProbeTest, AReceiveErrorChecksTheSocketAndReopensADeadOne) {
+  auto io = std::make_shared<DeafDatagramIo>(std::make_shared<pp::adp::MemoryDatagramIo>(hub_, addr_), true);
+  Attach(io);
+  std::optional<UdpSocketCheck> check;
+  host_.SetOnUdpSocketCheck([&check](const UdpSocketCheck& c) { check = c; });
+  for (int i = 0; i < 100 && !check; ++i) {
+    host_.Tick();
+    clock_->Advance(50);
+  }
+  ASSERT_TRUE(check.has_value()) << "the failing receive was told";
+  EXPECT_EQ(check->reason, UdpSocketCheckReason::ReceiveError);
+  EXPECT_TRUE(check->reopened);
+  EXPECT_TRUE(check->alive) << check->error;
+  EXPECT_EQ(io->reopens_, 1);
+  host_.SetOnUdpSocketCheck({});
+}
+
+// A socket that stays dead fails every round: it is checked now and then, not every round.
+TEST_F(UdpSocketProbeTest, ASocketThatKeepsFailingIsCheckedNowAndThen) {
+  Attach(std::make_shared<DeafDatagramIo>(std::make_shared<pp::adp::MemoryDatagramIo>(hub_, addr_), false));
+  std::vector<UdpSocketCheck> checks;
+  host_.SetOnUdpSocketCheck([&checks](const UdpSocketCheck& c) { checks.push_back(c); });
+  const int64_t span = 3 * kReceiveErrorCheckGap.count();
+  for (int64_t t = 0; t < span; t += 50) {
+    host_.Tick();
+    clock_->Advance(50);
+  }
+  host_.SetOnUdpSocketCheck({});
+  EXPECT_GE(checks.size(), 2u);
+  EXPECT_LE(checks.size(), 4u);
+  for (const auto& c : checks) {
+    EXPECT_EQ(c.reason, UdpSocketCheckReason::ReceiveError);
+    EXPECT_FALSE(c.alive);
+  }
+}
+
 // The product's socket: dual-stack, bound to any — the probe goes to [::1] on its own port.
 TEST_F(UdpSocketProbeTest, AnOsSocketBoundToAnyHearsItselfOverLoopback) {
   auto bound = pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V6({}, 0));

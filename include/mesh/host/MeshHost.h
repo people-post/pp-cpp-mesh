@@ -27,6 +27,7 @@
 #include <chrono>
 #include <atomic>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -91,8 +92,11 @@ public:
   Roe<void> Start(const MeshHostConfig& config);
   void Stop();
   void Tick();
-  /** One pump round: Tick, and whether datagrams are still waiting (the drain used its whole budget). */
-  bool PumpTick();
+  /**
+   * One pump round: a drive, what it read and did, whether datagrams are still waiting (the drain used its whole
+   * budget), and how soon the next round is due (MeshRuntime::Drive).
+   */
+  MeshPumpThread::Turn PumpTick();
   bool IsRunning() const;
 
   bool MeshPumpRunning() const { return pump_.IsRunning(); }
@@ -264,6 +268,11 @@ private:
   void SendUdpSocketProbe(bool second, std::function<void(const UdpSocketProbeResult&)> done);
   void ReopenDeadUdpSocket(UdpSocketCheck check);
   void ReportUdpSocketCheck(const UdpSocketCheck& check);
+  /** The endpoint tells this host each receive error: it checks the socket (EnsureUdpSocketAlive), now and then. */
+  void WatchReceiveErrors();
+  void OnReceiveError(const Error& error);
+  /** Amp clock of the last check a receive error asked for (io lane); INT64_MIN: none. */
+  int64_t last_receive_error_check_ms_ = std::numeric_limits<int64_t>::min();
   std::function<void(const UdpSocketCheck&)> on_udp_socket_check_;
   std::atomic<bool> udp_socket_check_running_{false};
   std::unique_ptr<pp::amp::AmpStack> amp_;
