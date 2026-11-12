@@ -20,8 +20,6 @@ namespace pp::amp {
 inline ChannelPolicy CallMediaControlChannelPolicy() {
   ChannelPolicy policy;
   policy.cls = ChannelClass::RealtimeControl;
-  policy.drop = ChannelDropPolicy::Never;
-  policy.max_outbound_frames = AmpChannelLimits::kMaxControlOutboundFrames;
   policy.read_once = false;
   policy.max_message_bytes = AmpChannelLimits::kMaxChatStreamJsonBytes;
   policy.keepalive = KeepaliveTier::Hot;
@@ -52,33 +50,20 @@ inline ChannelPolicy BulkChannelPolicy(bool read_once) {
 inline ChannelPolicy CircuitTunnelChannelPolicy(std::chrono::milliseconds read_timeout = std::chrono::milliseconds{0}) {
   ChannelPolicy policy;
   policy.cls = ChannelClass::Control;
-  policy.drop = ChannelDropPolicy::Never;
-  policy.max_outbound_frames = AmpChannelLimits::kMaxControlOutboundFrames;
   policy.read_once = false;
   policy.max_message_bytes = AmpChannelLimits::kMaxChatStreamJsonBytes;
   policy.read_timeout = read_timeout;
   return policy;
 }
 
-/** Media-relay hop leg — BestEffort realtime fan-out (AMP-CHANNEL; D7b). */
-inline ChannelPolicy MediaRelayHopChannelPolicy() {
-  ChannelPolicy policy;
-  policy.cls = ChannelClass::Realtime;
-  policy.drop = ChannelDropPolicy::Oldest;
-  policy.max_outbound_frames = AmpChannelLimits::kMaxMediaRelayOutboundFrames;
-  policy.write_preferred = true;
-  policy.max_message_bytes = AmpChannelLimits::kMaxMediaDataFrameBytes;
-  return policy;
-}
-
 /**
- * Media-relay client attach leg — Reliable control + attach JSON, then the session's media.
+ * Media-relay client attach leg — Reliable: quote, accept, attach, subscribe. Never media (the data lane carries it).
  * No read timeout by default: a publisher receives nothing back (fan-out skips the sender) and
  * a subscriber's hop may be silent; the media-relay coordinators bound quote/attach themselves.
  */
 /**
  * A media-relay data lane (kMediaRelayDataProtocolId): media frames only, best
- * effort, the oldest dropped under a burst. A lost packet costs its frame — no
+ * effort, each sent as it comes. A lost packet costs its frame — no
  * retransmit, no acknowledgements, no head-of-line wait for the frames behind
  * it (audio and video shared one reliable channel with the control: a phone's
  * thin uplink filled with the acks and resends, and a loss stalled every
@@ -94,8 +79,6 @@ inline ChannelPolicy MediaRelayClientChannelPolicy(std::chrono::milliseconds rea
                                                        0}) {
   ChannelPolicy policy;
   policy.cls = ChannelClass::RealtimeControl;
-  policy.drop = ChannelDropPolicy::Never;
-  policy.max_outbound_frames = AmpChannelLimits::kMaxMediaRelayClientOutboundFrames;
   policy.read_once = false;
   policy.max_message_bytes = AmpChannelLimits::kMaxChatStreamJsonBytes;
   policy.read_timeout = read_timeout;

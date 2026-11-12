@@ -174,6 +174,7 @@ TEST(MeshPumpThreadTest, AnIdleWaitIsTheHostsAndStopEndsIt) {
         waits.fetch_add(1);
         std::unique_lock lock(mu);
         cv.wait_for(lock, most, [&] { return woken; });
+        return false;
       },
       [&] {
         {
@@ -191,6 +192,129 @@ TEST(MeshPumpThreadTest, AnIdleWaitIsTheHostsAndStopEndsIt) {
   const auto began = std::chrono::steady_clock::now();
   pump.Stop();
   EXPECT_LT(std::chrono::steady_clock::now() - began, std::chrono::seconds(2)) << "Stop woke the wait";
+}
+
+/** A tick for the pump tests: counts, and says what a drive would. */
+struct FakeTicks {
+  std::atomic<int> ticks{0};
+  std::atomic<int64_t> next_due_ms{200};
+  std::atomic<bool> worked{false};
+
+  MeshPumpThread::Turn operator()() {
+    ticks.fetch_add(1);
+    MeshPumpThread::Turn turn;
+    turn.worked = worked.load();
+    turn.next_due = std::chrono::milliseconds(next_due_ms.load());
+    return turn;
+  }
+};
+
+int TicksAfter(const FakeTicks& fake, const std::chrono::milliseconds span) {
+  const int before = fake.ticks.load();
+  std::this_thread::sleep_for(span);
+  return fake.ticks.load() - before;
+}
+
+// An idle pump waits until the tick's next deadline, not 5 ms: an idle phone woke 200 times a second for nothing
+// (pp-browser #596). Nothing due: the cap.
+TEST(MeshPumpThreadTest, AnIdlePumpWaitsUntilTheNextDeadline) {
+  FakeTicks fake;
+  std::atomic<int64_t> asked_ms{0};
+  MeshPumpThread pump;
+  pump.SetIdleWait(
+      [&](const std::chrono::milliseconds most) {
+        asked_ms.store(most.count());
+        std::this_thread::sleep_for(most);
+        return false;
+      },
+      [] {});
+  pump.Start([&fake] { return fake(); }, std::chrono::milliseconds(1000));
+  const int ticks = TicksAfter(fake, std::chrono::milliseconds(1000));
+  EXPECT_GE(ticks, 3);
+  EXPECT_LE(ticks, 7) << "about one per 200 ms deadline, not 200 a second";
+  EXPECT_EQ(asked_ms.load(), 200) << "the wait is the deadline";
+  fake.next_due_ms.store(std::chrono::milliseconds::max().count());
+  (void)TicksAfter(fake, std::chrono::milliseconds(300));
+  EXPECT_EQ(asked_ms.load(), 1000) << "nothing due: the cap";
+  EXPECT_EQ(pump.SpinGuards(), 0u);
+  pump.Stop();
+}
+
+// Work another thread puts on the lane wakes the pump at once (MeshRuntime's wake handler calls Wake), through the
+// host's wait and through the pump's own.
+TEST(MeshPumpThreadTest, AWakeEndsTheWaitAtOnce) {
+  for (const bool host_wait : {true, false}) {
+    FakeTicks fake;
+    fake.next_due_ms.store(10'000);
+    fake.worked.store(true);
+    std::mutex mu;
+    std::condition_variable cv;
+    bool woken = false;
+    MeshPumpThread pump;
+    if (host_wait) {
+      pump.SetIdleWait(
+          [&](const std::chrono::milliseconds most) {
+            std::unique_lock lock(mu);
+            cv.wait_for(lock, most, [&] { return woken; });
+            woken = false;
+            return false;
+          },
+          [&] {
+            {
+              std::lock_guard lock(mu);
+              woken = true;
+            }
+            cv.notify_all();
+          });
+    }
+    pump.Start([&fake] { return fake(); }, std::chrono::milliseconds(10'000));
+    for (int i = 0; i < 200 && fake.ticks.load() == 0; ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50)); // waiting now
+    const int before = fake.ticks.load();
+    const auto began = std::chrono::steady_clock::now();
+    pump.Wake();
+    while (fake.ticks.load() == before && std::chrono::steady_clock::now() - began < std::chrono::seconds(5)) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_LT(std::chrono::steady_clock::now() - began, std::chrono::milliseconds(500)) << "host wait: " << host_wait;
+    pump.Stop();
+  }
+}
+
+// A wait that ends at once for nothing (a socket "ready" for ever with nothing to read) followed by a tick that reads
+// nothing is not repeated: the pump stops polling for a while and waits plainly. It spun at 100 % of a core (#596).
+TEST(MeshPumpThreadTest, AWaitThatEndsAtOnceForNothingDoesNotSpin) {
+  FakeTicks fake;
+  fake.next_due_ms.store(100);
+  std::atomic<int> polls{0};
+  MeshPumpThread pump;
+  pump.SetIdleWait(
+      [&](std::chrono::milliseconds) {
+        polls.fetch_add(1);
+        return true; // "readable", at once, every time
+      },
+      [] {});
+  pump.Start([&fake] { return fake(); }, std::chrono::milliseconds(1000));
+  const int ticks = TicksAfter(fake, std::chrono::milliseconds(1000));
+  EXPECT_LE(ticks, 30) << "about one per 100 ms deadline, a few polls between guards — not a spin";
+  EXPECT_GE(pump.SpinGuards(), 1u);
+  EXPECT_LE(polls.load(), 12);
+  pump.Stop();
+}
+
+// A tick that keeps saying "due now" and does nothing does not make a busy loop either: the guard's waits are at
+// least the old 5 ms.
+TEST(MeshPumpThreadTest, ATickDueNowThatDoesNothingDoesNotSpin) {
+  FakeTicks fake;
+  fake.next_due_ms.store(0);
+  MeshPumpThread pump;
+  pump.Start([&fake] { return fake(); }, std::chrono::milliseconds(1000));
+  const int ticks = TicksAfter(fake, std::chrono::milliseconds(1000));
+  EXPECT_LE(ticks, 300) << "at most the old 5 ms cadence";
+  EXPECT_GE(pump.SpinGuards(), 1u);
+  pump.Stop();
 }
 
 } // namespace

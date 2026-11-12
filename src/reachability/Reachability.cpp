@@ -370,11 +370,11 @@ int AmpDialMultiaddrRank(const std::string& multiaddr) {
 }
 
 std::vector<std::string> RankAmpDialMultiaddrs(std::vector<std::string> multiaddrs) {
-  // No local knowledge: legacy ranking (global /ip6 first). Callers that know the local
-  // interfaces should pass CollectAmpDialLocalContext().
-  AmpDialLocalContext legacy;
-  legacy.has_global_ipv6 = true;
-  return RankAmpDialMultiaddrs(std::move(multiaddrs), legacy);
+  // No dialer's context: the order we advertise in (global /ip6 first), for a peer whose interfaces we do not
+  // know. A dial from here passes CollectAmpDialLocalContext() instead.
+  AmpDialLocalContext unknown_dialer;
+  unknown_dialer.has_global_ipv6 = true;
+  return RankAmpDialMultiaddrs(std::move(multiaddrs), unknown_dialer);
 }
 
 AmpDialLocalContext CollectAmpDialLocalContext() {

@@ -159,7 +159,7 @@ TEST_F(MediaRelayAttachTest, DialableHopQuotesThenAttachesWithOpaqueSession) {
   bool framed = false;
   MediaRelayAttachHooks hooks;
   hooks.on_frame = [&framed](MediaDataFrame) { framed = true; };
-  auto out = Run(Request("/ip4/203.0.113.9/udp/1/adp/1.0.0/p2p/12D3KooWRelayHop"), std::move(hooks));
+  auto out = Run(Request("/ip4/203.0.113.9/udp/1/adp/2/p2p/12D3KooWRelayHop"), std::move(hooks));
   ASSERT_TRUE(out && *out) << (out ? out->error().message : "no completion");
   EXPECT_EQ((*out)->quote_id, "q-1");
   EXPECT_EQ((*out)->a_up_bps, 32000);

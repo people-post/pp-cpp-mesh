@@ -28,7 +28,12 @@ enum class UdpSocketCheckReason : uint8_t {
   NetworkChange,
   /** The product asked (the app came back to the foreground). */
   Requested,
+  /** A receive failed (not "nothing ready": Endpoint's receive error observer) — iOS's defunct socket says ENOTCONN. */
+  ReceiveError,
 };
+
+/** Receive errors check the socket at most this often (they come every round while it is dead). */
+inline constexpr std::chrono::milliseconds kReceiveErrorCheckGap{5000};
 
 /** What `MeshHost::EnsureUdpSocketAlive` found and did. */
 struct UdpSocketCheck {

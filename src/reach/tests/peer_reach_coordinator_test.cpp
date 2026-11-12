@@ -361,7 +361,7 @@ TEST_F(PeerReachCoordinatorTest, ReachDialsASameLanPeerBeforeTheSeedPark) {
     parks.fetch_add(1); // a park that never answers (the seed is gone)
   });
   reach_->SetDeps(PeerReachPorts{dial_.get(), circuit_.get(), lane_, [] {
-                                   return std::vector<std::string>{"/ip4/10.0.0.9/udp/5/adp/1.0.0/p2p/12D3KooWSelf"};
+                                   return std::vector<std::string>{"/ip4/10.0.0.9/udp/5/adp/2/p2p/12D3KooWSelf"};
                                  }});
   reach_->SetDialBudgetMsForTest(10000);
   dial_->endpoints[kPeer] = kPrivateMa;
@@ -386,7 +386,7 @@ TEST_F(PeerReachCoordinatorTest, ASameLanDialWithNoAnswerIsAbandonedForThePark) 
     done(true);
   });
   reach_->SetDeps(PeerReachPorts{dial_.get(), circuit_.get(), lane_, [] {
-                                   return std::vector<std::string>{"/ip4/10.0.0.9/udp/5/adp/1.0.0/p2p/12D3KooWSelf"};
+                                   return std::vector<std::string>{"/ip4/10.0.0.9/udp/5/adp/2/p2p/12D3KooWSelf"};
                                  }});
   reach_->SetDialBudgetMsForTest(10000);
   dial_->endpoints[kPeer] = kPrivateMa;
@@ -408,7 +408,7 @@ TEST_F(PeerReachCoordinatorTest, APrivatePeerOffOurSubnetParksFirst) {
     done(true);
   });
   reach_->SetDeps(PeerReachPorts{dial_.get(), circuit_.get(), lane_, [] {
-                                   return std::vector<std::string>{"/ip4/10.0.1.9/udp/5/adp/1.0.0/p2p/12D3KooWSelf"};
+                                   return std::vector<std::string>{"/ip4/10.0.1.9/udp/5/adp/2/p2p/12D3KooWSelf"};
                                  }});
   dial_->endpoints[kPeer] = kPrivateMa;
   dial_->ensure_connects = true;

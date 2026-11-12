@@ -60,11 +60,11 @@ struct MediaRelayMetrics {
   MetricCounter& dropped_stale;
   MetricCounter& dropped_not_carried;
   MetricCounter& dropped_not_attached;
-  /** Frames not sent to a participant on its control channel (no data lane) because that already held more than
-   * their deadline (MediaFallbackDeadlineMs). */
-  MetricCounter& dropped_late;
-  /** Frames that came on a participant's data lane (the rest came on its
-   * control channel). */
+  /** Frames not sent to a participant whose data lane is not open (media never goes on its control channel). */
+  MetricCounter& dropped_no_lane;
+  /** Media frames that came on a participant's control channel, not its lane: dropped. */
+  MetricCounter& dropped_control_channel;
+  /** Frames that came on a participant's data lane. */
   MetricCounter& frames_data_lane;
   MetricCounter& quotes_issued;
   MetricCounter& quotes_refused_admission;
@@ -89,7 +89,8 @@ struct MediaRelayMetrics {
           r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "stale"}}),
           r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "not_carried"}}),
           r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "not_attached"}}),
-          r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "late"}}),
+          r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "no_lane"}}),
+          r.Counter("pp_media_relay_dropped_frames_total", dropped, {{"reason", "control_channel"}}),
           r.Counter("pp_media_relay_lane_frames_total", "Media relay data frames received, by lane.",
                     {{"lane", "data"}}),
           r.Counter("pp_media_relay_quotes_total", quotes, {{"result", "issued"}}),
@@ -168,14 +169,19 @@ struct MediaRelayServer::Impl {
     deferred.Post([rt = runtime](std::function<void()> t) { rt->PostToIo(std::move(t)); }, std::move(task));
   }
 
+  /** The participant's link its channels ride: the Connected one (direct, or nested through a circuit). */
   pp::amp::PeerLink* ResolveLink(const std::string& peer_key) const {
     if (!runtime || peer_key.empty()) {
       return nullptr;
     }
+    if (pp::amp::PeerLink* live = runtime->Links().ResolveConnectedLink(peer_key)) {
+      return live;
+    }
     return runtime->Links().FindLink(peer_key);
   }
 
-  void Tick() {
+  /** Io tick. At the runtime's cadence while sessions or quotes are kept (their expiries); idle without. */
+  std::chrono::milliseconds Tick() {
     std::lock_guard lock(mu);
     const auto now = Clock::now();
     quotes.Expire(now);
@@ -183,6 +189,8 @@ struct MediaRelayServer::Impl {
     // Also between requests: other services' replies say this level ("loads"), and a level only a request moved
     // would stay full after the calls ended, with no one asking again.
     (void)PublishLoadLocked();
+    return hosts_by_call.empty() && quotes.size() == 0 ? pp::amp::MeshRuntime::kIoTickIdle
+                                                       : std::chrono::milliseconds(0);
   }
 
   /**
@@ -287,7 +295,6 @@ struct MediaRelayServer::Impl {
       }
       FrameHandler on_frame;
       std::shared_ptr<pp::amp::ChannelSession> channel;
-      bool fallback = false;
       {
         std::lock_guard lock(mu);
         if (part->subscriptions.find(key) == part->subscriptions.end()) {
@@ -304,14 +311,12 @@ struct MediaRelayServer::Impl {
         }
         if (part->local_on_frame) {
           on_frame = part->local_on_frame;
+        } else if (part->data_channel) {
+          channel = part->data_channel; // media rides the lane only, never the control channel
         } else {
-          channel = part->data_channel ? part->data_channel : part->channel;
-          fallback = channel && !part->data_channel;
+          metrics.dropped_no_lane.Inc();
+          continue;
         }
-      }
-      if (fallback && ShouldDropLateFallbackFrame(channel->MuxBacklog().oldest_age_ms, frame.channel_type)) {
-        metrics.dropped_late.Inc();
-        continue;
       }
       metrics.frames_forwarded.Inc();
       metrics.bytes_forwarded.Inc(body.size());
@@ -379,20 +384,27 @@ struct MediaRelayServer::Impl {
     return true;
   }
 
-  /** Must not be called with `mu` held (Fanout locks internally). */
-  bool HandleParticipantFrame(const std::shared_ptr<HostSession>& session, const std::shared_ptr<HostParticipant>& part,
-                              const std::vector<uint8_t>& body) {
+  /** A frame on an attached participant's control channel: JSON control; media there is dropped (lane only). */
+  bool HandleParticipantControlFrame(const std::shared_ptr<HostSession>& session,
+                                     const std::shared_ptr<HostParticipant>& part, const std::vector<uint8_t>& body) {
     if (body.empty()) {
       return true;
     }
-    if (body[0] == '{') {
-      auto root = common::TryParseObject(BodyToJson(body));
-      if (!root) {
-        return true;
-      }
-      std::lock_guard lock(mu);
-      return HandleParticipantControl(session, part, *root);
+    if (body[0] != '{') {
+      metrics.dropped_control_channel.Inc();
+      return true;
     }
+    auto root = common::TryParseObject(BodyToJson(body));
+    if (!root) {
+      return true;
+    }
+    std::lock_guard lock(mu);
+    return HandleParticipantControl(session, part, *root);
+  }
+
+  /** A media frame on a participant's data lane. Must not be called with `mu` held (Fanout locks internally). */
+  bool HandleParticipantMedia(const std::shared_ptr<HostSession>& session, const std::shared_ptr<HostParticipant>& part,
+                              const std::vector<uint8_t>& body) {
     auto frame = DecodeMediaDataFrameHeader(body); // forwarded as it came: the payload is not copied
     if (!frame) {
       return true;
@@ -421,7 +433,7 @@ struct MediaRelayServer::Impl {
         EraseParticipantLocked(session, part.get());
         return false;
       }
-      return HandleParticipantFrame(session, part, *frame);
+      return HandleParticipantControlFrame(session, part, *frame);
     });
   }
 
@@ -557,7 +569,7 @@ struct MediaRelayServer::Impl {
             part->data_channel = channel;
           }
           metrics.frames_data_lane.Inc();
-          return HandleParticipantFrame(host, part, *frame);
+          return HandleParticipantMedia(host, part, *frame);
         },
         [forget = lifetime.Bind(
              [this](std::shared_ptr<pp::amp::ChannelSession> channel) { ForgetDataChannel(std::move(channel)); }),
@@ -586,34 +598,6 @@ struct MediaRelayServer::Impl {
       }
     }
     return false;
-  }
-
-  /** Media frame from an attached participant (not JSON). */
-  bool HandleInboundMedia(pp::amp::ChannelSession& channel, const MediaRelayAttachSm& sm,
-                          const std::vector<uint8_t>& frame) {
-    std::shared_ptr<HostSession> host;
-    std::shared_ptr<HostParticipant> part;
-    {
-      std::lock_guard lock(mu);
-      if (sm.phase != MediaRelayAttachPhase::Attached || sm.call_id.empty()) {
-        return true;
-      }
-      auto host_it = hosts_by_call.find(sm.call_id);
-      if (host_it == hosts_by_call.end()) {
-        return true;
-      }
-      for (const auto& candidate : host_it->second->participants) {
-        if (candidate && candidate->channel.get() == &channel) {
-          host = host_it->second;
-          part = candidate;
-          break;
-        }
-      }
-    }
-    if (host && part) {
-      return HandleParticipantFrame(host, part, frame);
-    }
-    return true;
   }
 
   /**
@@ -875,7 +859,8 @@ struct MediaRelayServer::Impl {
             return true;
           }
           if (frame->front() != '{') {
-            return HandleInboundMedia(*channel, *sm, *frame);
+            metrics.dropped_control_channel.Inc(); // media rides the data lane only
+            return true;
           }
           return HandleInboundControl(channel, *sm, *frame);
         },
@@ -917,7 +902,12 @@ void MediaRelayServer::Start() {
     return;
   }
   impl_->stopped.store(false, std::memory_order_release);
-  impl_->io_tick_id = runtime_.AddIoTick(impl_->lifetime.Bind([impl = impl_.get()] { impl->Tick(); }));
+  auto tick = impl_->lifetime.Bind([impl = impl_.get()](std::chrono::milliseconds* due) { *due = impl->Tick(); });
+  impl_->io_tick_id = runtime_.AddIoDueTick([tick = std::move(tick)] {
+    auto due = pp::amp::MeshRuntime::kIoTickIdle; // stopped: nothing due
+    tick(&due);
+    return due;
+  });
   runtime_.Links().SetProtocolHandler(
       kMediaRelayProtocolId,
       impl_->lifetime.Bind(

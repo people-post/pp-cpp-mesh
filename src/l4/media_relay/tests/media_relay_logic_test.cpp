@@ -123,24 +123,16 @@ TEST(MediaRelayLogicTest, CallScopedAdmitAndCaps) {
   EXPECT_FALSE(MediaRelayCanAddParticipant(8, kMediaRelayMaxParticipantsPerSession));
 }
 
-// A hop's refusal by its reply's code (docs/ERRORS.md); the text only for hops before codes.
-TEST(MediaRelayErrTest, AHopsRefusalReadsByItsCode) {
-  EXPECT_EQ(MediaRelayErrFromReply("busy", "words"), MediaRelayErr::HopBusy);
-  EXPECT_EQ(MediaRelayErrFromReply("auth_failed", "words"), MediaRelayErr::AuthFailed);
-  EXPECT_EQ(MediaRelayErrFromReply("unknown_quote", "words"), MediaRelayErr::UnknownQuote);
-  EXPECT_EQ(MediaRelayErrFromReply("refused", "media-relay busy"), MediaRelayErr::HopRefused) << "the code wins";
-  EXPECT_EQ(MediaRelayErrFromReply("", "media-relay busy"), MediaRelayErr::HopBusy);
-  EXPECT_EQ(MediaRelayErrFromReply("", "prefer contacts: stranger refused"), MediaRelayErr::HopRefused);
-  EXPECT_EQ(MediaRelayErrFromReply("", "auth failed"), MediaRelayErr::AuthFailed);
-}
-
-// The reliable fallback's deadline per kind: audio is late sooner than video (a lost video frame costs a keyframe).
-TEST(MediaRelayLogicTest, AFallbackFrameIsLateOnlyPastItsKindsDeadline) {
-  EXPECT_FALSE(ShouldDropLateFallbackFrame(0, MediaChannelType::ReliableOrdered));
-  EXPECT_FALSE(ShouldDropLateFallbackFrame(kMediaFallbackAudioDeadlineMs, MediaChannelType::ReliableOrdered));
-  EXPECT_TRUE(ShouldDropLateFallbackFrame(kMediaFallbackAudioDeadlineMs + 1, MediaChannelType::ReliableOrdered));
-  EXPECT_FALSE(ShouldDropLateFallbackFrame(kMediaFallbackAudioDeadlineMs + 1, MediaChannelType::LatestLossy));
-  EXPECT_TRUE(ShouldDropLateFallbackFrame(kMediaFallbackVideoDeadlineMs + 1, MediaChannelType::LatestLossy));
+// A hop's refusal by its reply's code (docs/ERRORS.md), never its text: a missing or unknown code is a plain failure.
+TEST(MediaRelayErrTest, AHopsRefusalReadsByItsCodeOnly) {
+  EXPECT_EQ(MediaRelayErrFromCode("busy"), MediaRelayErr::HopBusy);
+  EXPECT_EQ(MediaRelayErrFromCode("auth_failed"), MediaRelayErr::AuthFailed);
+  EXPECT_EQ(MediaRelayErrFromCode("unknown_quote"), MediaRelayErr::UnknownQuote);
+  EXPECT_EQ(MediaRelayErrFromCode("refused"), MediaRelayErr::HopRefused);
+  EXPECT_EQ(MediaRelayErrFromCode("not_ready"), MediaRelayErr::HopRefused);
+  EXPECT_EQ(MediaRelayErrFromCode("bad_request"), MediaRelayErr::HopRefused);
+  EXPECT_EQ(MediaRelayErrFromCode(""), MediaRelayErr::Generic) << "no code: not classified from the text";
+  EXPECT_EQ(MediaRelayErrFromCode("from_a_newer_hop"), MediaRelayErr::Generic);
 }
 
 } // namespace

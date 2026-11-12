@@ -23,7 +23,6 @@ TEST(ProductChannelPoliciesTest, CallControlLegNeverIdleResets) {
 // Media relay: a publisher receives nothing back on its attach leg (fan-out skips the sender).
 TEST(ProductChannelPoliciesTest, MediaRelayLegsNeverIdleReset) {
   EXPECT_EQ(pp::amp::MediaRelayClientChannelPolicy().read_timeout, kNever);
-  EXPECT_EQ(pp::amp::MediaRelayHopChannelPolicy().read_timeout, kNever);
 }
 
 // Circuit: reservations wait silently for their TTL; spliced tunnels carry one-way media.

@@ -26,7 +26,7 @@ std::string Pid(int i) {
 }
 
 std::string Ma(int i) {
-  return "/ip4/10." + std::to_string(i / 250) + "." + std::to_string(i % 250) + ".1/udp/1/adp/1.0.0/p2p/" + Pid(i);
+  return "/ip4/10." + std::to_string(i / 250) + "." + std::to_string(i % 250) + ".1/udp/1/adp/2/p2p/" + Pid(i);
 }
 
 /** n nodes, each with a full Kademlia table of the others; a record for `target` at its k closest. */

@@ -89,8 +89,8 @@ public:
   void SetOnRelayChosen(OnRelayChosen cb) { on_relay_chosen_ = std::move(cb); }
 
 private:
-  void EnsureViaCircuitAsync(const std::string& target_peer_id, const std::string& target_protocol,
-                             bool register_endpoint, bool nested_session, CircuitReachDone on_done,
+  /** A link to `target_peer_id` nested through a circuit relay's carrier (A024): a peer's, or a hop's. */
+  void EnsureViaCircuitAsync(const std::string& target_peer_id, CircuitReachDone on_done,
                              CircuitStandbyPriority standby_priority = CircuitStandbyPriority::None,
                              std::vector<std::string> advertised_relays = {});
 
@@ -117,8 +117,6 @@ private:
   void OnNestedDone(const WalkPtr& walk, const WalkBridge& bridge,
                     const std::shared_ptr<pp::amp::ChannelSession>& session, IChatPeerLinks::LinkRoe nested,
                     bool timed_out);
-  void InstallBridge(const WalkPtr& walk, const WalkBridge& bridge,
-                     const std::shared_ptr<pp::amp::ChannelSession>& session, const std::string& resolved);
   void NoteRelayChosen(const std::string& relay_key);
   /** Drop a bridge the walk will not use: close its session when it acked, cancel its tunnel. */
   void ReleaseBridge(CircuitTunnelId id, const std::shared_ptr<pp::amp::ChannelSession>& session);

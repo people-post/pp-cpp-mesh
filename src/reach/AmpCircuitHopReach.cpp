@@ -49,9 +49,6 @@ struct AmpCircuitHopReach::WalkBridge {
 
 struct AmpCircuitHopReach::BridgeWalk {
   std::string target_peer_id;
-  std::string target_protocol;
-  bool register_endpoint = false;
-  bool nested_session = false;
   CircuitBridgeTarget bridge_target;
   std::vector<std::string> relays;
   std::vector<std::string> advertised;
@@ -145,11 +142,7 @@ void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_
     return;
   }
   auto run = [this, hop_peer_id, on_done = std::move(on_done)]() mutable {
-    if (hops_.Find(hop_peer_id, kMediaRelayProtocolId)) {
-      on_done(CircuitReachRoe());
-      return;
-    }
-    if (links_.GetLinkSnapshot(hop_peer_id).has_endpoint) {
+    if (links_.IsConnected(hop_peer_id) || links_.GetLinkSnapshot(hop_peer_id).has_endpoint) {
       on_done(CircuitReachRoe());
       return;
     }
@@ -159,8 +152,9 @@ void AmpCircuitHopReach::TryEnsureHopReachableAsync(const std::string& hop_peer_
         on_done(CircuitReachRoe());
         return;
       }
-      EnsureViaCircuitAsync(hop_peer_id, kMediaRelayProtocolId, /*register_endpoint=*/true,
-                            /*nested_session=*/false, std::move(on_done));
+      // A link nested through the circuit, as a 1:1 call's (A024): the hop's control channel and its data lane
+      // both ride it, as on a direct link. A tunnel of the media-relay protocol alone carried no lane.
+      EnsureViaCircuitAsync(hop_peer_id, std::move(on_done));
     };
     if (try_punch_) {
       try_punch_(hop_peer_id, std::move(after_punch));
@@ -265,8 +259,7 @@ void AmpCircuitHopReach::TryEnsurePeerReachableViaAsync(const std::string& peer_
     }
 
     EnsureViaCircuitAsync(
-        peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
-        /*nested_session=*/true,
+        peer_key,
         [this, peer_key, finish, settled, run_punch, aborted](CircuitReachRoe via) mutable {
           if (settled->load(std::memory_order_acquire)) {
             return;
@@ -314,8 +307,7 @@ void AmpCircuitHopReach::TryEnsureCircuitOnlyAsync(const std::string& peer_key, 
     }
     AmpReachLog().info << "TryEnsureCircuitOnly circuit beside the direct dial target=" << peer_key;
     EnsureViaCircuitAsync(
-        peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
-        /*nested_session=*/true,
+        peer_key,
         [this, peer_key, on_done = std::move(on_done)](CircuitReachRoe via) mutable {
           if (links_.IsConnected(peer_key)) {
             on_done(CircuitReachRoe());
@@ -348,8 +340,7 @@ void AmpCircuitHopReach::TryEnsureRelayedAsync(const std::string& peer_key, Circ
     }
     AmpReachLog().info << "TryEnsureRelayed circuit (a relayed link beside any direct one) target=" << peer_key;
     EnsureViaCircuitAsync(
-        peer_key, pp::amp::kAmpCircuitCarrierProtocolId, /*register_endpoint=*/false,
-        /*nested_session=*/true,
+        peer_key,
         [this, peer_key, on_done = std::move(on_done)](CircuitReachRoe via) mutable {
           if (links_.IsConnectedRelayed(peer_key)) {
             on_done(CircuitReachRoe());
@@ -366,9 +357,8 @@ void AmpCircuitHopReach::TryEnsureRelayedAsync(const std::string& peer_key, Circ
   }
 }
 
-void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id, const std::string& target_protocol,
-                                               const bool register_endpoint, const bool nested_session,
-                                               CircuitReachDone on_done, const CircuitStandbyPriority standby_priority,
+void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id, CircuitReachDone on_done,
+                                               const CircuitStandbyPriority standby_priority,
                                                std::vector<std::string> advertised_relays) {
   if (!on_done) {
     return;
@@ -376,27 +366,19 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
   // PeerLinkManager is Amp-IO only. CallMedia Connect ticks on Coordinator while MeshPump
   // Ticks on IO — ClearDialBackoff / snapshot / OpenChannel off-strand AVs around dial
   // timeout (dogfood 085210, ~8s after StartBridge).
-  auto run = [this, target_peer_id, target_protocol, register_endpoint, nested_session, standby_priority,
-              advertised_relays = std::move(advertised_relays), on_done = std::move(on_done)]() mutable {
+  auto run = [this, target_peer_id, standby_priority, advertised_relays = std::move(advertised_relays),
+              on_done = std::move(on_done)]() mutable {
     if (!circuit_.IsStarted()) {
       on_done(Failure::Of(Err::Unavailable, "amp circuit-relay not available"));
       return;
     }
-    if (target_peer_id.empty() || target_protocol.empty()) {
+    if (target_peer_id.empty()) {
       on_done(Failure::Of(Err::BadRequest, "amp circuit hop incomplete"));
-      return;
-    }
-    if (!nested_session && hops_.Find(target_peer_id, target_protocol)) {
-      on_done(CircuitReachRoe());
       return;
     }
     // A nested session exists to give the peer a relay carrier link: only one of those settles it
     // (a direct link beside it does not — relay standby / TX-only escalation want the relay).
-    if (nested_session && links_.IsConnectedRelayed(target_peer_id)) {
-      on_done(CircuitReachRoe());
-      return;
-    }
-    if (!nested_session && links_.GetLinkSnapshot(target_peer_id).has_endpoint) {
+    if (links_.IsConnectedRelayed(target_peer_id)) {
       on_done(CircuitReachRoe());
       return;
     }
@@ -406,14 +388,13 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
     }
     auto collected = collect_relays_(target_peer_id);
     if (collected.empty()) {
-      AmpReachLog().info << "EnsureViaCircuit no dialable circuit relays target=" << target_peer_id
-                         << " nested=" << (nested_session ? 1 : 0);
+      AmpReachLog().info << "EnsureViaCircuit no dialable circuit relays target=" << target_peer_id;
       on_done(Failure::Of(Err::NoRelays, "no dialable circuit relays"));
       return;
     }
 
     std::string sticky;
-    if (auto hop = hops_.Find(target_peer_id, target_protocol)) {
+    if (auto hop = hops_.Find(target_peer_id, pp::amp::kAmpCircuitCarrierProtocolId)) {
       sticky = hop->relay_peer_key;
     } else if (!last_good_relay_peer_key_.empty()) {
       sticky = last_good_relay_peer_key_;
@@ -435,28 +416,18 @@ void AmpCircuitHopReach::EnsureViaCircuitAsync(const std::string& target_peer_id
     }
     walk->relays = PutAdvertisedRelaysFirst(std::move(ordered), walk->advertised);
     walk->target_peer_id = target_peer_id;
-    walk->target_protocol = target_protocol;
-    walk->register_endpoint = register_endpoint;
-    walk->nested_session = nested_session;
     walk->sticky = sticky;
     walk->bridge_target.target_peer_id = target_peer_id;
-    walk->bridge_target.target_protocol = target_protocol;
+    walk->bridge_target.target_protocol = pp::amp::kAmpCircuitCarrierProtocolId;
     walk->bridge_target.standby_priority = standby_priority;
-    // Nested call-media: peer-id-only. Punch/sync often registers the peer's *private*
-    // advertise MA on the dialer; sending that as target_multiaddr makes the hop
-    // overwrite its SNAT-learned book entry and fail dual-NAT (dogfood / hard-w5 Phase-2).
-    // Non-nested media-relay may still use PreferredMultiaddr when the dialer knows a path.
-    if (!nested_session) {
-      if (auto ma = links_.PreferredMultiaddr(target_peer_id)) {
-        walk->bridge_target.target_multiaddr = *ma;
-      }
-    }
+    // Peer-id-only: punch/sync often registers the peer's *private* advertise MA on the dialer;
+    // sending that as target_multiaddr makes the hop overwrite its SNAT-learned book entry and
+    // fail dual-NAT (dogfood / hard-w5 Phase-2).
     walk->envelope_deadline_ms = NowMs() + kCircuitReachEnvelopeMs;
     walk->aborted = [tok = deferred_.token(), gen = deferred_.Snapshot()]() { return !pp::Lifetime::Alive(tok, gen); };
     walk->on_done = std::move(on_done);
 
-    AmpReachLog().info << "EnsureViaCircuit start target=" << target_peer_id << " protocol=" << target_protocol
-                       << " nested=" << (nested_session ? 1 : 0) << " relays=" << walk->relays.size()
+    AmpReachLog().info << "EnsureViaCircuit start target=" << target_peer_id << " relays=" << walk->relays.size()
                        << " advertised=" << walk->advertised.size() << " sticky=" << sticky
                        << " envelope_ms=" << kCircuitReachEnvelopeMs
                        << " max_bridges=" << kCircuitMaxStartBridgeAttempts << " at_once=" << kCircuitParallelBridges;
@@ -529,7 +500,7 @@ void AmpCircuitHopReach::FillBridges(const WalkPtr& walk) {
       break;
     }
     remaining_ms = walk->envelope_deadline_ms - NowMs();
-    const int64_t bridge_timeout_ms = CircuitStartBridgeTimeoutMs(remaining_ms, walk->nested_session);
+    const int64_t bridge_timeout_ms = CircuitStartBridgeTimeoutMs(remaining_ms, /*nested_session=*/true);
     if (bridge_timeout_ms <= 0) {
       stop = Stop::Envelope;
       break;
@@ -650,11 +621,7 @@ void AmpCircuitHopReach::OnBridgeFinished(const WalkPtr& walk, const BridgePtr& 
     ReleaseBridge(bridge->id, session);
     return;
   }
-  if (walk->nested_session) {
-    NestOverBridge(walk, bridge, result->session);
-    return;
-  }
-  InstallBridge(walk, *bridge, result->session, result->resolved_multiaddr);
+  NestOverBridge(walk, bridge, result->session);
 }
 
 void AmpCircuitHopReach::OnBridgeMissed(const WalkPtr& walk, const WalkBridge& bridge,
@@ -769,29 +736,9 @@ void AmpCircuitHopReach::OnNestedDone(const WalkPtr& walk, const WalkBridge& bri
     RefillSoon(walk);
     return;
   }
-  (void)hops_.Install(walk->target_peer_id, bridge.relay, walk->target_protocol, session, bridge.id);
+  (void)hops_.Install(walk->target_peer_id, bridge.relay, pp::amp::kAmpCircuitCarrierProtocolId, session, bridge.id);
   NoteRelayChosen(bridge.relay);
   AmpReachLog().info << "EnsureViaCircuit nested ok relay=" << bridge.relay << " target=" << walk->target_peer_id;
-  FinishWalk(walk, CircuitReachRoe());
-}
-
-void AmpCircuitHopReach::InstallBridge(const WalkPtr& walk, const WalkBridge& bridge,
-                                       const std::shared_ptr<pp::amp::ChannelSession>& session,
-                                       const std::string& resolved) {
-  if (walk->register_endpoint && !resolved.empty()) {
-    (void)links_.RegisterEndpoint(walk->target_peer_id, resolved);
-  }
-  auto installed = hops_.Install(walk->target_peer_id, bridge.relay, walk->target_protocol, session, bridge.id);
-  if (!installed) {
-    walk->last_fail = Failure::Of(
-        Err::Generic, detail::AppendFrom("circuit hop reach failed: install", "hops", installed.error().message));
-    AmpReachLog().info << "EnsureViaCircuit install miss relay=" << bridge.relay << " err=" << walk->last_fail.message;
-    ReleaseBridge(bridge.id, session);
-    FinishWalk(walk, walk->last_fail);
-    return;
-  }
-  NoteRelayChosen(bridge.relay);
-  AmpReachLog().info << "EnsureViaCircuit ok relay=" << bridge.relay << " target=" << walk->target_peer_id;
   FinishWalk(walk, CircuitReachRoe());
 }
 
@@ -907,9 +854,6 @@ void AmpCircuitHopReach::TryUpgradeToDirectAsync(const std::string& peer_key, Ci
     return;
   }
   std::optional<AmpCircuitHopRegistry::Hop> hop = hops_.Find(peer_key, pp::amp::kAmpCircuitCarrierProtocolId);
-  if (!hop) {
-    hop = hops_.Find(peer_key, kMediaRelayProtocolId);
-  }
   if (!hop) {
     on_done(Failure::Of(Err::NoCircuit, "no circuit hop to upgrade"));
     return;

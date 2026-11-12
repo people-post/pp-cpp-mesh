@@ -2,7 +2,9 @@
 
 #include "common/Error.h"
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -28,9 +30,41 @@ struct LanMdnsDiscoveredPeer {
 };
 
 /**
+ * The discovery thread's reads that bring nothing: a socket that keeps saying "readable" while every read comes
+ * back empty or failed (an interface gone, a dead multicast membership) spun a whole core in a wait-read loop
+ * (pp-browser #596). Each such read waits a little longer (50 ms, doubling to 1 s), and every eighth reopens the
+ * socket; a packet ends the run. Pure: the thread waits and reopens as it says.
+ */
+class LanMdnsEmptyReads {
+public:
+  struct Next {
+    std::chrono::milliseconds wait{0};
+    bool reopen = false;
+  };
+  static constexpr std::chrono::milliseconds kFirstWait{50};
+  static constexpr std::chrono::milliseconds kMaxWait{1000};
+  static constexpr int kReopenEvery = 8;
+
+  Next OnEmpty() {
+    ++run_;
+    wait_ = wait_.count() == 0 ? kFirstWait : std::min(wait_ * 2, kMaxWait);
+    return Next{wait_, run_ % kReopenEvery == 0};
+  }
+  void OnPacket() {
+    run_ = 0;
+    wait_ = std::chrono::milliseconds(0);
+  }
+
+private:
+  int run_ = 0;
+  std::chrono::milliseconds wait_{0};
+};
+
+/**
  * Minimal multicast DNS announcer/browser for contacts-only LAN discovery (ns2).
- * Announces the local PeerId (TXT `peer=`) and the Amp UDP listen port (SRV) when listening;
- * browse results are filtered upstream.
+ * Announces the local PeerId (TXT `peer=`), its amp wire version (TXT `wire=`) and the Amp UDP listen port (SRV)
+ * when listening; an announcement of another wire version, or one that says none, is not a browse result. Browse
+ * results are filtered upstream.
  */
 class LanMdnsDiscovery {
 public:
@@ -54,10 +88,10 @@ public:
   void SetAdvertisement(const std::string& peer_id_base58, int amp_udp_port,
                         const std::vector<std::string>& lan_ipv4_addrs);
 
-  /** Build `/ip4/…/udp/…/adp/1.0.0/p2p/…` from a browse result (the legacy token: the TXT record says no wire version). */
+  /** Build `/ip4/…/udp/…/adp/<wire>/p2p/…` from a browse result (always of our wire version). */
   static std::optional<std::string> BuildAdpMultiaddr(const LanMdnsDiscoveredPeer& peer);
 
-  /** The announcement packet (PTR, SRV with the Amp UDP port, TXT `peer=`, A per address); empty when incomplete. */
+  /** The announcement packet (PTR, SRV with the Amp UDP port, TXT `peer=` `wire=`, A per address); empty when incomplete. */
   static std::vector<uint8_t> EncodeAnnouncement(const std::string& peer_id_base58, int amp_udp_port,
                                                  const std::vector<std::string>& lan_ipv4_addrs);
   /** The peers an mDNS packet announces (each with an address and a port). */

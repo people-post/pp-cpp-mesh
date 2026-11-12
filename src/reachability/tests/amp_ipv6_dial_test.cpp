@@ -39,7 +39,7 @@ TEST(AmpIpv6DialTest, PreferGlobalIpv6WhenRegisteringMixedAddrs) {
   id.ml_dsa_public_key = std::move(keys->public_key);
   pp::amp::PeerLinkManager mgr(*ep, id, "QmLocal");
 
-  const std::string lan = "/ip4/192.168.1.50/udp/19001/adp/1.0.0/p2p/QmRemote";
+  const std::string lan = "/ip4/192.168.1.50/udp/19001/adp/2/p2p/QmRemote";
   auto v6 = pp::amp::FormatAdpMultiaddr(addr, "QmRemote");
   ASSERT_TRUE(static_cast<bool>(v6));
   const auto ranked = RankAmpDialMultiaddrs({lan, *v6});
