@@ -46,9 +46,8 @@ MeshCapabilitiesAd MeshCapabilitiesAdFromName(const NameCapabilities& caps) {
 
 NameRecord NameRecordFromMeshNodeHit(const MeshNodeHit& hit) {
   NameRecord record;
-  record.relay_user_id = hit.relay_user_id;
-  record.account_id = hit.account_id.value_or("");
-  record.name = !record.account_id.empty() ? record.account_id : hit.relay_user_id;
+  record.account_id = hit.account_id;
+  record.name = hit.account_id;
   record.nickname = hit.nickname.value_or("");
   record.entity_kind = hit.entity_kind.empty() ? "mesh_node" : hit.entity_kind;
   record.capabilities = NameCapabilitiesFromAd(hit.capabilities);
@@ -79,7 +78,6 @@ NameRecord NameRecordFromDirectoryHit(const DirectoryHit& hit) {
   record.expires_at = hit.expires_at;
   record.endpoints = hit.endpoints;
   record.multiaddrs = hit.multiaddrs;
-  record.relay_user_id = hit.hit_id;
   if (!hit.endpoints.empty()) {
     record.peer_id = hit.endpoints.front().peer_id;
   } else {
@@ -156,13 +154,6 @@ Roe<NameRecord> DirectoryClientNameDirectory::Resolve(const std::string& name) {
   }
   if (name.rfind("account:", 0) == 0) {
     auto hit = directory_.LookupByAccount(name);
-    if (!hit) {
-      return hit.error();
-    }
-    return NameRecordFromDirectoryHit(*hit);
-  }
-  if (name.rfind("relay:", 0) == 0) {
-    auto hit = directory_.LookupRelayUser(name);
     if (!hit) {
       return hit.error();
     }

@@ -47,10 +47,7 @@ common::Object EndpointToObject(const DirectoryEndpoint& endpoint) {
 
 common::Object MeshNodeHitToObject(const MeshNodeHit& hit) {
   common::Object object;
-  object.set("relay_user_id", hit.relay_user_id);
-  if (hit.account_id) {
-    object.set("account_id", *hit.account_id);
-  }
+  object.set("account_id", hit.account_id);
   if (hit.nickname) {
     object.set("nickname", *hit.nickname);
   }
@@ -93,14 +90,11 @@ common::Object MeshNodeHitToObject(const MeshNodeHit& hit) {
 
 Roe<MeshNodeHit> MeshNodeHitFromObject(const common::Object& object) {
   MeshNodeHit hit;
-  if (auto relay = object.getString("relay_user_id")) {
-    hit.relay_user_id = *relay;
-  }
-  if (hit.relay_user_id.empty()) {
-    return Error("mesh node missing relay_user_id");
-  }
   if (auto account = object.getString("account_id")) {
     hit.account_id = *account;
+  }
+  if (hit.account_id.empty()) {
+    return Error("mesh node missing account_id");
   }
   if (auto nick = object.getString("nickname")) {
     hit.nickname = *nick;

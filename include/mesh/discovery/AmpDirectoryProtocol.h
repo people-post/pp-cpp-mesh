@@ -59,7 +59,6 @@ public:
   explicit AmpDirectoryClient(AmpDirectoryProtocol& service);
 
   Roe<std::vector<DirectoryHit>> SearchPeople(const std::string& query) override;
-  Roe<DirectoryHit> LookupRelayUser(const std::string& relay_user_id) override;
   Roe<DirectoryHit> LookupByAccount(const std::string& account_id) override;
   Roe<std::vector<MeshNodeHit>> ListMeshNodes() override;
 

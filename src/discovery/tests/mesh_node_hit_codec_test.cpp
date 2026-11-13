@@ -7,7 +7,6 @@ namespace {
 
 TEST(MeshNodeHitCodecTest, KeysAndTheirBindingRoundTrip) {
   MeshNodeHit hit;
-  hit.relay_user_id = "relay-user-1";
   hit.account_id = "account:abc";
   hit.signing_public_key_b64 = "c2lnbmluZw==";
   hit.kem_public_key_b64 = "a2Vt";
@@ -22,7 +21,7 @@ TEST(MeshNodeHitCodecTest, KeysAndTheirBindingRoundTrip) {
 
 TEST(MeshNodeHitCodecTest, AHitWithoutABindingDecodesWithoutOne) {
   MeshNodeHit hit;
-  hit.relay_user_id = "relay-user-1";
+  hit.account_id = "account:node-1";
   hit.kem_public_key_b64 = "a2Vt";
 
   auto decoded = MeshNodeHitFromObject(MeshNodeHitToObject(hit));
@@ -33,7 +32,7 @@ TEST(MeshNodeHitCodecTest, AHitWithoutABindingDecodesWithoutOne) {
 // N032: what a node says it runs travels with its row; a row without it (before N032) decodes as "not said".
 TEST(MeshNodeHitCodecTest, WhatANodeSaysItRunsRoundTripsAndIsOptional) {
   MeshNodeHit hit;
-  hit.relay_user_id = "relay-user-1";
+  hit.account_id = "account:node-1";
   hit.amp_wire = 2;
   hit.node_version = "4.1.0";
   hit.features = {"hop_data_lane"};
@@ -44,7 +43,7 @@ TEST(MeshNodeHitCodecTest, WhatANodeSaysItRunsRoundTripsAndIsOptional) {
   EXPECT_EQ(decoded->features, hit.features);
 
   MeshNodeHit before;
-  before.relay_user_id = "relay-user-2";
+  before.account_id = "account:node-2";
   const auto object = MeshNodeHitToObject(before);
   EXPECT_FALSE(object.contains("amp_wire")) << "nothing said, nothing sent";
   auto old = MeshNodeHitFromObject(object);
@@ -52,6 +51,16 @@ TEST(MeshNodeHitCodecTest, WhatANodeSaysItRunsRoundTripsAndIsOptional) {
   EXPECT_EQ(old->amp_wire, 0);
   EXPECT_TRUE(old->node_version.empty());
   EXPECT_TRUE(old->features.empty());
+}
+
+// The Account ID is the row's key (pp-browser multi-relay MR001): a row without one is refused.
+TEST(MeshNodeHitCodecTest, ARowWithoutAnAccountIdIsRefused) {
+  MeshNodeHit hit;
+  hit.entity_kind = "mesh_node";
+  common::Object object = MeshNodeHitToObject(hit);
+  EXPECT_FALSE(MeshNodeHitFromObject(object));
+  object.set("relay_user_id", "relay:old");
+  EXPECT_FALSE(MeshNodeHitFromObject(object)) << "a relay id is not an Account ID";
 }
 
 } // namespace

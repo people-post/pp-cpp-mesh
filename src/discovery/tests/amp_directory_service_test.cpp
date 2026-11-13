@@ -25,7 +25,6 @@ TEST(AmpDirectoryProtocolTest, ListMeshNodesReturnsSeedSnapshot) {
   seed.Configure(seed_cfg);
 
   MeshNodeHit published;
-  published.relay_user_id = "relay-seed";
   published.account_id = "account:seed";
   published.nickname = "SeedNode";
   published.entity_kind = "mesh_node";
@@ -51,8 +50,7 @@ TEST(AmpDirectoryProtocolTest, ListMeshNodesReturnsSeedSnapshot) {
   auto listed = client.ListMeshNodes();
   ASSERT_TRUE(static_cast<bool>(listed)) << listed.error().message;
   ASSERT_EQ(listed->size(), 1u);
-  EXPECT_EQ(listed->front().relay_user_id, "relay-seed");
-  EXPECT_EQ(listed->front().account_id.value_or(""), "account:seed");
+  EXPECT_EQ(listed->front().account_id, "account:seed");
   EXPECT_EQ(listed->front().seq, 7);
   EXPECT_TRUE(listed->front().capabilities.ledger_gateway);
   ASSERT_FALSE(listed->front().endpoints.empty());
@@ -90,7 +88,7 @@ TEST(AmpDirectoryProtocolTest, AListAsksOnlyTheChosenQueryPeers) {
   seed_cfg.local_peer_id = harness->peer_id_b;
   seed.Configure(seed_cfg);
   MeshNodeHit published;
-  published.relay_user_id = "relay-seed";
+  published.account_id = "account:seed";
   published.entity_kind = "mesh_node";
   seed.SetNodesSnapshot({published});
 

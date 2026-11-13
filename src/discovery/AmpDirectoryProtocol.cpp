@@ -25,10 +25,6 @@ Roe<std::vector<DirectoryHit>> AmpDirectoryClient::SearchPeople(const std::strin
   return Error("Amp directory does not support person search (use HTTP failover)");
 }
 
-Roe<DirectoryHit> AmpDirectoryClient::LookupRelayUser(const std::string& /*relay_user_id*/) {
-  return Error("Amp directory does not support person lookup (use HTTP failover)");
-}
-
 Roe<DirectoryHit> AmpDirectoryClient::LookupByAccount(const std::string& /*account_id*/) {
   return Error("Amp directory does not support account lookup (use HTTP failover)");
 }
