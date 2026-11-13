@@ -20,12 +20,6 @@ public:
   Roe<std::vector<DirectoryHit>> SearchPeople(const std::string& /*query*/) override {
     return std::vector<DirectoryHit>{};
   }
-  Roe<DirectoryHit> LookupRelayUser(const std::string& relay_user_id) override {
-    if (person.hit_id != relay_user_id) {
-      return Error("not found");
-    }
-    return person;
-  }
   Roe<DirectoryHit> LookupByAccount(const std::string& account_id) override {
     if (!person.account_id || *person.account_id != account_id) {
       return Error("not found");
@@ -40,7 +34,6 @@ public:
 
 TEST(MeshDirectoryCacheTest, NodesFromHitsPreservesNameFields) {
   MeshNodeHit hit;
-  hit.relay_user_id = "relay:abc";
   hit.account_id = "account:org";
   hit.nickname = "Org Node";
   hit.entity_kind = "mesh_node";
@@ -195,7 +188,7 @@ MeshDirectoryNode NodeOnWire(const std::string& peer, const int amp_wire) {
 // that says it speaks another wire version is dropped (on refresh and on load); one that says nothing stays.
 TEST(MeshDirectoryCacheTest, NodesOfAnotherWireVersionAreDroppedAndClaimsPersist) {
   MeshNodeHit hit;
-  hit.relay_user_id = "relay:new";
+  hit.account_id = "account:new";
   hit.amp_wire = pp::adp::kWireVersion;
   hit.node_version = "4.1.0";
   hit.features = {"hop_data_lane"};
@@ -246,7 +239,6 @@ TEST(MeshDirectoryCacheTest, NodesOfAnotherWireVersionAreDroppedAndClaimsPersist
 TEST(NameDirectoryTest, ListServiceMapsMeshNodes) {
   FakeDirectoryClient fake;
   MeshNodeHit hit;
-  hit.relay_user_id = "relay:node";
   hit.account_id = "account:node";
   hit.seq = 3;
   DirectoryEndpoint ep;
@@ -267,7 +259,7 @@ TEST(NameDirectoryTest, ListServiceMapsMeshNodes) {
 
 TEST(NameDirectoryTest, ResolveByAccount) {
   FakeDirectoryClient fake;
-  fake.person.hit_id = "relay:alice";
+  fake.person.hit_id = "account:alice";
   fake.person.account_id = "account:alice";
   fake.person.nickname = "Alice";
   fake.person.entity_kind = "person";

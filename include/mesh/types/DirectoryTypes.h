@@ -14,9 +14,9 @@
 namespace pp::mesh {
 
 /** Identity handle kinds on a Contact / directory hit (D079 / D096 / M009).
- *  Account = person (communicating identity); PeerId = device endpoint;
- *  Blockchain (CAIP-10) = find/lookup; RelayUser = Brief route / inbox. */
-enum class ContactIdKind { Account, RelayUser, PeerId, Blockchain, Custom };
+ *  Account = person (communicating identity, and its relay inbox); PeerId = device endpoint;
+ *  Blockchain (CAIP-10) = find/lookup. */
+enum class ContactIdKind { Account, PeerId, Blockchain, Custom };
 
 /** One device under an Account ID (M017). `updated_at` is Unix ms. */
 struct DirectoryEndpoint {
@@ -76,8 +76,8 @@ struct MeshCapabilitiesAd {
 };
 
 struct MeshNodeHit {
-  std::string relay_user_id;
-  std::optional<std::string> account_id;
+  /** The node's Account ID (`account:…`): its directory row's key. */
+  std::string account_id;
   std::optional<std::string> nickname;
   std::vector<DirectoryEndpoint> endpoints;
   MeshCapabilitiesAd capabilities;

@@ -112,10 +112,8 @@ TEST(MediaFrameCodecTest, GoldenHeaderLayout) {
   MediaDataFrame f = Sample();
   f.extensions = TwoUnknownOptional();
   std::vector<uint8_t> with = expected;
-  with.back() = 6; // ext_len
-  for (const uint8_t b : {0x05, 0x02, 0xAA, 0xBB, 0x7F, 0x00}) {
-    with.push_back(b);
-  }
+  with.back() = 6;                                               // ext_len
+  with.insert(with.end(), {0x05, 0x02, 0xAA, 0xBB, 0x7F, 0x00}); // a list of uint8_t: no int narrowing (MSVC C4244)
   EXPECT_EQ(EncodeMediaFrameHeader(f), with);
 }
 
