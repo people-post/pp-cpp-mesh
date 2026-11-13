@@ -373,6 +373,91 @@ TEST_F(MediaRelayServerClientTest, MediaTakesTheDataLaneBothWays) {
   EXPECT_EQ(hop_->RuntimeStats().data_lane_participants, 0u);
 }
 
+// Frame v4 through the hop: a sealed frame with a capture time and extensions reaches the subscriber as it was sent,
+// both ways, and opens. The hop routes by the core only: a stream nobody subscribed to, and a stale lossy video
+// frame (an older seq, no mark), do not reach it.
+TEST_F(MediaRelayServerClientTest, AV4FrameWithExtensionsCrossesTheHopAsItWasSent) {
+  const std::string call_id = "call-frame-v4";
+  MediaRelayQuoteRequest req;
+  req.session_id = call_id;
+  req.participants = 2;
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result);
+
+  std::mutex got_mu;
+  std::vector<MediaDataFrame> at_guest;
+  std::vector<MediaDataFrame> at_hop;
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach(
+      "hop", quote_wait.result->quote_id, call_id, call_id,
+      [&](MediaDataFrame frame) {
+        std::lock_guard lock(got_mu);
+        at_guest.push_back(std::move(frame));
+      },
+      attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result);
+  client_->StartClientFrameReader();
+  harness_->PumpUntil([&] { return hop_->RuntimeStats().data_lane_participants == 1; }, 800);
+  ASSERT_TRUE(hop_client_->AttachAsLocalHop(call_id, [&](MediaDataFrame frame) {
+    std::lock_guard lock(got_mu);
+    at_hop.push_back(std::move(frame));
+  }));
+  ASSERT_TRUE(client_->Subscribe(7, VideoChannel(1)));
+  ASSERT_TRUE(hop_client_->Subscribe(8, VideoChannel(1)));
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
+
+  const ByteVector key(32, 0x5a);
+  const std::string context = "call-media-sfu|" + call_id;
+  const auto sealed = [&](uint32_t stream, uint32_t seq, uint8_t mark) {
+    MediaDataFrame f;
+    f.stream_id = stream;
+    f.channel_id = VideoChannel(1);
+    f.channel_type = MediaChannelType::LatestLossy;
+    f.seq = seq;
+    f.mark = mark;
+    f.capture_ts = 0xFFFFFFF0u + seq; // near the wrap
+    f.instance = 0x0102030405060708ull;
+    f.extensions = {MediaFrameExtension{0x05, {0xAA, 0xBB}}, MediaFrameExtension{0x7F, {}}};
+    EXPECT_TRUE(SealMediaFrame(key, context, 1, f, std::vector<uint8_t>{'v', 'i', 'd'}));
+    return f;
+  };
+  const auto from_guest = sealed(8, 5, 1);
+  ASSERT_TRUE(client_->SendFrame(from_guest));
+  ASSERT_TRUE(client_->SendFrame(sealed(8, 4, 0))) << "stale: older than the keyframe the hop's participant has";
+  ASSERT_TRUE(client_->SendFrame(sealed(9, 6, 1))) << "a stream nobody subscribed to";
+  const auto to_guest = sealed(7, 2, 1);
+  ASSERT_TRUE(hop_client_->SendFrame(to_guest));
+  harness_->PumpUntil(
+      [&] {
+        std::lock_guard lock(got_mu);
+        return !at_hop.empty() && !at_guest.empty();
+      },
+      800);
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
+
+  std::lock_guard lock(got_mu);
+  ASSERT_EQ(at_hop.size(), 1u) << "only the subscribed stream's fresh frame";
+  EXPECT_EQ(EncodeMediaDataFrame(at_hop[0]), EncodeMediaDataFrame(from_guest)) << "header and payload as sent";
+  EXPECT_EQ(at_hop[0].capture_ts, from_guest.capture_ts);
+  EXPECT_EQ(at_hop[0].extensions, from_guest.extensions);
+  auto opened = OpenMediaFrame(key, context, 1, at_hop[0]);
+  ASSERT_TRUE(opened) << opened.error().message;
+  EXPECT_EQ(*opened, (std::vector<uint8_t>{'v', 'i', 'd'}));
+  ASSERT_EQ(at_guest.size(), 1u);
+  EXPECT_EQ(EncodeMediaDataFrame(at_guest[0]), EncodeMediaDataFrame(to_guest));
+  EXPECT_TRUE(OpenMediaFrame(key, context, 1, at_guest[0]));
+
+  client_->Detach();
+  hop_client_->Detach();
+}
+
 // The attach is done once its data lane is open; a lane the hop lost (reset: busy, restarted) is opened again. Media
 // sent meanwhile is dropped, never put on the reliable control channel: there it was resent for seconds on a busy
 // hop and arrived later and later (stress lab 2026-11-10/11: up to 18 s late). V065: media rides the lane only.

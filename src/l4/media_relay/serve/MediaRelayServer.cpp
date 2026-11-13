@@ -321,8 +321,9 @@ struct MediaRelayServer::Impl {
       metrics.frames_forwarded.Inc();
       metrics.bytes_forwarded.Inc(body.size());
       if (on_frame) {
-        if (frame.payload.empty() && body.size() > kMediaFrameHeaderBytes) {
-          // The local participant takes the frame itself; a remote sender's was decoded header-only.
+        if (frame.payload.empty() && body.size() > MediaFrameHeaderBytes(frame)) {
+          // The local participant takes the frame itself; a remote sender's was decoded header-only (its extensions
+          // as they came, so the header — the seal's associated data — is the sender's).
           if (auto full = DecodeMediaDataFrame(body)) {
             on_frame(*full);
           }
