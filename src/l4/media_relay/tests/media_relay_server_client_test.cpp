@@ -312,6 +312,74 @@ TEST_F(MediaRelayServerClientTest, LocalHopFanoutRoundTrip) {
   hop_client_->Detach();
 }
 
+// A stream that one side no longer wants (its publisher left the call) stops coming: the remote
+// client's unsubscribe reaches the relay, the local hop's takes effect at once, and a second one is a no-op.
+TEST_F(MediaRelayServerClientTest, AnUnsubscribedStreamStopsComing) {
+  const std::string call_id = "call-unsubscribe";
+  MediaRelayQuoteRequest req;
+  req.session_id = call_id;
+  req.participants = 2;
+  Wait<MediaRelayQuote> quote_wait;
+  ASSERT_TRUE(client_->StartQuote("hop", req, quote_wait.Fn(), 8000));
+  quote_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(quote_wait.result);
+
+  std::atomic<int> guest_frames{0};
+  Wait<MediaRelayAttachResult> attach_wait;
+  ASSERT_TRUE(client_->StartAttach(
+      "hop", quote_wait.result->quote_id, call_id, call_id,
+      [&guest_frames](MediaDataFrame) { guest_frames.fetch_add(1); }, attach_wait.Fn(), 8000));
+  attach_wait.PumpUntilDone(*harness_);
+  ASSERT_TRUE(attach_wait.result);
+  client_->StartClientFrameReader();
+  std::atomic<int> local_frames{0};
+  ASSERT_TRUE(hop_client_->AttachAsLocalHop(call_id, [&local_frames](MediaDataFrame) { local_frames.fetch_add(1); }));
+
+  ASSERT_TRUE(client_->Subscribe(7, 0));
+  ASSERT_TRUE(hop_client_->Subscribe(8, 0));
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
+  const auto send = [&](MediaRelayClientCoordinator& from, uint32_t stream_id) {
+    MediaDataFrame frame;
+    frame.stream_id = stream_id;
+    frame.channel_id = 0;
+    frame.payload = {1, 2, 3};
+    ASSERT_TRUE(from.SendFrame(frame));
+  };
+  send(*hop_client_, 7);
+  send(*client_, 8);
+  harness_->PumpUntil([&] { return guest_frames.load() >= 1 && local_frames.load() >= 1; }, 800);
+  ASSERT_EQ(guest_frames.load(), 1);
+  ASSERT_EQ(local_frames.load(), 1);
+
+  ASSERT_TRUE(client_->Unsubscribe(7, 0));
+  ASSERT_TRUE(hop_client_->Unsubscribe(8, 0));
+  EXPECT_TRUE(client_->Unsubscribe(7, 0)) << "not subscribed any more: nothing to do";
+  EXPECT_TRUE(client_->Unsubscribe(9, 0)) << "never subscribed: nothing to do";
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
+  send(*hop_client_, 7);
+  send(*client_, 8);
+  for (int i = 0; i < 80; ++i) {
+    harness_->PumpBoth();
+  }
+  EXPECT_EQ(guest_frames.load(), 1) << "the remote client's unsubscribe reached the relay";
+  EXPECT_EQ(local_frames.load(), 1) << "the local hop's unsubscribe took effect";
+
+  ASSERT_TRUE(client_->Subscribe(7, 0)) << "and it can be taken again";
+  for (int i = 0; i < 40; ++i) {
+    harness_->PumpBoth();
+  }
+  send(*hop_client_, 7);
+  harness_->PumpUntil([&] { return guest_frames.load() >= 2; }, 800);
+  EXPECT_EQ(guest_frames.load(), 2);
+
+  client_->Detach();
+  hop_client_->Detach();
+}
+
 // A participant's media takes its own best-effort data lane to the hop, both
 // ways; the control channel keeps the control (a reliable lane filled a phone's
 // thin uplink with acks and resends, and stalled every stream on a loss).

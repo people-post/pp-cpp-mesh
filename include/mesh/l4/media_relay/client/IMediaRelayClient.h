@@ -90,6 +90,11 @@ public:
   virtual MediaRelayRoe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& session_id,
                                                                  std::function<void(MediaDataFrame)> on_frame) = 0;
   virtual MediaRelayRoe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) = 0;
+  /**
+   * Stop taking `stream_id` on `channel_id`: the relay forwards it no more, and a frame of it already on its way is
+   * dropped here. Not subscribed (or not attached): nothing to do.
+   */
+  virtual MediaRelayRoe<void> Unsubscribe(uint32_t stream_id, uint16_t channel_id) = 0;
   virtual MediaRelayRoe<void> SendFrame(const MediaDataFrame& frame) = 0;
   virtual void Detach() = 0;
   virtual bool IsAttached() const = 0;

@@ -76,6 +76,8 @@ public:
   bool IsLocalAttached() const;
   /** False when there is no local participant. */
   bool SubscribeLocal(uint32_t stream_id, uint16_t channel_id);
+  /** False when there is no local participant. */
+  bool UnsubscribeLocal(uint32_t stream_id, uint16_t channel_id);
   /** Fan a frame out from the local participant; false when there is none. */
   bool SendLocal(const MediaDataFrame& frame);
 

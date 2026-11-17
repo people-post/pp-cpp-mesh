@@ -104,6 +104,7 @@ public:
     return MediaRelayFailure::Of(MediaRelayErr::Generic, "unused");
   }
   MediaRelayRoe<void> Subscribe(uint32_t, uint16_t) override { return {}; }
+  MediaRelayRoe<void> Unsubscribe(uint32_t, uint16_t) override { return {}; }
   MediaRelayRoe<void> SendFrame(const MediaDataFrame&) override { return {}; }
   void Detach() override {}
   bool IsAttached() const override { return false; }

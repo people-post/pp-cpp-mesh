@@ -153,6 +153,10 @@ MediaRelayRoe<void> AmpMediaRelayClient::Subscribe(const uint32_t stream_id, con
   return coordinator_.Subscribe(stream_id, channel_id);
 }
 
+MediaRelayRoe<void> AmpMediaRelayClient::Unsubscribe(const uint32_t stream_id, const uint16_t channel_id) {
+  return coordinator_.Unsubscribe(stream_id, channel_id);
+}
+
 MediaRelayRoe<void> AmpMediaRelayClient::SendFrame(const MediaDataFrame& frame) {
   return coordinator_.SendFrame(frame);
 }
