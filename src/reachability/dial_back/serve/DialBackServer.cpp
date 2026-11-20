@@ -1,6 +1,7 @@
 #include "mesh/reachability/dial_back/serve/DialBackServer.h"
 
 #include "mesh/l4/shared/InboundReply.h"
+#include "mesh/l4/shared/WireVersion.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
@@ -217,12 +218,27 @@ struct DialBackServer::Impl {
 
   static void SendProbeResult(const std::shared_ptr<InboundReply>& reply, const DialBackProbeResult& result) {
     common::Object response;
-    response.set("v", int64_t{1});
+    response.set("v", int64_t{kDialBackWireVersion});
     response.set("ok", result.ok);
     response.set("dialed", result.dialed);
     response.set("observed", result.observed);
+    // Additive (V4): a v9.0.0 client reads `ok` and the text, and ignores `code`.
+    if (const char* code = DialBackRefusalWire(result.refusal); !result.ok && *code != '\0') {
+      response.set("code", std::string(code));
+    }
+    if (!result.ok && result.refusal == DialBackRefusal::BadVersion) {
+      SetSupportedVersions(response, {kDialBackWireVersion});
+    }
     response.set("error", result.error);
     reply->Send(JsonToBody(common::DumpJson(response)));
+  }
+
+  static void Refuse(const std::shared_ptr<InboundReply>& reply, DialBackProbeResult result,
+                     const DialBackRefusal refusal, std::string error) {
+    result.ok = false;
+    result.refusal = refusal;
+    result.error = std::move(error);
+    SendProbeResult(reply, result);
   }
 
   /** Frame handler (IO): parse, then walk the targets from a fresh IO task (mux stack unwound). */
@@ -232,20 +248,23 @@ struct DialBackServer::Impl {
     const std::string json_utf8(body.begin(), body.end());
     auto root = common::TryParseObject(json_utf8);
     if (!root) {
-      result.error = "invalid dial-back json";
-      SendProbeResult(reply, result);
+      Refuse(reply, std::move(result), DialBackRefusal::BadRequest, "invalid dial-back json");
+      return;
+    }
+    // The version first, before the op (V4): a newer probe is named, not misread.
+    if (auto newer = NewerWireVersion(*root, "v", kDialBackWireVersion)) {
+      Refuse(reply, std::move(result), DialBackRefusal::BadVersion,
+             "unsupported dial-back version " + std::to_string(*newer));
       return;
     }
     if (root->getString("op").value_or("") != "probe") {
-      result.error = "unsupported op";
-      SendProbeResult(reply, result);
+      Refuse(reply, std::move(result), DialBackRefusal::BadRequest, "unsupported op");
       return;
     }
     // One in-flight probe per requesting peer: a peer that wants to flood dial attempts has to
     // do it serially (each probe already carries its own target-count/timeout caps).
     if (!TryMarkProbeInflight(*inflight, remote_peer_id)) {
-      result.error = "dial-back probe already in flight for this peer";
-      SendProbeResult(reply, result);
+      Refuse(reply, std::move(result), DialBackRefusal::Busy, "dial-back probe already in flight for this peer");
       return;
     }
     auto observed_host = ObservedEndpointOnIo(remote_peer_id);
@@ -285,6 +304,7 @@ struct DialBackServer::Impl {
                           [reply, observed, remote_peer_id, inflight](DialBackProbeResult dialed) {
                             ClearProbeInflight(*inflight, remote_peer_id);
                             dialed.observed = observed;
+                            dialed.refusal = dialed.ok ? DialBackRefusal::Ok : DialBackRefusal::NotReached;
                             SendProbeResult(reply, dialed);
                           });
     });

@@ -9,6 +9,8 @@ namespace pp::mesh {
 
 /** Reach-kind punch SM — distinct id from dial-back (`kReachProtocolId`). */
 inline constexpr const char* kAmpPunchProtocolId = "/pp-mesh/reach/punch/1.0.0";
+/** The `v` every punch message carries; a message with a higher one is refused `bad_version` (docs/ERRORS.md). */
+inline constexpr int kPunchWireVersion = 1;
 
 enum class PunchRole {
   Unknown,
@@ -66,6 +68,8 @@ enum class PunchRefusal : int32_t {
   BadRequest,
   /** The burst ran and no path won. */
   NoPath,
+  /** The message's `v` is newer than this node reads (the result names `supported_versions`). */
+  BadVersion,
   Generic,
 };
 
@@ -83,6 +87,8 @@ inline const char* PunchRefusalWire(const PunchRefusal refusal) {
       return "bad_request";
     case PunchRefusal::NoPath:
       return "no_path";
+    case PunchRefusal::BadVersion:
+      return "bad_version";
     case PunchRefusal::Ok:
     case PunchRefusal::Generic:
       break;
@@ -92,8 +98,9 @@ inline const char* PunchRefusalWire(const PunchRefusal refusal) {
 
 /** A failed result's refusal from its `code`; a missing or unknown code (a newer peer's) is a plain failure. */
 inline PunchRefusal PunchRefusalFromResult(const std::string_view code) {
-  for (const PunchRefusal refusal : {PunchRefusal::TargetUnknown, PunchRefusal::Declined, PunchRefusal::NoCandidates,
-                                     PunchRefusal::SendFailed, PunchRefusal::BadRequest, PunchRefusal::NoPath}) {
+  for (const PunchRefusal refusal :
+       {PunchRefusal::TargetUnknown, PunchRefusal::Declined, PunchRefusal::NoCandidates, PunchRefusal::SendFailed,
+        PunchRefusal::BadRequest, PunchRefusal::NoPath, PunchRefusal::BadVersion}) {
     if (code == PunchRefusalWire(refusal)) {
       return refusal;
     }

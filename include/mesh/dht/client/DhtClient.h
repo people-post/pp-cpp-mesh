@@ -47,6 +47,10 @@ public:
     ProtocolError,
     ConcurrencyLimit,
     NotFound,
+    /** The peer does not read our DHT version (`bad_version`; the reply names its versions): it needs an update. */
+    VersionMismatch,
+    /** The peer serves no DHT (`/pp-mesh/dht/1.0.0` refused at the channel open: no handler). */
+    NotServed,
     Generic,
   };
 
@@ -60,6 +64,10 @@ public:
     size_t last_publish_targets = 0;
     uint64_t soft_reputation_skips = 0;
     uint64_t soft_reputation_penalized_peers = 0;
+    /** Answered records skipped as "update needed" (DhtOpsStats::records_update_needed). */
+    uint64_t records_update_needed = 0;
+    /** DhtOpsStats::publish_backoff_seconds. */
+    int64_t publish_backoff_seconds = 0;
   };
 
   /** Map immediate link-manager failure → DHT Err (never inspect ADP/PeerLink codes). */
@@ -69,6 +77,16 @@ public:
   static constexpr int64_t kGateCheckMs = 1000;
   /** A publish nobody answered is tried again this soon (not at ttl / 2). */
   static constexpr int kPublishRetrySeconds = 10;
+  /**
+   * T11: a publish every peer refused — each said it does not read our version, or serves no DHT — is not a network
+   * blip that 10 s cures. It is tried again after kPublishRetrySeconds, then twice as long each time, at most
+   * ttl / 2 (the regular republish); a publish someone heard resets it.
+   */
+  static int64_t NextPublishBackoffSeconds(int64_t previous_seconds, int ttl_seconds);
+  /** An ask that failed this way is a refusal (T11), not silence: the peer answered that it cannot serve us. */
+  static bool IsRefusal(Err code) { return code == Err::VersionMismatch || code == Err::NotServed; }
+  /** A DHT `op`:`error` reply as a failure: `bad_version` is VersionMismatch, any other code a ProtocolError. */
+  static Failure FailureFromErrorReply(const common::Object& reply, const std::string& context);
   /** Query peers whose record we lack are looked up again this often. */
   static constexpr int kWarmSeconds = 15;
   /**
@@ -124,6 +142,8 @@ private:
   struct WalkOutcome : DhtLookup::Outcome {
     /** The last ask's failure (meaningful when nobody answered). */
     Failure last_failure = Failure::Of(Err::NotFound, "find_peer not found");
+    /** Asks that failed as refusals (`IsRefusal`): the peer cannot serve us, it did not just stay silent. */
+    size_t refused = 0;
   };
   /** A `DhtLookup` toward `target_peer_id` from the query peers and the table (no cache, no cap). */
   void Walk(const std::string& target_peer_id, DhtLookup::Limits limits, std::function<void(WalkOutcome)> done);
@@ -160,6 +180,10 @@ private:
   std::vector<std::string> published_addrs_;
   std::atomic<bool> publishing_{false};
   std::atomic<bool> retry_publish_{false};
+  /** How soon a `retry_publish_` publish goes: kPublishRetrySeconds, or the refused backoff (T11). */
+  std::atomic<int64_t> publish_retry_seconds_{kPublishRetrySeconds};
+  /** The refused backoff now (0: the last publish was heard, or failed otherwise). */
+  std::atomic<int64_t> publish_backoff_seconds_{0};
   std::chrono::steady_clock::time_point next_warm_{};
   std::chrono::steady_clock::time_point next_refresh_check_{};
   std::chrono::steady_clock::time_point refresh_window_end_{};
@@ -171,6 +195,7 @@ private:
   uint64_t soft_reputation_skips_ = 0;
   uint64_t self_publishes_ = 0;
   size_t last_publish_targets_ = 0;
+  uint64_t records_update_needed_ = 0;
 
   mutable std::mutex reputation_mutex_;
   struct SoftRep {

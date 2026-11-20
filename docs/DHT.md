@@ -104,6 +104,25 @@ to) k closest that answered — and at the query peers too, because a Client ask
 Re-publish at `ttl / 2`, and at once when the addresses change. Not while backgrounded (Nodes are
 desktop today).
 
+A publish nobody answered is tried again in 10 s (`kPublishRetrySeconds`) — a network blip. One
+that every peer asked *refused* — each answered `bad_version` (it does not read our version) or
+serves no DHT (the channel open refused: no handler) — is not cured in 10 s: it backs off, 10 s
+then twice as long each time, at most `ttl / 2` (`DhtClient::NextPublishBackoffSeconds`); a
+publish someone heard resets it. `publish_backoff_seconds` in the status shows it
+(pp-browser projects/release-compatibility T11).
+
+### 4.5a Versions
+
+Every request carries `version` 1 and the server checks it first, before the op and any crypto
+(strictly, as v9.0.0 did); a mismatch is `{"op":"error","code":"bad_version",
+"supported_versions":[1]}` and the client reads it as `VersionMismatch` (update needed), not a
+protocol error (U7). A `PeerRoutingRecord` carries `version` 1 (absent reads as 1) and
+`signature_alg` `ml-dsa-65`: before any parse or signature check, a record with another version
+or algorithm (`PeerRoutingRecordSupportOf`) is skipped as "update needed" — counted in
+`records_update_needed`, never against the soft reputation of the peer that served it — and a
+`store` of one is refused `bad_version` with `record_versions` and `signature_algs` (V3). The
+sign bytes and the record JSON are unchanged.
+
 ### 4.6 Refresh
 
 A bucket not heard from for an hour gets one walk toward one of its own contacts' PeerId (a key in

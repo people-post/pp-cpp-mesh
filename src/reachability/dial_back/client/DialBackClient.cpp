@@ -4,6 +4,7 @@
 #include "amp/L3/ChannelSession.h"
 #include "common/SettledWait.h"
 #include "common/ValueJson.h"
+#include "mesh/l4/shared/WireVersion.h"
 #include "mesh/shared/AmpChannelOpen.h"
 #include "mesh/shared/AmpParkUntil.h"
 
@@ -59,7 +60,7 @@ void DialBackClient::ProbeAsync(const std::string& seed_peer_key, const std::vec
   }
 
   common::Object request;
-  request.set("v", int64_t{1});
+  request.set("v", int64_t{kDialBackWireVersion});
   request.set("op", "probe");
   std::vector<common::Value> addrs;
   addrs.reserve(target_multiaddrs.size());
@@ -128,6 +129,17 @@ void DialBackClient::ProbeAsync(const std::string& seed_peer_key, const std::vec
                       parsed.dialed = root->getString("dialed").value_or("");
                       parsed.observed = root->getString("observed").value_or("");
                       parsed.error = root->getString("error").value_or("");
+                      if (!parsed.ok) {
+                        parsed.refusal = DialBackRefusalFromCode(root->getString("code").value_or(""));
+                      }
+                      if (parsed.refusal == DialBackRefusal::BadVersion) {
+                        // The seed needs an update: not a reachability answer (U7 / V4).
+                        (*finish)(ProbeRoe::error(Failure::Of(
+                            Err::VersionMismatch,
+                            detail::AppendFrom("amp dial-back: seed does not read our version", "seed",
+                                               parsed.error.empty() ? std::string(kBadVersionCode) : parsed.error))));
+                        return false;
+                      }
                       (*finish)(parsed);
                       return false;
                     });

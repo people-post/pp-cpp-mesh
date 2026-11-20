@@ -45,6 +45,8 @@ TEST(PunchIntroducerWalkTest, AnotherIntroducerOnlyWhenThisOneCannotGetThere) {
   EXPECT_TRUE(PunchIntroducerWalk::AnotherIntroducerMayHelp(PunchErr::TargetUnknown));
   EXPECT_TRUE(PunchIntroducerWalk::AnotherIntroducerMayHelp(PunchErr::EndpointNotRegistered));
   EXPECT_TRUE(PunchIntroducerWalk::AnotherIntroducerMayHelp(PunchErr::LinkFailed));
+  EXPECT_TRUE(PunchIntroducerWalk::AnotherIntroducerMayHelp(PunchErr::VersionMismatch))
+      << "this introducer needs an update; another may not";
   EXPECT_FALSE(PunchIntroducerWalk::AnotherIntroducerMayHelp(PunchErr::Declined)) << "the target said no";
   EXPECT_FALSE(PunchIntroducerWalk::AnotherIntroducerMayHelp(PunchErr::PunchFailed)) << "it ran; no path";
   const auto declined = PunchIntroducerWalk::WrapPunchFailure(PunchFailure::Of(PunchErr::Declined, "no"));

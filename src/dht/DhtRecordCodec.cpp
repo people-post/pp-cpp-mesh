@@ -52,10 +52,20 @@ std::vector<uint8_t> BuildPeerRoutingSignBytes(const PeerRoutingRecord& record) 
   return out;
 }
 
+PeerRoutingRecordSupport PeerRoutingRecordSupportOf(const common::Object& object) {
+  if (object.contains("version") && object.getIf<int64_t>("version") != int64_t{kPeerRoutingRecordVersion}) {
+    return PeerRoutingRecordSupport::UnsupportedVersion;
+  }
+  if (object.getString("signature_alg").value_or(kPeerRoutingSignatureAlg) != kPeerRoutingSignatureAlg) {
+    return PeerRoutingRecordSupport::UnsupportedSignatureAlg;
+  }
+  return PeerRoutingRecordSupport::Supported;
+}
+
 common::Object PeerRoutingRecordToObject(const PeerRoutingRecord& record) {
   common::Object object;
   object.set("type", "peer_routing");
-  object.set("version", int64_t{kDhtWireVersion});
+  object.set("version", int64_t{kPeerRoutingRecordVersion});
   object.set("peer_id", record.peer_id);
   object.set("seq", record.seq);
   object.set("ttl_seconds", record.ttl_seconds);
@@ -85,6 +95,14 @@ Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const common::Object& object)
   if (object.getString("type").value_or("") != "peer_routing") {
     return Error("invalid dht record type");
   }
+  switch (PeerRoutingRecordSupportOf(object)) {
+    case PeerRoutingRecordSupport::UnsupportedVersion:
+      return Error("unsupported dht record version (update needed)");
+    case PeerRoutingRecordSupport::UnsupportedSignatureAlg:
+      return Error("unsupported signature_alg (update needed)");
+    case PeerRoutingRecordSupport::Supported:
+      break;
+  }
   record.peer_id = object.getString("peer_id").value_or("");
   if (record.peer_id.empty()) {
     return Error("missing peer_id");
@@ -93,7 +111,7 @@ Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const common::Object& object)
   record.ttl_seconds = object.getIf<int64_t>("ttl_seconds").value_or(0);
   record.issued_at = object.getIf<int64_t>("issued_at").value_or(0);
   record.signature_b64 = object.getString("signature_b64").value_or("");
-  record.signature_alg = object.getString("signature_alg").value_or("ml-dsa-65");
+  record.signature_alg = object.getString("signature_alg").value_or(kPeerRoutingSignatureAlg);
   record.public_key_b64 = object.getString("public_key_b64").value_or("");
   if (const common::Array* mas = object.getArray("multiaddrs")) {
     for (const common::Value& item : mas->elements) {
@@ -130,7 +148,7 @@ Roe<PeerRoutingRecord> SignPeerRoutingRecord(PeerRoutingRecord record, std::span
     return signature.error();
   }
   record.signature_b64 = pp::Base64Encode(*signature);
-  record.signature_alg = "ml-dsa-65";
+  record.signature_alg = kPeerRoutingSignatureAlg;
   return record;
 }
 
@@ -138,7 +156,7 @@ Roe<bool> VerifyPeerRoutingRecord(const PeerRoutingRecord& record, std::span<con
   if (signing_public_key.size() != pp::kMlDsa65PublicKeyBytes) {
     return Error("invalid signing public key size");
   }
-  if (record.signature_alg != "ml-dsa-65") {
+  if (record.signature_alg != kPeerRoutingSignatureAlg) {
     return Error("unsupported signature_alg");
   }
   auto signature = pp::Base64Decode(record.signature_b64);

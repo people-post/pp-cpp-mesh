@@ -30,6 +30,8 @@ enum class CircuitTunnelErr : int32_t {
   RelayBusy,
   /** The relay refused us (scope, not ready, a request it does not take). */
   RelayRefused,
+  /** The relay does not read our circuit version (`bad_version`): it needs an update. */
+  VersionMismatch,
   Generic,
 };
 

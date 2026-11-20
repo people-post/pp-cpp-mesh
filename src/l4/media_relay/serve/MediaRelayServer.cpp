@@ -6,6 +6,7 @@
 
 #include "mesh/l4/shared/ChannelSessionSlot.h"
 #include "mesh/l4/shared/ProductChannelPolicies.h"
+#include "mesh/l4/shared/WireVersion.h"
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/PeerLink.h"
 #include "mesh/l4/media_relay/MediaRelayBundleLogic.h"
@@ -344,7 +345,7 @@ struct MediaRelayServer::Impl {
 
   static void SendAck(pp::amp::ChannelSession& channel, const char* op) {
     common::Object ack;
-    ack.set("v", int64_t{1});
+    ack.set("v", int64_t{kMediaRelayWireVersion});
     ack.set("ok", true);
     ack.set("op", op);
     channel.EnqueueOutbound(JsonToBody(common::DumpJson(ack)));
@@ -400,6 +401,14 @@ struct MediaRelayServer::Impl {
       return true;
     }
     std::lock_guard lock(mu);
+    if (auto newer = NewerWireVersion(*root, "v", kMediaRelayWireVersion)) {
+      // Attached: say so, and keep the participant (its media goes on; this message is not applied).
+      if (part->channel) {
+        SendRefusal(*part->channel, MediaRelayRefusal::BadVersion,
+                    "unsupported media-relay version " + std::to_string(*newer));
+      }
+      return true;
+    }
     return HandleParticipantControl(session, part, *root);
   }
 
@@ -476,17 +485,25 @@ struct MediaRelayServer::Impl {
    * level (docs/ERRORS.md). */
   void Reject(pp::amp::ChannelSession& channel, MediaRelayAttachSm& sm, const MediaRelayRefusal refusal,
               const std::string& error, const MediaRelayAttachEvent ev) {
+    SendRefusal(channel, refusal, error);
+    (void)sm.Apply(ev);
+    channel.Close();
+  }
+
+  /** The refusal reply alone: the channel stays as it is. */
+  void SendRefusal(pp::amp::ChannelSession& channel, const MediaRelayRefusal refusal, const std::string& error) {
     common::Object err;
-    err.set("v", int64_t{1});
+    err.set("v", int64_t{kMediaRelayWireVersion});
     err.set("ok", false);
     if (const char* code = MediaRelayRefusalWire(refusal); *code != '\0') {
       err.set("code", std::string(code));
     }
+    if (refusal == MediaRelayRefusal::BadVersion) {
+      SetSupportedVersions(err, {kMediaRelayWireVersion});
+    }
     err.set("error", error);
     SetLoadFields(err, LevelNow(), load.load(std::memory_order_acquire));
     channel.EnqueueOutbound(JsonToBody(common::DumpJson(err)));
-    (void)sm.Apply(ev);
-    channel.Close();
   }
 
   /** Requires `mu`: the participant bound to `channel`, searching every hosted session. */
@@ -667,7 +684,7 @@ struct MediaRelayServer::Impl {
     }
     metrics.quotes_issued.Inc();
     common::Object quote_resp;
-    quote_resp.set("v", int64_t{1});
+    quote_resp.set("v", int64_t{kMediaRelayWireVersion});
     quote_resp.set("ok", true);
     quote_resp.set("op", "quote");
     quote_resp.set("quote_id", q.quote_id);
@@ -715,7 +732,7 @@ struct MediaRelayServer::Impl {
     sm.accepted_quote_id = quote_id;
     sm.session_token = MakeSessionToken();
     common::Object accept_resp;
-    accept_resp.set("v", int64_t{1});
+    accept_resp.set("v", int64_t{kMediaRelayWireVersion});
     accept_resp.set("ok", true);
     accept_resp.set("op", "accept");
     accept_resp.set("session_token", sm.session_token);
@@ -808,8 +825,18 @@ struct MediaRelayServer::Impl {
       Reject(*channel, sm, MediaRelayRefusal::BadRequest, "invalid media-relay json", MediaRelayAttachEvent::Cancel);
       return false;
     }
-    const std::string op = root->getString("op").value_or("");
     std::lock_guard lock(mu);
+    // The version first, before the op (V4): a newer message is named, not misread.
+    if (auto newer = NewerWireVersion(*root, "v", kMediaRelayWireVersion)) {
+      const std::string text = "unsupported media-relay version " + std::to_string(*newer);
+      if (sm.phase == MediaRelayAttachPhase::Attached) {
+        SendRefusal(*channel, MediaRelayRefusal::BadVersion, text); // attached: kept, as after the rebind
+        return true;
+      }
+      Reject(*channel, sm, MediaRelayRefusal::BadVersion, text, MediaRelayAttachEvent::Cancel);
+      return false;
+    }
+    const std::string op = root->getString("op").value_or("");
     MediaRelayOpAdmitContext admit;
     admit.service_started = started.load(std::memory_order_acquire) && serve_inbound.load(std::memory_order_acquire);
     admit.stopping = stopped.load(std::memory_order_acquire);

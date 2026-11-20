@@ -30,6 +30,8 @@ public:
     ChannelFailed,
     ProtocolError,
     NotFound,
+    /** The peer does not read our directory version (`bad_version`; the reply names its versions): update needed. */
+    VersionMismatch,
     Generic,
   };
 

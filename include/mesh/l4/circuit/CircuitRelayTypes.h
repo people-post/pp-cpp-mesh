@@ -17,6 +17,9 @@ struct CircuitRelayAdmissionPolicy {
   std::unordered_set<std::string> contact_peer_ids;
 };
 
+/** The `v` circuit requests and acks carry; a request with a higher one is refused `bad_version` (docs/ERRORS.md). */
+inline constexpr int kCircuitWireVersion = 1;
+
 /**
  * Why a relay refuses a bridge / reserve request: the `code` of its error ack (docs/ERRORS.md).
  * The ack's `error` text is for logs only.
@@ -32,10 +35,18 @@ enum class CircuitRefusal : int32_t {
   Refused,
   NotReady,
   BadRequest,
+  /**
+   * The request's `v` is newer than the relay reads (the ack names `supported_versions`). Sent before admission, so
+   * it is not a bridge failure and has no metric series (not in kCircuitRefusalReasons).
+   */
+  BadVersion,
   Generic,
 };
 
-/** Every refusal a relay can send, Generic last (metrics label each; `CircuitRefusalWire` names them). */
+/**
+ * Every refusal an admitted bridge can fail with, Generic last (metrics label each; `CircuitRefusalWire` names
+ * them). `BadVersion` is answered before admission and is read on its own (`CircuitRefusalFromAck`).
+ */
 inline constexpr std::array<CircuitRefusal, 7> kCircuitRefusalReasons{
     CircuitRefusal::TargetNotReserved, CircuitRefusal::TargetUnreachable, CircuitRefusal::Busy,
     CircuitRefusal::Refused,           CircuitRefusal::NotReady,          CircuitRefusal::BadRequest,
@@ -56,6 +67,8 @@ inline const char* CircuitRefusalWire(const CircuitRefusal refusal) {
       return "not_ready";
     case CircuitRefusal::BadRequest:
       return "bad_request";
+    case CircuitRefusal::BadVersion:
+      return "bad_version";
     case CircuitRefusal::Ok:
     case CircuitRefusal::Generic:
       break;
@@ -65,6 +78,9 @@ inline const char* CircuitRefusalWire(const CircuitRefusal refusal) {
 
 /** A relay's refusal from its ack's `code`; a missing or unknown code (a newer relay's) is a plain failure. */
 inline CircuitRefusal CircuitRefusalFromAck(const std::string_view code) {
+  if (code == CircuitRefusalWire(CircuitRefusal::BadVersion)) {
+    return CircuitRefusal::BadVersion;
+  }
   for (const CircuitRefusal refusal : kCircuitRefusalReasons) {
     if (refusal != CircuitRefusal::Generic && code == CircuitRefusalWire(refusal)) {
       return refusal;

@@ -32,6 +32,8 @@ enum class PunchErr : int32_t {
   Declined,
   /** The introducer does not know, or cannot reach, the target. */
   TargetUnknown,
+  /** The introducer does not read our punch version (`bad_version`): it needs an update; another may not. */
+  VersionMismatch,
   Generic,
 };
 

@@ -227,7 +227,8 @@ void PunchClientCoordinator::RunPunchAsync(const std::string& introducer_peer_ke
                               : result->refusal == PunchRefusal::Declined    ? Err::Declined
                               : result->refusal == PunchRefusal::NoPath || result->refusal == PunchRefusal::NoCandidates
                                   ? Err::PunchFailed
-                                  : Err::ProtocolError;
+                              : result->refusal == PunchRefusal::BadVersion ? Err::VersionMismatch
+                                                                            : Err::ProtocolError;
                           (*finish)(PunchRoe::error(Failure::Of(
                               code, detail::AppendFrom("punch: introducer refused", "introducer",
                                                        result->error.empty() ? "punch failed" : result->error))));

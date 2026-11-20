@@ -6,6 +6,7 @@
 #include "mesh/l4/circuit/CircuitChannelPolicy.h"
 #include "mesh/l4/circuit/CircuitRelayTypes.h"
 #include "mesh/l4/circuit/CircuitServeDialPolicy.h"
+#include "mesh/l4/shared/WireVersion.h"
 #include "common/CodedFailure.h"
 
 #include "amp/L3/ChannelBridge.h"
@@ -51,10 +52,13 @@ std::vector<uint8_t> ErrorBody(const CircuitRefusal refusal, const std::string& 
                                const ServiceLoad load = ServiceLoad::Unknown,
                                const ServiceLoadMonitor* monitor = nullptr) {
   common::Object err;
-  err.set("v", int64_t{1});
+  err.set("v", int64_t{kCircuitWireVersion});
   err.set("ok", false);
   if (const char* code = CircuitRefusalWire(refusal); *code != '\0') {
     err.set("code", std::string(code));
+  }
+  if (refusal == CircuitRefusal::BadVersion) {
+    SetSupportedVersions(err, {kCircuitWireVersion});
   }
   err.set("error", message);
   SetLoadFields(err, load, monitor);
@@ -611,7 +615,7 @@ struct CircuitRelayServer::Impl {
                              [](Roe<std::vector<uint8_t>>) { return true; });
 
     common::Object response;
-    response.set("v", int64_t{1});
+    response.set("v", int64_t{kCircuitWireVersion});
     response.set("ok", true);
     response.set("resolved_multiaddr", tunnel.resolved_multiaddr);
     if (ServiceLoadMonitor* monitor = load.load(std::memory_order_acquire)) {
@@ -793,6 +797,14 @@ struct CircuitRelayServer::Impl {
   /** Off-IO continuation of an inbound request (op=reserve or op=bridge). */
   void HandleRequest(const std::shared_ptr<pp::amp::ChannelSession>& near_session, const std::string& remote,
                      const common::Object& root) {
+    // The version first, before the op and admission (V4): a newer request is named, not misread.
+    if (auto newer = NewerWireVersion(root, "v", kCircuitWireVersion)) {
+      CircuitTunnelLog().info << "circuit request refused dialer=" << remote << " v=" << *newer;
+      near_session->EnqueueOutbound(
+          ErrorBody(CircuitRefusal::BadVersion, "unsupported circuit-relay version " + std::to_string(*newer)));
+      near_session->Close();
+      return;
+    }
     const std::string op = root.getString("op").value_or("");
     CircuitAdmitContext admit;
     admit.service_started = started.load(std::memory_order_acquire) && serve_inbound.load(std::memory_order_acquire);
@@ -942,7 +954,7 @@ struct CircuitRelayServer::Impl {
     metrics.reserve_accepted.Inc();
     CircuitTunnelLog().info << "circuit reserve key=" << remote << " timeout_ms=" << timeout_ms;
     common::Object ack;
-    ack.set("v", int64_t{1});
+    ack.set("v", int64_t{kCircuitWireVersion});
     ack.set("ok", true);
     ack.set("op", "reserve");
     // draining: the phone parks elsewhere when it can (still served here meanwhile)

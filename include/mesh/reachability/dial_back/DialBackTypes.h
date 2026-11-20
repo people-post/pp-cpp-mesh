@@ -6,10 +6,59 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
+
 namespace pp::mesh {
 
 inline constexpr const char* kReachProtocolId = "/pp-mesh/reach/1.0.0";
 inline constexpr const char* kDialBackProtocolId = kReachProtocolId;
+/** The `v` a probe and its answer carry; a probe with a higher one is refused `bad_version` (docs/ERRORS.md). */
+inline constexpr int kDialBackWireVersion = 1;
+
+/**
+ * Why a probe did not land: the `code` of an answer with `ok`:false (docs/ERRORS.md). The answer's `error` is text for
+ * logs. An answer without a `code` (a v9.0.0 seed's) or with one this build does not know reads as `Generic`.
+ */
+enum class DialBackRefusal : int32_t {
+  Ok = 0,
+  /** Not JSON, or an op the seed does not serve. */
+  BadRequest,
+  /** A probe from this peer is already running there. */
+  Busy,
+  /** The probe ran: no target was allowed, or none answered. */
+  NotReached,
+  /** The probe's `v` is newer than the seed reads (the answer names `supported_versions`). */
+  BadVersion,
+  Generic,
+};
+
+inline const char* DialBackRefusalWire(const DialBackRefusal refusal) {
+  switch (refusal) {
+    case DialBackRefusal::BadRequest:
+      return "bad_request";
+    case DialBackRefusal::Busy:
+      return "busy";
+    case DialBackRefusal::NotReached:
+      return "not_reached";
+    case DialBackRefusal::BadVersion:
+      return "bad_version";
+    case DialBackRefusal::Ok:
+    case DialBackRefusal::Generic:
+      break;
+  }
+  return "";
+}
+
+/** A failed answer's refusal from its `code`; a missing or unknown code (an older or newer seed's) is `Generic`. */
+inline DialBackRefusal DialBackRefusalFromCode(const std::string_view code) {
+  for (const DialBackRefusal refusal :
+       {DialBackRefusal::BadRequest, DialBackRefusal::Busy, DialBackRefusal::NotReached, DialBackRefusal::BadVersion}) {
+    if (code == DialBackRefusalWire(refusal)) {
+      return refusal;
+    }
+  }
+  return DialBackRefusal::Generic;
+}
 
 struct DialBackProbeResult {
   bool ok = false;
@@ -20,6 +69,8 @@ struct DialBackProbeResult {
    * Present even when dialing advertised LAN targets fails — required for cross-net IPv4 advertise.
    */
   std::string observed;
+  /** Not ok: why, by the answer's `code` (`Generic` when it has none); `Ok` when ok. */
+  DialBackRefusal refusal = DialBackRefusal::Ok;
   std::string error;
 };
 
@@ -33,6 +84,8 @@ enum class DialBackErr : int32_t {
   Timeout,
   ChannelFailed,
   ProtocolError,
+  /** The seed does not read our probe's version (`bad_version`): it needs an update. */
+  VersionMismatch,
   Generic,
 };
 
