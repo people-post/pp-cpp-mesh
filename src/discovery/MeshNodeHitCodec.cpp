@@ -1,8 +1,54 @@
 #include "mesh/discovery/MeshNodeHitCodec.h"
 
+#include "common/ExtArea.h"
 #include "common/ValueJson.h"
+#include "crypto/AlgId.h"
+#include "crypto/SodiumUtil.h"
+
+#include <optional>
+#include <span>
 namespace pp::mesh {
 namespace {
+
+DirectoryKeyShape TypedBlobShape(const pp::BlobKind kind, std::span<const uint8_t> bytes) {
+  auto blob = pp::DecodeTypedBlob(kind, bytes);
+  if (blob) {
+    return DirectoryKeyShape::Ok;
+  }
+  return pp::IsUnknownAlgorithm(blob.error()) ? DirectoryKeyShape::UpdateNeeded : DirectoryKeyShape::Malformed;
+}
+
+/** Empty or not base64: nullopt (pp::Base64Decode must not be given an empty string). */
+std::optional<pp::ByteVector> DecodeB64(const std::string& b64) {
+  if (b64.empty()) {
+    return std::nullopt;
+  }
+  auto bytes = pp::Base64Decode(b64);
+  if (!bytes || bytes->empty()) {
+    return std::nullopt;
+  }
+  return std::move(*bytes);
+}
+
+/** A key field as read: kept (and flagged when update needed) or dropped. */
+std::optional<std::string> ReadKeyField(const common::Object& object, const std::string& field,
+                                        DirectoryKeyShape (*shape_of)(const std::string&), bool& update_needed) {
+  std::optional<std::string> value = object.getString(field);
+  if (!value) {
+    return std::nullopt;
+  }
+  switch (shape_of(*value)) {
+    case DirectoryKeyShape::Ok:
+      return value;
+    case DirectoryKeyShape::UpdateNeeded:
+      update_needed = true;
+      return value;
+    case DirectoryKeyShape::Older:
+    case DirectoryKeyShape::Malformed:
+      return std::nullopt;
+  }
+  return std::nullopt;
+}
 
 common::Object CapabilitiesToObject(const MeshCapabilitiesAd& caps) {
   common::Object object;
@@ -62,8 +108,8 @@ common::Object MeshNodeHitToObject(const MeshNodeHit& hit) {
   if (hit.kem_public_key_b64) {
     object.set("kem_public_key_b64", *hit.kem_public_key_b64);
   }
-  if (hit.kem_binding_signature_b64) {
-    object.set("kem_binding_signature_b64", *hit.kem_binding_signature_b64);
+  if (hit.kem_binding_b64) {
+    object.set("kem_binding_b64", *hit.kem_binding_b64);
   }
   object.set("capabilities", CapabilitiesToObject(hit.capabilities));
   if (hit.amp_wire > 0) {
@@ -111,15 +157,10 @@ Roe<MeshNodeHit> MeshNodeHitFromObject(const common::Object& object) {
   if (auto seq = object.getIf<int64_t>("seq")) {
     hit.seq = *seq;
   }
-  if (auto pk = object.getString("signing_public_key_b64")) {
-    hit.signing_public_key_b64 = *pk;
-  }
-  if (auto kem = object.getString("kem_public_key_b64")) {
-    hit.kem_public_key_b64 = *kem;
-  }
-  if (auto binding = object.getString("kem_binding_signature_b64")) {
-    hit.kem_binding_signature_b64 = *binding;
-  }
+  hit.signing_public_key_b64 =
+      ReadKeyField(object, "signing_public_key_b64", SigningPublicKeyShape, hit.keys_update_needed);
+  hit.kem_public_key_b64 = ReadKeyField(object, "kem_public_key_b64", KemPublicKeyShape, hit.keys_update_needed);
+  hit.kem_binding_b64 = ReadKeyField(object, "kem_binding_b64", KemBindingShape, hit.keys_update_needed);
   if (const common::Object* caps = object.getObject("capabilities")) {
     hit.capabilities = CapabilitiesFromObject(*caps);
   }
@@ -187,6 +228,49 @@ Roe<std::vector<MeshNodeHit>> MeshNodeHitsFromJsonArray(const common::Array& nod
     }
   }
   return out;
+}
+
+DirectoryKeyShape SigningPublicKeyShape(const std::string& b64) {
+  auto bytes = DecodeB64(b64);
+  return bytes ? TypedBlobShape(pp::BlobKind::kSignaturePublicKey, *bytes) : DirectoryKeyShape::Malformed;
+}
+
+DirectoryKeyShape KemPublicKeyShape(const std::string& b64) {
+  auto bytes = DecodeB64(b64);
+  return bytes ? TypedBlobShape(pp::BlobKind::kKemPublicKey, *bytes) : DirectoryKeyShape::Malformed;
+}
+
+DirectoryKeyShape KemBindingShape(const std::string& b64) {
+  auto bytes = DecodeB64(b64);
+  if (!bytes) {
+    return DirectoryKeyShape::Malformed;
+  }
+  // 1. The version, first.
+  const uint8_t version = (*bytes)[0];
+  if (version < kKemBindingVersion) {
+    return DirectoryKeyShape::Older;
+  }
+  if (version > kKemBindingVersion) {
+    return DirectoryKeyShape::UpdateNeeded; // nothing after it is read
+  }
+  // 2. The area, then the signature's length: exactly the rest.
+  size_t offset = 1;
+  if (!pp::ExtArea::DecodeAt(*bytes, &offset)) {
+    return DirectoryKeyShape::Malformed;
+  }
+  if (bytes->size() - offset < 8) {
+    return DirectoryKeyShape::Malformed;
+  }
+  uint64_t length = 0;
+  for (int i = 0; i < 8; ++i) {
+    length = (length << 8) | (*bytes)[offset + static_cast<size_t>(i)];
+  }
+  offset += 8;
+  if (length != bytes->size() - offset) {
+    return DirectoryKeyShape::Malformed; // past the end, or bytes left over
+  }
+  // 3. The signature's algorithm (and size).
+  return TypedBlobShape(pp::BlobKind::kSignature, std::span<const uint8_t>(*bytes).subspan(offset));
 }
 
 } // namespace pp::mesh

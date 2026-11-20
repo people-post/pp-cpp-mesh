@@ -1,6 +1,12 @@
 #include "mesh/discovery/AmpDirectoryProtocol.h"
 
+#include "mesh/dht/DhtRecordCodec.h"
+#include "mesh/discovery/MeshNodeHitCodec.h"
+
 #include "common/SettledWait.h"
+#include "crypto/AlgId.h"
+#include "crypto/MlDsa.h"
+#include "crypto/SodiumUtil.h"
 #include "mesh/testing/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
@@ -33,6 +39,16 @@ TEST(AmpDirectoryProtocolTest, ListMeshNodesReturnsSeedSnapshot) {
   published.capabilities.media_relay = true;
   published.capabilities.dht = true;
   published.capabilities.ledger_gateway = true;
+  // The account's keys as a key card carries them (typed blobs, the KEM binding v2): carried, not verified.
+  published.signing_public_key_b64 = PeerRoutingPublicKeyB64(harness->bob.ml_dsa_public_key).valueOr("");
+  pp::ByteVector kem(1 + 1184, 0x11);
+  kem[0] = pp::kKemAlgMlKem768;
+  published.kem_public_key_b64 = pp::Base64Encode(kem);
+  pp::ByteVector binding{kKemBindingVersion, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0c, 0xee};
+  binding.push_back(pp::kSignatureAlgMlDsa65);
+  binding.insert(binding.end(), pp::kMlDsa65SignatureBytes, 0x22);
+  published.kem_binding_b64 = pp::Base64Encode(binding);
+  ASSERT_EQ(KemBindingShape(*published.kem_binding_b64), DirectoryKeyShape::Ok);
   DirectoryEndpoint ep;
   ep.peer_id = harness->peer_id_b;
   ep.multiaddrs = {harness->ma_b};
@@ -55,6 +71,10 @@ TEST(AmpDirectoryProtocolTest, ListMeshNodesReturnsSeedSnapshot) {
   EXPECT_TRUE(listed->front().capabilities.ledger_gateway);
   ASSERT_FALSE(listed->front().endpoints.empty());
   EXPECT_EQ(listed->front().endpoints.front().peer_id, harness->peer_id_b);
+  EXPECT_EQ(listed->front().signing_public_key_b64, published.signing_public_key_b64);
+  EXPECT_EQ(listed->front().kem_public_key_b64, published.kem_public_key_b64);
+  EXPECT_EQ(listed->front().kem_binding_b64, published.kem_binding_b64);
+  EXPECT_FALSE(listed->front().keys_update_needed);
 
   AmpDirectoryClient adapter(client);
   auto via_client = adapter.ListMeshNodes();

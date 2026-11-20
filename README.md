@@ -31,7 +31,7 @@ its history; pp-browser and its headless node `pp-node` are its first consumers.
 | `shared/`, `l4/shared/` | `pp_mesh_shared` | Protocol IDs, channel policies, frame bodies |
 | `reachability/` | `pp_mesh_reachability` | Reachability engine, dial-back, punch, LAN mDNS, UPnP |
 | `dht/` | `pp_mesh_dht` | DHT records, store, server and client |
-| `discovery/` | `pp_mesh_discovery` | Directory protocol, name directory, directory cache |
+| `discovery/` | `pp_mesh_discovery` | Directory protocol, name directory, directory cache; the row: [docs/DIRECTORY.md](docs/DIRECTORY.md) |
 | `l4/circuit/` | `pp_mesh_circuit` | Circuit relay (serve / client) |
 | `l4/media_relay/` | `pp_mesh_media_relay` | Media relay (serve / client) |
 | `host/` | `pp_mesh_host` | `MeshHost`: composes the services above on one Amp stack |

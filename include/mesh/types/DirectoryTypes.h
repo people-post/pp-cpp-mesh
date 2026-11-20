@@ -46,10 +46,21 @@ struct DirectoryHit {
   std::string nickname;
   std::vector<ContactId> ids;
   std::optional<std::string> account_id;
+  /**
+   * The account's keys and their binding, as a key card carries them (pp-browser SIGNED_FORMATS § 2.2–2.3, RC020):
+   * `signing_public_key_b64` and `kem_public_key_b64` are typed blobs (pp-cpp-crypto `AlgId`: the algorithm id byte,
+   * then the key); `kem_binding_b64` is the KEM binding v2 blob, `u8 2 ‖ ext area ‖ LenBytes signature (typed)`, the
+   * account's signature binding the KEM key to it. The mesh carries them for the app and verifies nothing in them
+   * (docs/DIRECTORY.md).
+   */
   std::optional<std::string> signing_public_key_b64;
   std::optional<std::string> kem_public_key_b64;
-  /** The account's ML-DSA signature binding `kem_public_key_b64` to it (pp-browser:kem-binding-v1). */
-  std::optional<std::string> kem_binding_signature_b64;
+  std::optional<std::string> kem_binding_b64;
+  /**
+   * A key or the binding names an algorithm, or the binding a version, this build does not know: the bytes are kept
+   * as received, and the app reads the peer as "needs a newer app" rather than as having bad keys.
+   */
+  bool keys_update_needed = false;
   std::vector<DirectoryEndpoint> endpoints;
   std::vector<std::string> multiaddrs;
   /** Initiation floor in pp_credit minor units; missing on wire → 0 (P001). */
@@ -86,10 +97,21 @@ struct MeshNodeHit {
   std::string entity_kind;
   /** Monotonic directory/chain seq; 0 when provider omits (N029). */
   int64_t seq = 0;
+  /**
+   * The account's keys and their binding, as a key card carries them (pp-browser SIGNED_FORMATS § 2.2–2.3, RC020):
+   * `signing_public_key_b64` and `kem_public_key_b64` are typed blobs (pp-cpp-crypto `AlgId`: the algorithm id byte,
+   * then the key); `kem_binding_b64` is the KEM binding v2 blob, `u8 2 ‖ ext area ‖ LenBytes signature (typed)`, the
+   * account's signature binding the KEM key to it. The mesh carries them for the app and verifies nothing in them
+   * (docs/DIRECTORY.md).
+   */
   std::optional<std::string> signing_public_key_b64;
   std::optional<std::string> kem_public_key_b64;
-  /** The account's ML-DSA signature binding `kem_public_key_b64` to it (pp-browser:kem-binding-v1). */
-  std::optional<std::string> kem_binding_signature_b64;
+  std::optional<std::string> kem_binding_b64;
+  /**
+   * A key or the binding names an algorithm, or the binding a version, this build does not know: the bytes are kept
+   * as received, and the app reads the peer as "needs a newer app" rather than as having bad keys.
+   */
+  bool keys_update_needed = false;
   /**
    * What the node says it runs (N032): claims, so they may exclude it from candidates (a wire mismatch, a missing
    * feature), never rank it higher. 0 / empty = not said (a node or directory before N032): dialed as before.
