@@ -4,12 +4,14 @@
 
 #include "amp/link/PeerId.h"
 #include "common/Utilities.h"
+#include "crypto/AlgId.h"
 #include "crypto/MlDsa.h"
 #include "crypto/SodiumUtil.h"
 
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <string_view>
 
 namespace pp::mesh {
@@ -27,13 +29,43 @@ void AppendLenPrefixedUtf8(std::vector<uint8_t>& out, std::string_view text) {
   out.insert(out.end(), text.begin(), text.end());
 }
 
+/** Base64 of possibly nothing: pp::Base64Decode must not be given an empty string (libsodium gets a null pointer). */
+Roe<pp::ByteVector> DecodeB64(const std::string& b64) {
+  if (b64.empty()) {
+    return pp::ByteVector{};
+  }
+  return pp::Base64Decode(b64);
+}
+
+PeerRoutingRecordFailure Fail(const PeerRoutingRecordErr err, std::string message) {
+  return PeerRoutingRecordFailure::Of(err, std::move(message));
+}
+
+/** A typed blob in base64 (steps 2–3): not base64, id 0 or a wrong size → Malformed; an unknown id → UnknownAlgorithm. */
+PeerRoutingRecordRoe<pp::TypedBlob> DecodeTypedB64(const pp::BlobKind kind, const std::string& b64,
+                                                   const std::string_view field) {
+  auto bytes = DecodeB64(b64);
+  if (!bytes) {
+    return Fail(PeerRoutingRecordErr::Malformed, std::string(field) + " is not base64");
+  }
+  auto blob = pp::DecodeTypedBlob(kind, *bytes);
+  if (!blob) {
+    if (pp::IsUnknownAlgorithm(blob.error())) {
+      return Fail(PeerRoutingRecordErr::UnknownAlgorithm,
+                  std::string(field) + ": an algorithm this build does not know (update needed)");
+    }
+    return Fail(PeerRoutingRecordErr::Malformed, std::string(field) + ": " + blob.error().message);
+  }
+  return std::move(*blob);
+}
+
 } // namespace
 
 std::vector<uint8_t> BuildPeerRoutingSignBytes(const PeerRoutingRecord& record) {
   std::vector<uint8_t> out;
-  constexpr char kDomain[] = "pp-mesh:dht-record-v1";
-  out.insert(out.end(), kDomain, kDomain + sizeof(kDomain));
-  AppendLenPrefixedUtf8(out, "sign_version=1");
+  out.insert(out.end(), kPeerRoutingRecordDomain.begin(), kPeerRoutingRecordDomain.end());
+  out.push_back(0x00);
+  out.push_back(static_cast<uint8_t>(kPeerRoutingRecordVersion));
   AppendLenPrefixedUtf8(out, "type=peer_routing");
   AppendLenPrefixedUtf8(out, record.peer_id);
   AppendLenPrefixedUtf8(out, "seq=" + std::to_string(record.seq));
@@ -49,15 +81,46 @@ std::vector<uint8_t> BuildPeerRoutingSignBytes(const PeerRoutingRecord& record) 
     out.push_back(record.capabilities->circuit_relay ? 1 : 0);
     out.push_back(record.capabilities->media_relay ? 1 : 0);
   }
+  record.ext.AppendTo(out); // last
   return out;
 }
 
-PeerRoutingRecordSupport PeerRoutingRecordSupportOf(const common::Object& object) {
-  if (object.contains("version") && object.getIf<int64_t>("version") != int64_t{kPeerRoutingRecordVersion}) {
-    return PeerRoutingRecordSupport::UnsupportedVersion;
+bool PeerRoutingRecordNeedsUpdate(const PeerRoutingRecordErr err) {
+  return err == PeerRoutingRecordErr::NewerVersion || err == PeerRoutingRecordErr::UnknownAlgorithm ||
+         err == PeerRoutingRecordErr::UnknownCritical;
+}
+
+std::string_view PeerRoutingRecordErrName(const PeerRoutingRecordErr err) {
+  switch (err) {
+    case PeerRoutingRecordErr::Older:
+      return "older";
+    case PeerRoutingRecordErr::NewerVersion:
+      return "newer_version";
+    case PeerRoutingRecordErr::Malformed:
+      return "malformed";
+    case PeerRoutingRecordErr::UnknownAlgorithm:
+      return "unknown_algorithm";
+    case PeerRoutingRecordErr::BadSignature:
+      return "bad_signature";
+    case PeerRoutingRecordErr::UnknownCritical:
+      return "unknown_critical";
   }
-  if (object.getString("signature_alg").value_or(kPeerRoutingSignatureAlg) != kPeerRoutingSignatureAlg) {
-    return PeerRoutingRecordSupport::UnsupportedSignatureAlg;
+  return "unknown";
+}
+
+PeerRoutingRecordSupport PeerRoutingRecordSupportOf(const common::Object& object) {
+  if (!object.contains("version")) {
+    return PeerRoutingRecordSupport::OlderVersion; // v1 always wrote 1; a record without one is older still
+  }
+  const std::optional<int64_t> version = object.getIf<int64_t>("version");
+  if (!version) {
+    return PeerRoutingRecordSupport::UnsupportedVersion; // not a number: not one this build reads
+  }
+  if (*version < kPeerRoutingRecordVersion) {
+    return PeerRoutingRecordSupport::OlderVersion;
+  }
+  if (*version > kPeerRoutingRecordVersion) {
+    return PeerRoutingRecordSupport::UnsupportedVersion;
   }
   return PeerRoutingRecordSupport::Supported;
 }
@@ -82,37 +145,38 @@ common::Object PeerRoutingRecordToObject(const PeerRoutingRecord& record) {
     caps.set("media_relay", record.capabilities->media_relay);
     object.set("capabilities", caps);
   }
+  if (!record.ext.empty()) {
+    object.set("ext_b64", pp::Base64Encode(record.ext.EncodeEntries())); // writers omit an empty area
+  }
   object.set("signature_b64", record.signature_b64);
-  object.set("signature_alg", record.signature_alg);
   if (!record.public_key_b64.empty()) {
     object.set("public_key_b64", record.public_key_b64);
   }
   return object;
 }
 
-Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const common::Object& object) {
-  PeerRoutingRecord record;
-  if (object.getString("type").value_or("") != "peer_routing") {
-    return Error("invalid dht record type");
-  }
+PeerRoutingRecordRoe<PeerRoutingRecord> PeerRoutingRecordFromObject(const common::Object& object) {
+  // 1. The version, before anything else.
   switch (PeerRoutingRecordSupportOf(object)) {
     case PeerRoutingRecordSupport::UnsupportedVersion:
-      return Error("unsupported dht record version (update needed)");
-    case PeerRoutingRecordSupport::UnsupportedSignatureAlg:
-      return Error("unsupported signature_alg (update needed)");
+      return Fail(PeerRoutingRecordErr::NewerVersion, "unsupported dht record version (update needed)");
+    case PeerRoutingRecordSupport::OlderVersion:
+      return Fail(PeerRoutingRecordErr::Older, "dht record version below 2 (made by an older build)");
     case PeerRoutingRecordSupport::Supported:
       break;
   }
+  // 2. The fields.
+  PeerRoutingRecord record;
+  if (object.getString("type").value_or("") != "peer_routing") {
+    return Fail(PeerRoutingRecordErr::Malformed, "invalid dht record type");
+  }
   record.peer_id = object.getString("peer_id").value_or("");
   if (record.peer_id.empty()) {
-    return Error("missing peer_id");
+    return Fail(PeerRoutingRecordErr::Malformed, "missing peer_id");
   }
   record.seq = object.getIf<int64_t>("seq").value_or(0);
   record.ttl_seconds = object.getIf<int64_t>("ttl_seconds").value_or(0);
   record.issued_at = object.getIf<int64_t>("issued_at").value_or(0);
-  record.signature_b64 = object.getString("signature_b64").value_or("");
-  record.signature_alg = object.getString("signature_alg").value_or(kPeerRoutingSignatureAlg);
-  record.public_key_b64 = object.getString("public_key_b64").value_or("");
   if (const common::Array* mas = object.getArray("multiaddrs")) {
     for (const common::Value& item : mas->elements) {
       if (auto ma = common::asString(item)) {
@@ -121,11 +185,11 @@ Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const common::Object& object)
     }
   }
   if (record.multiaddrs.empty()) {
-    return Error("missing multiaddrs");
+    return Fail(PeerRoutingRecordErr::Malformed, "missing multiaddrs");
   }
   for (const std::string& ma : record.multiaddrs) {
     if (pp::amp::PeerIdFromMultiaddr(ma) != record.peer_id) {
-      return Error("multiaddr peer_id mismatch");
+      return Fail(PeerRoutingRecordErr::Malformed, "multiaddr peer_id mismatch");
     }
   }
   if (const common::Object* caps = object.getObject("capabilities")) {
@@ -133,6 +197,36 @@ Roe<PeerRoutingRecord> PeerRoutingRecordFromObject(const common::Object& object)
     parsed_caps.circuit_relay = caps->getIf<bool>("circuit_relay").value_or(false);
     parsed_caps.media_relay = caps->getIf<bool>("media_relay").value_or(false);
     record.capabilities = parsed_caps;
+  }
+  if (object.contains("ext_b64")) { // absent: the empty area
+    const std::optional<std::string> ext_b64 = object.getString("ext_b64");
+    if (!ext_b64) {
+      return Fail(PeerRoutingRecordErr::Malformed, "ext_b64 is not a string");
+    }
+    auto entries = DecodeB64(*ext_b64);
+    if (!entries) {
+      return Fail(PeerRoutingRecordErr::Malformed, "ext_b64 is not base64");
+    }
+    auto area = pp::ExtArea::DecodeEntries(*entries);
+    if (!area) {
+      return Fail(PeerRoutingRecordErr::Malformed,
+                  "ext_b64: " + std::string(pp::ExtArea::ErrName(area.error().GetCode())));
+    }
+    record.ext = std::move(*area);
+  }
+  record.signature_b64 = object.getString("signature_b64").value_or("");
+  if (record.signature_b64.empty()) {
+    return Fail(PeerRoutingRecordErr::Malformed, "missing signature_b64");
+  }
+  record.public_key_b64 = object.getString("public_key_b64").value_or("");
+  // 3. The algorithms (and the typed blobs' sizes).
+  if (auto signature = DecodeTypedB64(pp::BlobKind::kSignature, record.signature_b64, "signature_b64"); !signature) {
+    return signature.error();
+  }
+  if (!record.public_key_b64.empty()) {
+    if (auto key = DecodeTypedB64(pp::BlobKind::kSignaturePublicKey, record.public_key_b64, "public_key_b64"); !key) {
+      return key.error();
+    }
   }
   return record;
 }
@@ -147,46 +241,76 @@ Roe<PeerRoutingRecord> SignPeerRoutingRecord(PeerRoutingRecord record, std::span
   if (!signature) {
     return signature.error();
   }
-  record.signature_b64 = pp::Base64Encode(*signature);
-  record.signature_alg = kPeerRoutingSignatureAlg;
+  auto typed = pp::EncodeTypedBlob(pp::BlobKind::kSignature, pp::kSignatureAlgMlDsa65, *signature);
+  if (!typed) {
+    return typed.error();
+  }
+  record.signature_b64 = pp::Base64Encode(*typed);
   return record;
 }
 
-Roe<bool> VerifyPeerRoutingRecord(const PeerRoutingRecord& record, std::span<const uint8_t> signing_public_key) {
+Roe<std::string> PeerRoutingPublicKeyB64(std::span<const uint8_t> ml_dsa_65_public_key) {
+  auto typed = pp::EncodeTypedBlob(pp::BlobKind::kSignaturePublicKey, pp::kSignatureAlgMlDsa65, ml_dsa_65_public_key);
+  if (!typed) {
+    return typed.error();
+  }
+  return pp::Base64Encode(*typed);
+}
+
+PeerRoutingRecordRoe<void> VerifyPeerRoutingRecord(const PeerRoutingRecord& record,
+                                                   std::span<const uint8_t> signing_public_key) {
   if (signing_public_key.size() != pp::kMlDsa65PublicKeyBytes) {
-    return Error("invalid signing public key size");
+    return Fail(PeerRoutingRecordErr::BadSignature, "signing key is not an ml-dsa-65 key");
   }
-  if (record.signature_alg != kPeerRoutingSignatureAlg) {
-    return Error("unsupported signature_alg");
-  }
-  auto signature = pp::Base64Decode(record.signature_b64);
+  auto signature = DecodeTypedB64(pp::BlobKind::kSignature, record.signature_b64, "signature_b64");
   if (!signature) {
     return signature.error();
   }
+  if (signature->alg->id != pp::kSignatureAlgMlDsa65) {
+    return Fail(PeerRoutingRecordErr::BadSignature, "signature of another algorithm than its key");
+  }
   const auto sign_bytes = BuildPeerRoutingSignBytes(record);
   pp::ByteVector public_key(signing_public_key.begin(), signing_public_key.end());
-  return pp::MlDsa::Verify(public_key, sign_bytes, *signature);
-}
-
-Roe<void> VerifyPeerRoutingRecordStandalone(const PeerRoutingRecord& record) {
-  if (record.public_key_b64.empty()) {
-    return Error("record carries no public key");
-  }
-  auto public_key = pp::Base64Decode(record.public_key_b64);
-  if (!public_key) {
-    return public_key.error();
-  }
-  if (pp::amp::PeerIdFromIdentityKey(*public_key) != record.peer_id) {
-    return Error("public key does not derive the record's peer_id");
-  }
-  auto verified = VerifyPeerRoutingRecord(record, *public_key);
-  if (!verified) {
-    return verified.error();
-  }
-  if (!*verified) {
-    return Error("bad signature");
+  auto verified = pp::MlDsa::Verify(public_key, sign_bytes, signature->body);
+  if (!verified || !*verified) {
+    return Fail(PeerRoutingRecordErr::BadSignature, "bad signature");
   }
   return {};
+}
+
+PeerRoutingRecordRoe<void> VerifyPeerRoutingRecordStandalone(const PeerRoutingRecord& record) {
+  if (record.public_key_b64.empty()) {
+    return Fail(PeerRoutingRecordErr::Malformed, "record carries no public key");
+  }
+  auto key = DecodeTypedB64(pp::BlobKind::kSignaturePublicKey, record.public_key_b64, "public_key_b64");
+  if (!key) {
+    return key.error();
+  }
+  if (key->alg->id != pp::kSignatureAlgMlDsa65) { // the only key a PeerId (key type 4) derives from today
+    return Fail(PeerRoutingRecordErr::BadSignature, "public key of another algorithm than its PeerId");
+  }
+  if (pp::amp::PeerIdFromIdentityKey(key->body) != record.peer_id) { // identities hash the raw key
+    return Fail(PeerRoutingRecordErr::BadSignature, "public key does not derive the record's peer_id");
+  }
+  return VerifyPeerRoutingRecord(record, key->body);
+}
+
+bool PeerRoutingRecordHasUnknownCritical(const PeerRoutingRecord& record) {
+  return record.ext.HasUnknownCritical(std::span<const uint16_t>{}); // no entry type is defined at release 1
+}
+
+PeerRoutingRecordRoe<PeerRoutingRecord> ReadPeerRoutingRecord(const common::Object& object) {
+  auto record = PeerRoutingRecordFromObject(object);
+  if (!record) {
+    return record.error();
+  }
+  if (auto verified = VerifyPeerRoutingRecordStandalone(*record); !verified) {
+    return verified.error();
+  }
+  if (PeerRoutingRecordHasUnknownCritical(*record)) {
+    return Fail(PeerRoutingRecordErr::UnknownCritical, "unknown critical extension (update needed)");
+  }
+  return record;
 }
 
 std::string PeerRoutingRecordDialAddr(const PeerRoutingRecord& record) {

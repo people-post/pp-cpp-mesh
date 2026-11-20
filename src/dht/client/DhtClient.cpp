@@ -356,7 +356,9 @@ void DhtClient::PublishSelfIfDue() {
     return;
   }
   if (!config_.device_signing_public.empty()) {
-    signed_record->public_key_b64 = pp::Base64Encode(config_.device_signing_public); // checkable by anyone
+    if (auto key = PeerRoutingPublicKeyB64(config_.device_signing_public)) {
+      signed_record->public_key_b64 = std::move(*key); // checkable by anyone
+    }
   }
   store_.Put(*signed_record);
 
@@ -655,14 +657,18 @@ void DhtClient::AskForPeer(const DhtLookupCandidate& candidate, const std::strin
         if (const common::Array* records = resp->getArray("records")) {
           for (const common::Value& item : records->elements) {
             const common::Object* obj = common::asObject(item);
-            if (obj && PeerRoutingRecordSupportOf(*obj) != PeerRoutingRecordSupport::Supported) {
-              // A newer record, or one signed with an algorithm we do not verify: update needed, not
-              // misbehaviour — skipped, and not counted against the peer (V3).
-              std::lock_guard lock(stats_mutex_);
-              ++records_update_needed_;
+            if (!obj) {
+              saw_bad = true;
               continue;
             }
-            auto parsed = obj ? PeerRoutingRecordFromObject(*obj) : Roe<PeerRoutingRecord>(Error("not an object"));
+            auto parsed = PeerRoutingRecordFromObject(*obj);
+            if (!parsed && parsed.error().GetCode() != PeerRoutingRecordErr::Malformed) {
+              // A newer record or algorithm (update needed), or a v1 one (older): skipped, and not counted against
+              // the peer (V3) — a version, not misbehaviour.
+              std::lock_guard lock(stats_mutex_);
+              ++(parsed.error().GetCode() == PeerRoutingRecordErr::Older ? records_older_ : records_update_needed_);
+              continue;
+            }
             if (!parsed || parsed->peer_id != target_peer_id) {
               saw_bad = true;
               continue;
@@ -674,20 +680,28 @@ void DhtClient::AskForPeer(const DhtLookupCandidate& candidate, const std::strin
             if (!responder.empty() && responder == target_peer_id) {
               // Its subject answered: the session proved the key; the signature must hold.
               const pp::amp::ByteVector& key = answering_link->RemoteIdentityPublicKey();
-              auto verified = VerifyPeerRoutingRecord(*parsed, key);
-              if (!verified || !*verified) {
+              auto own_key = PeerRoutingPublicKeyB64(key);
+              if (!own_key || !VerifyPeerRoutingRecord(*parsed, key)) {
                 saw_bad = true;
                 continue;
               }
-              parsed->public_key_b64 = pp::Base64Encode(key);
+              parsed->public_key_b64 = std::move(*own_key);
               from_subject = true;
-              self_answer = *parsed;
             } else if (parsed->public_key_b64.empty()) {
               saw_bad = true; // every node serves a record with its key: one without is malformed
               continue;
             } else if (!VerifyPeerRoutingRecordStandalone(*parsed)) {
               saw_bad = true; // carries a key, and does not check out
               continue;
+            }
+            if (PeerRoutingRecordHasUnknownCritical(*parsed)) {
+              // It verifies, and says we must understand something we do not: update needed, not used.
+              std::lock_guard lock(stats_mutex_);
+              ++records_update_needed_;
+              continue;
+            }
+            if (from_subject) {
+              self_answer = *parsed;
             }
             // A self answer always wins over another's, whatever the seq: a third party cannot
             // suppress a legitimate self answer by racing it with a higher seq.
@@ -717,6 +731,7 @@ DhtClient::Stats DhtClient::OutboundStats() const {
     stats.self_publishes = self_publishes_;
     stats.last_publish_targets = last_publish_targets_;
     stats.records_update_needed = records_update_needed_;
+    stats.records_older = records_older_;
   }
   stats.publish_backoff_seconds = publish_backoff_seconds_.load(std::memory_order_acquire);
   std::lock_guard lock(reputation_mutex_);

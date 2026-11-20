@@ -52,6 +52,7 @@ DhtOpsStats AmpDhtProtocol::Stats() const {
   stats.soft_reputation_skips = outbound.soft_reputation_skips;
   stats.soft_reputation_penalized_peers = outbound.soft_reputation_penalized_peers;
   stats.records_update_needed = outbound.records_update_needed;
+  stats.records_older = outbound.records_older;
   stats.publish_backoff_seconds = outbound.publish_backoff_seconds;
   return stats;
 }
@@ -73,6 +74,7 @@ std::string AmpDhtProtocol::FormatOpsStatusJson() const {
   object.set("soft_reputation_skips", static_cast<int64_t>(stats.soft_reputation_skips));
   object.set("soft_reputation_penalized_peers", static_cast<int64_t>(stats.soft_reputation_penalized_peers));
   object.set("records_update_needed", static_cast<int64_t>(stats.records_update_needed));
+  object.set("records_older", static_cast<int64_t>(stats.records_older));
   object.set("publish_backoff_seconds", stats.publish_backoff_seconds);
   std::vector<common::Value> record_rows;
   for (const PeerRoutingRecord& record : SnapshotRecords()) {

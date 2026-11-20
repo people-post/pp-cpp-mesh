@@ -66,6 +66,8 @@ public:
     uint64_t soft_reputation_penalized_peers = 0;
     /** Answered records skipped as "update needed" (DhtOpsStats::records_update_needed). */
     uint64_t records_update_needed = 0;
+    /** Answered records skipped as made by an older build (DhtOpsStats::records_older). */
+    uint64_t records_older = 0;
     /** DhtOpsStats::publish_backoff_seconds. */
     int64_t publish_backoff_seconds = 0;
   };
@@ -196,6 +198,7 @@ private:
   uint64_t self_publishes_ = 0;
   size_t last_publish_targets_ = 0;
   uint64_t records_update_needed_ = 0;
+  uint64_t records_older_ = 0;
 
   mutable std::mutex reputation_mutex_;
   struct SoftRep {

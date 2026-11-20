@@ -30,9 +30,9 @@ set(PP_AMP_BUILD_TESTS OFF CACHE BOOL "Build pp-cpp-amp tests")
 
 # Order matters: pp-cpp-amp takes pp_common / pp_crypto from here when they already exist.
 pp_mesh_dependency(pp-cpp-common pp_common
-  https://github.com/people-post/pp-cpp-common.git v1.2.1)
+  https://github.com/people-post/pp-cpp-common.git v1.5.0)
 pp_mesh_dependency(pp-cpp-crypto pp_crypto
-  https://github.com/people-post/pp-cpp-crypto.git v1.3.0)
+  https://github.com/people-post/pp-cpp-crypto.git v1.4.0)
 pp_mesh_dependency(pp-cpp-amp pp_amp_link
   https://github.com/people-post/pp-cpp-amp.git v6.1.0)
 
