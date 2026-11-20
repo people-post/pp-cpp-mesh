@@ -121,22 +121,21 @@ protected:
 
   /** B answers every DHT request with `answer(request)`. */
   void FakeSeed(std::function<std::string(const common::Object&)> answer) {
-    h_->runtime_b->SetProtocolHandler(kDhtProtocolId, [this, answer = std::move(answer)](
-                                                          pp::amp::LinkHandle, const std::string& remote_peer_id,
-                                                          const uint32_t channel_id) {
-      auto holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
-      *holder = h_->mgr_b().BindChannel(remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
-                                        [holder, answer](Roe<std::vector<uint8_t>> frame) {
-                                          if (frame && *holder) {
-                                            const std::string reply =
-                                                answer(Parse(std::string(frame->begin(), frame->end())));
-                                            (void)(*holder)->EnqueueOutbound(
-                                                std::vector<uint8_t>(reply.begin(), reply.end()));
-                                          }
-                                          return true;
-                                        });
-      fake_sessions_.push_back(*holder);
-    });
+    h_->runtime_b->SetProtocolHandler(
+        kDhtProtocolId, [this, answer = std::move(answer)](pp::amp::LinkHandle, const std::string& remote_peer_id,
+                                                           const uint32_t channel_id) {
+          auto holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
+          *holder = h_->mgr_b().BindChannel(
+              remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
+              [holder, answer](Roe<std::vector<uint8_t>> frame) {
+                if (frame && *holder) {
+                  const std::string reply = answer(Parse(std::string(frame->begin(), frame->end())));
+                  (void)(*holder)->EnqueueOutbound(std::vector<uint8_t>(reply.begin(), reply.end()));
+                }
+                return true;
+              });
+          fake_sessions_.push_back(*holder);
+        });
   }
 
   AmpDhtProtocol::FindPeerRoe Find(AmpDhtProtocol& client, const std::string& target) {

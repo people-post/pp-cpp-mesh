@@ -38,8 +38,9 @@ protected:
   }
 
   test::RawJsonReplies Exchange(const std::string& request) {
-    return test::RawJsonExchange(h_->mgr_a(), [this] { h_->PumpAll(); }, "relay", kCircuitRelayProtocolId, {request},
-                                 1, 2000, pp::amp::CircuitTunnelChannelPolicy());
+    return test::RawJsonExchange(
+        h_->mgr_a(), [this] { h_->PumpAll(); }, "relay", kCircuitRelayProtocolId, {request}, 1, 2000,
+        pp::amp::CircuitTunnelChannelPolicy());
   }
 
   std::unique_ptr<test::AmpMeshTripleHarness> h_;

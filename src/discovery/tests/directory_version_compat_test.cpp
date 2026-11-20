@@ -71,17 +71,16 @@ TEST_F(DirectoryVersionCompatTest, ASeedsBadVersionIsAVersionMismatch) {
   h_->runtime_b->SetProtocolHandler(
       kDirectoryProtocolId, [&](pp::amp::LinkHandle, const std::string& remote_peer_id, const uint32_t channel_id) {
         auto holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
-        *holder = h_->mgr_b().BindChannel(remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
-                                          [holder, &code](Roe<std::vector<uint8_t>> frame) {
-                                            if (frame && *holder) {
-                                              const std::string answer =
-                                                  R"({"op":"error","req_id":"","version":1,"code":")" + code +
-                                                  R"(","message":"no","supported_versions":[2]})";
-                                              (void)(*holder)->EnqueueOutbound(
-                                                  std::vector<uint8_t>(answer.begin(), answer.end()));
-                                            }
-                                            return true;
-                                          });
+        *holder = h_->mgr_b().BindChannel(
+            remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
+            [holder, &code](Roe<std::vector<uint8_t>> frame) {
+              if (frame && *holder) {
+                const std::string answer = R"({"op":"error","req_id":"","version":1,"code":")" + code +
+                                           R"(","message":"no","supported_versions":[2]})";
+                (void)(*holder)->EnqueueOutbound(std::vector<uint8_t>(answer.begin(), answer.end()));
+              }
+              return true;
+            });
         sessions.push_back(*holder);
       });
   auto pump = [this]() { h_->PumpBoth(); };

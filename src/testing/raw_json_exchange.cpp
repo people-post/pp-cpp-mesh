@@ -27,20 +27,20 @@ RawJsonReplies RawJsonExchange(pp::amp::PeerLinkManager& links, const std::funct
     }
   };
 
-  links.EnsureAssociation(peer_key, [&links, state, peer_key, protocol_id,
-                                     policy](pp::amp::PeerLinkManager::LinkRoe assoc) {
-    if (!assoc) {
-      state->open_failed = true;
-      return;
-    }
-    links.OpenChannel(peer_key, protocol_id, policy, [state](const pp::amp::PeerLinkManager::ChannelRoe& channel) {
-      if (!channel) {
-        state->open_failed = true;
-        return;
-      }
-      state->channel_id = *channel;
-    });
-  });
+  links.EnsureAssociation(
+      peer_key, [&links, state, peer_key, protocol_id, policy](pp::amp::PeerLinkManager::LinkRoe assoc) {
+        if (!assoc) {
+          state->open_failed = true;
+          return;
+        }
+        links.OpenChannel(peer_key, protocol_id, policy, [state](const pp::amp::PeerLinkManager::ChannelRoe& channel) {
+          if (!channel) {
+            state->open_failed = true;
+            return;
+          }
+          state->channel_id = *channel;
+        });
+      });
   pump_until([&] { return state->channel_id.has_value() || state->open_failed; });
   if (!state->channel_id) {
     return state->replies;

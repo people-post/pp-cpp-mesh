@@ -36,8 +36,9 @@ protected:
   }
 
   test::RawJsonReplies Exchange(const std::vector<std::string>& requests, const size_t want = 1) {
-    return test::RawJsonExchange(h_->mgr_a(), [this] { h_->PumpBoth(); }, "hop", kMediaRelayProtocolId, requests,
-                                 want, 2000, pp::amp::MediaRelayClientChannelPolicy());
+    return test::RawJsonExchange(
+        h_->mgr_a(), [this] { h_->PumpBoth(); }, "hop", kMediaRelayProtocolId, requests, want, 2000,
+        pp::amp::MediaRelayClientChannelPolicy());
   }
 
   static common::Object Parse(const std::string& json) {

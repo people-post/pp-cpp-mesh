@@ -34,7 +34,6 @@ common::Object Parse(const std::string& json) {
   return root ? *root : common::Object{};
 }
 
-
 /** A (opener) ↔ B (server), associated. */
 class ReachVersionCompatTest : public ::testing::Test {
 protected:
@@ -140,14 +139,13 @@ TEST_F(ReachVersionCompatTest, AnIntroducersBadVersionIsAVersionMismatch) {
         auto policy = pp::amp::ControlJsonChannelPolicy();
         policy.read_once = false;
         auto holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
-        *holder = h_->mgr_b().BindChannel(remote_peer_id, channel_id, policy,
-                                          [holder, &answer](Roe<std::vector<uint8_t>> frame) {
-                                            if (frame && *holder) {
-                                              (void)(*holder)->EnqueueOutbound(
-                                                  std::vector<uint8_t>(answer.begin(), answer.end()));
-                                            }
-                                            return false;
-                                          });
+        *holder = h_->mgr_b().BindChannel(
+            remote_peer_id, channel_id, policy, [holder, &answer](Roe<std::vector<uint8_t>> frame) {
+              if (frame && *holder) {
+                (void)(*holder)->EnqueueOutbound(std::vector<uint8_t>(answer.begin(), answer.end()));
+              }
+              return false;
+            });
         sessions.push_back(*holder);
       });
   AmpPunchCoordinator initiator(*h_->runtime_a, [this] { h_->PumpBoth(); });
@@ -250,14 +248,14 @@ TEST_F(ReachVersionCompatTest, ASeedsBadVersionIsAVersionMismatchAndAV9RefusalSt
   h_->runtime_b->SetProtocolHandler(
       kDialBackProtocolId, [&](pp::amp::LinkHandle, const std::string& remote_peer_id, const uint32_t channel_id) {
         auto holder = std::make_shared<std::shared_ptr<pp::amp::ChannelSession>>();
-        *holder = h_->mgr_b().BindChannel(remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
-                                          [holder, &answer](Roe<std::vector<uint8_t>> frame) {
-                                            if (frame && *holder) {
-                                              (void)(*holder)->EnqueueOutbound(
-                                                  std::vector<uint8_t>(answer.begin(), answer.end()));
-                                            }
-                                            return true;
-                                          });
+        *holder = h_->mgr_b().BindChannel(
+            remote_peer_id, channel_id, pp::amp::ControlJsonChannelPolicy(),
+            [holder, &answer](Roe<std::vector<uint8_t>> frame) {
+              if (frame && *holder) {
+                (void)(*holder)->EnqueueOutbound(std::vector<uint8_t>(answer.begin(), answer.end()));
+              }
+              return true;
+            });
         sessions.push_back(*holder);
       });
   DialBackClient client(*h_->runtime_a, [this] { h_->PumpBoth(); });
@@ -280,8 +278,8 @@ TEST_F(ReachVersionCompatTest, ASeedsBadVersionIsAVersionMismatchAndAV9RefusalSt
 }
 
 TEST(DialBackWireTest, CodesRoundTrip) {
-  for (const DialBackRefusal refusal : {DialBackRefusal::BadRequest, DialBackRefusal::Busy,
-                                        DialBackRefusal::NotReached, DialBackRefusal::BadVersion}) {
+  for (const DialBackRefusal refusal :
+       {DialBackRefusal::BadRequest, DialBackRefusal::Busy, DialBackRefusal::NotReached, DialBackRefusal::BadVersion}) {
     EXPECT_EQ(DialBackRefusalFromCode(DialBackRefusalWire(refusal)), refusal) << DialBackRefusalWire(refusal);
   }
   EXPECT_EQ(DialBackRefusalFromCode(""), DialBackRefusal::Generic);
