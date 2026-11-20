@@ -13,7 +13,12 @@
 namespace pp::mesh {
 namespace {
 
-constexpr int kMeshDirectoryCacheSchemaVersion = 1;
+/**
+ * The persisted file's shape version. 2 since the release-1 cutover (pp-cpp-mesh 10.0.0): the rows carry no keys, so
+ * their shape did not change, but a list saved before the cutover names nodes that speak the old signed formats — a
+ * file of another version is ignored (a clean start, RC017) and rewritten at the next good refresh.
+ */
+constexpr int kMeshDirectoryCacheSchemaVersion = 2;
 
 common::Object NodeToObject(const MeshDirectoryNode& node) {
   common::Object o;

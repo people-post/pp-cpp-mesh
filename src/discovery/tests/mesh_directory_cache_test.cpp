@@ -9,6 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -152,7 +154,7 @@ TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
   std::filesystem::remove(path);
 
   common::Object root;
-  root.set("schema_version", int64_t{1});
+  root.set("schema_version", int64_t{2});
   common::Object node;
   node.set("peer_id", "12D3KooWCached");
   node.set("circuit_relay", true);
@@ -173,6 +175,44 @@ TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
   EXPECT_EQ(snap[0].peer_id, "12D3KooWCached");
   ASSERT_EQ(snap[0].multiaddrs.size(), 1u);
   EXPECT_TRUE(snap[0].circuit_relay);
+  std::filesystem::remove(path);
+}
+
+// The file saved before the release-1 cutover (schema_version 1) is ignored, and rewritten at the next good refresh.
+TEST(MeshDirectoryCacheTest, AFileOfAnotherSchemaIsIgnoredAndRewritten) {
+  const auto* info = ::testing::UnitTest::GetInstance();
+  const std::string path =
+      (std::filesystem::temp_directory_path() / ("pp_mesh_dir_schema_" + std::to_string(info->random_seed()) + ".json"))
+          .string();
+  std::filesystem::remove(path);
+  common::Object root;
+  root.set("schema_version", int64_t{1});
+  common::Object node;
+  node.set("peer_id", "QmPreCutover");
+  node.set("multiaddrs", common::makeArray({common::Value("/ip4/1.1.1.1/udp/443/adp/2/p2p/QmPreCutover")}));
+  root.set("nodes", common::makeArray({common::Value(std::make_shared<common::Object>(std::move(node)))}));
+  ASSERT_TRUE(AtomicFileWrite::Write(path, common::DumpJson(root, 2)));
+
+  MeshDirectoryCache cache(
+      []() -> Roe<std::vector<MeshDirectoryNode>> {
+        MeshDirectoryNode fresh;
+        fresh.peer_id = "QmFresh";
+        fresh.multiaddrs = {"/ip4/2.2.2.2/udp/443/adp/2/p2p/QmFresh"};
+        return std::vector<MeshDirectoryNode>{fresh};
+      },
+      nullptr);
+  cache.SetPersistPath(path);
+  cache.LoadPersisted();
+  EXPECT_TRUE(cache.Snapshot().empty()) << "schema 1: ignored";
+
+  cache.RequestRefresh();
+  std::ifstream in(path);
+  const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  auto saved = common::TryParseObject(body);
+  ASSERT_TRUE(saved.has_value());
+  EXPECT_EQ(saved->getIf<int64_t>("schema_version").value_or(0), 2) << "rewritten";
+  EXPECT_NE(body.find("QmFresh"), std::string::npos);
+  EXPECT_EQ(body.find("QmPreCutover"), std::string::npos);
   std::filesystem::remove(path);
 }
 
