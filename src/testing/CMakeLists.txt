@@ -6,4 +6,5 @@ pp_mesh_add_folder_library(testing
     mesh_triple_harness.cpp
     delayed_datagram_io.cpp
     park_harness.cpp
+    raw_json_exchange.cpp
   DEPS host shared reach)

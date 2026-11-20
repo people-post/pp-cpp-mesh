@@ -1,6 +1,7 @@
 #include "mesh/discovery/serve/DirectoryServer.h"
 
 #include "mesh/l4/shared/InboundReply.h"
+#include "mesh/l4/shared/WireVersion.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
@@ -96,9 +97,13 @@ struct DirectoryServer::Impl {
               return;
             }
             const std::string req_id = root->getString("req_id").value_or("");
+            // Before the op. Strict, as in v9.0.0 (a missing version is refused too); the refusal now names the
+            // versions this node reads (U7).
             const int version = static_cast<int>(root->getIf<int64_t>("version").value_or(0));
             if (version != kDirectoryWireVersion) {
-              common::Object resp = MakeErrorResponse(req_id, "bad_version", "unsupported version");
+              common::Object resp = MakeErrorResponse(req_id, kBadVersionCode,
+                                                      "unsupported directory version " + std::to_string(version));
+              SetSupportedVersions(resp, {kDirectoryWireVersion});
               reply->Send(JsonToBody(common::DumpJson(resp)));
               reply->Close();
               return;

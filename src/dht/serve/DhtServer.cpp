@@ -1,6 +1,7 @@
 #include "mesh/dht/serve/DhtServer.h"
 
 #include "mesh/l4/shared/InboundReply.h"
+#include "mesh/l4/shared/WireVersion.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
@@ -104,9 +105,13 @@ struct DhtServer::Impl {
               return;
             }
             const std::string req_id = root->getString("req_id").value_or("");
+            // Before the op and any crypto. Strict, as in v9.0.0 (a missing version is refused too); the refusal now
+            // names the versions this node reads (U7).
             const int version = static_cast<int>(root->getIf<int64_t>("version").value_or(0));
             if (version != kDhtWireVersion) {
-              common::Object resp = MakeErrorResponse(req_id, "bad_version", "unsupported version");
+              common::Object resp =
+                  MakeErrorResponse(req_id, kBadVersionCode, "unsupported dht version " + std::to_string(version));
+              SetSupportedVersions(resp, {kDhtWireVersion});
               reply->Send(JsonToBody(common::DumpJson(resp)));
               reply->Close();
               return;
@@ -156,8 +161,18 @@ struct DhtServer::Impl {
                   ++stats.inbound_store;
                 }
                 std::string reject_code;
+                std::string reject_text;
                 bool ok = false;
-                if (const common::Object* record_obj = root->getObject("record")) {
+                const common::Object* record_obj = root->getObject("record");
+                const PeerRoutingRecordSupport support =
+                    record_obj ? PeerRoutingRecordSupportOf(*record_obj) : PeerRoutingRecordSupport::Supported;
+                if (record_obj && support != PeerRoutingRecordSupport::Supported) {
+                  // A record this build cannot read (V3): typed, before the parse and the signature check.
+                  reject_code = kBadVersionCode;
+                  reject_text = support == PeerRoutingRecordSupport::UnsupportedVersion
+                                    ? "unsupported dht record version"
+                                    : "unsupported signature_alg";
+                } else if (record_obj) {
                   if (auto parsed = PeerRoutingRecordFromObject(*record_obj)) {
                     if (parsed->peer_id != remote_peer) {
                       reject_code = "not_self";
@@ -197,7 +212,12 @@ struct DhtServer::Impl {
                   }
                 }
                 if (!ok && !reject_code.empty()) {
-                  response = MakeErrorResponse(req_id, reject_code, reject_code);
+                  response = MakeErrorResponse(req_id, reject_code, reject_text.empty() ? reject_code : reject_text);
+                  if (reject_code == kBadVersionCode) {
+                    SetSupportedVersions(response, {kPeerRoutingRecordVersion}, "record_versions");
+                    response.set("signature_algs",
+                                 common::makeArray({common::Value(std::string(kPeerRoutingSignatureAlg))}));
+                  }
                 } else {
                   response.set("op", "store_result");
                   response.set("req_id", req_id);

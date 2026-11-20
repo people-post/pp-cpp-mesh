@@ -12,6 +12,14 @@ namespace pp::mesh {
 
 inline constexpr const char* kDhtProtocolId = "/pp-mesh/dht/1.0.0";
 inline constexpr int kDhtWireVersion = 1;
+/**
+ * The `version` a `PeerRoutingRecord` carries (today the same 1 as the wire). A record with another, or signed with
+ * an algorithm this build does not verify, is "update needed": skipped, never counted as misbehaviour
+ * (`PeerRoutingRecordSupportOf`).
+ */
+inline constexpr int kPeerRoutingRecordVersion = 1;
+/** The only `signature_alg` this build verifies. */
+inline constexpr const char* kPeerRoutingSignatureAlg = "ml-dsa-65";
 
 /** Relay caps in DHT records (n2-caps); same vocabulary as directory mesh_node. */
 struct PeerRoutingCapabilities {
@@ -73,6 +81,13 @@ struct DhtOpsStats {
   size_t last_publish_targets = 0;
   uint64_t soft_reputation_skips = 0;
   size_t soft_reputation_penalized_peers = 0;
+  /** Answered records skipped as "update needed" (a newer `version`, an unknown `signature_alg`). */
+  uint64_t records_update_needed = 0;
+  /**
+   * The wait before the next self publish after one every peer refused (a version it does not read, or no DHT);
+   * 0 while publishes are heard.
+   */
+  int64_t publish_backoff_seconds = 0;
 };
 
 struct AmpDhtProtocolConfig {

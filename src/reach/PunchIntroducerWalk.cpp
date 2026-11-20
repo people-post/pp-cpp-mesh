@@ -45,7 +45,7 @@ PunchIntroducerWalk::Failure PunchIntroducerWalk::WrapPunchFailure(const PunchFa
 
 bool PunchIntroducerWalk::AnotherIntroducerMayHelp(const PunchErr code) {
   return code == PunchErr::TargetUnknown || code == PunchErr::EndpointNotRegistered || code == PunchErr::LinkFailed ||
-         code == PunchErr::ChannelFailed;
+         code == PunchErr::ChannelFailed || code == PunchErr::VersionMismatch;
 }
 
 PunchIntroducerWalk::PunchIntroducerWalk() {

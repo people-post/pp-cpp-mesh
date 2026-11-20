@@ -1,6 +1,7 @@
 #include "mesh/reachability/punch/PunchLogic.h"
 
 #include "amp/link/AdpMultiaddr.h"
+#include "mesh/l4/shared/WireVersion.h"
 #include "mesh/reachability/AmpObservedAddrs.h"
 #include <algorithm>
 #include <unordered_set>
@@ -33,7 +34,7 @@ std::vector<std::string> ReadAddrs(const common::Object& root, const char* key) 
 
 std::string EncodePunchConnect(const PunchConnectRequest& req) {
   common::Object o;
-  o.set("v", int64_t{1});
+  o.set("v", int64_t{kPunchWireVersion});
   o.set("op", "connect");
   o.set("target_peer_id", req.target_peer_id);
   o.set("addrs", AddrsArray(req.addrs));
@@ -44,7 +45,7 @@ std::string EncodePunchConnect(const PunchConnectRequest& req) {
 
 std::string EncodePunchOffer(const PunchOffer& msg) {
   common::Object o;
-  o.set("v", int64_t{1});
+  o.set("v", int64_t{kPunchWireVersion});
   o.set("op", "offer");
   o.set("initiator_peer_id", msg.initiator_peer_id);
   o.set("addrs", AddrsArray(msg.addrs));
@@ -55,7 +56,7 @@ std::string EncodePunchOffer(const PunchOffer& msg) {
 
 std::string EncodePunchCandidates(const PunchCandidates& msg) {
   common::Object o;
-  o.set("v", int64_t{1});
+  o.set("v", int64_t{kPunchWireVersion});
   o.set("op", "candidates");
   o.set("peer_id", msg.peer_id);
   o.set("addrs", AddrsArray(msg.addrs));
@@ -65,7 +66,7 @@ std::string EncodePunchCandidates(const PunchCandidates& msg) {
 
 std::string EncodePunchSync(const PunchSync& msg) {
   common::Object o;
-  o.set("v", int64_t{1});
+  o.set("v", int64_t{kPunchWireVersion});
   o.set("op", "sync");
   o.set("epoch_id", msg.epoch_id);
   o.set("peer_addrs", AddrsArray(msg.peer_addrs));
@@ -75,13 +76,16 @@ std::string EncodePunchSync(const PunchSync& msg) {
 
 std::string EncodePunchResult(const PunchResult& msg) {
   common::Object o;
-  o.set("v", int64_t{1});
+  o.set("v", int64_t{kPunchWireVersion});
   o.set("op", "result");
   o.set("epoch_id", msg.epoch_id);
   o.set("ok", msg.ok);
   o.set("winner_multiaddr", msg.winner_multiaddr);
   if (const char* code = PunchRefusalWire(msg.refusal); !msg.ok && *code != '\0') {
     o.set("code", std::string(code));
+  }
+  if (!msg.ok && msg.refusal == PunchRefusal::BadVersion) {
+    SetSupportedVersions(o, {kPunchWireVersion});
   }
   o.set("error", msg.error);
   return common::DumpJson(o);

@@ -5,6 +5,7 @@
 #include "mesh/discovery/MeshNodeHitCodec.h"
 #include "common/SettledWait.h"
 #include "common/Utilities.h"
+#include "mesh/l4/shared/WireVersion.h"
 #include "mesh/shared/AmpChannelOpen.h"
 #include "mesh/shared/AmpParkUntil.h"
 
@@ -215,7 +216,16 @@ void DirectoryClient::ListMeshNodesAsync(std::function<void(ListRoe)> on_done) {
             }
           } else if (op == "error") {
             const std::string message = resp->getString("message").value_or(resp->getString("code").value_or("error"));
-            state->last_failure = Failure::Of(Err::ProtocolError, message);
+            if (resp->getString("code").value_or("") == kBadVersionCode) {
+              // U7: the peer needs an update — not a protocol error. The reply names the versions it reads.
+              const std::string versions = SupportedVersionsText(*resp);
+              state->last_failure = Failure::Of(
+                  Err::VersionMismatch,
+                  "directory: peer does not read directory version " + std::to_string(kDirectoryWireVersion) +
+                      (versions.empty() ? std::string() : " (it reads " + versions + ")") + ", update needed");
+            } else {
+              state->last_failure = Failure::Of(Err::ProtocolError, message);
+            }
           } else {
             state->last_failure = Failure::Of(Err::ProtocolError, "unexpected directory op");
           }

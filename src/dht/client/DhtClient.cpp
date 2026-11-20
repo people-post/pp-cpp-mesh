@@ -1,5 +1,6 @@
 #include "mesh/dht/client/DhtClient.h"
 
+#include "amp/L3/ChannelMux.h"
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/PeerId.h"
@@ -8,9 +9,11 @@
 #include "mesh/dht/DhtRecordCodec.h"
 #include "common/Utilities.h"
 #include "crypto/SodiumUtil.h"
+#include "mesh/l4/shared/WireVersion.h"
 #include "mesh/shared/AmpChannelOpen.h"
 
 #include <algorithm>
+#include <cstring>
 #include <ctime>
 #include <optional>
 namespace pp::mesh {
@@ -57,6 +60,22 @@ DhtClient::Failure DhtClient::WrapLinkFailure(const pp::amp::PeerLinkManager::Fa
     default:
       return Failure::Of(Err::Generic, detail::AppendFrom("dht: link error", "link", child.message));
   }
+}
+
+DhtClient::Failure DhtClient::FailureFromErrorReply(const common::Object& reply, const std::string& context) {
+  const std::string code = reply.getString("code").value_or("");
+  if (code == kBadVersionCode) {
+    const std::string versions = SupportedVersionsText(reply);
+    return Failure::Of(Err::VersionMismatch,
+                       context + ": peer does not read dht version " + std::to_string(kDhtWireVersion) +
+                           (versions.empty() ? std::string() : " (it reads " + versions + ")") + ", update needed");
+  }
+  return Failure::Of(Err::ProtocolError, context + ": " + (code.empty() ? std::string("unexpected answer") : code));
+}
+
+int64_t DhtClient::NextPublishBackoffSeconds(const int64_t previous_seconds, const int ttl_seconds) {
+  const int64_t cap = std::max<int64_t>(kPublishRetrySeconds, std::max(30, ttl_seconds / 2));
+  return previous_seconds <= 0 ? kPublishRetrySeconds : std::min(previous_seconds * 2, cap);
 }
 
 DhtClient::DhtClient(pp::amp::MeshRuntime& runtime, DhtRecordStore& store, DhtRoutingTable& table)
@@ -224,15 +243,25 @@ void DhtClient::Rpc(const std::string& peer_key, common::Object request, std::fu
             return;
           }
           const uint32_t channel_id = *channel;
+          // The peer's answer to the open, told to the channel before the waiter below sees it closed: a peer that
+          // serves no DHT says so (OpenAck "no handler"), which is a refusal, not silence (T11).
+          auto not_served = std::make_shared<bool>(false);
+          if (pp::amp::PeerLink* link = runtime_.Links().FindLink(peer_key); link && link->Mux()) {
+            link->Mux()->SetTerminalHandler(channel_id, [not_served](uint32_t, const char* reason) {
+              *not_served = reason && std::strcmp(reason, pp::amp::ChannelMux::kOpenRejectedNoHandler) == 0;
+            });
+          }
           AmpWhenChannelOpen(
               runtime_.Links(), peer_key, channel_id, deadline,
-              [this, peer_key, channel_id, request_json, finish, session_holder, timeout](bool open) mutable {
+              [this, peer_key, channel_id, request_json, finish, session_holder, timeout,
+               not_served](bool open) mutable {
                 if (!IsStarted()) {
                   finish(RpcRoe::error(Failure::Of(Err::NotStarted, "dht service stopped")));
                   return;
                 }
                 if (!open) {
-                  finish(RpcRoe::error(Failure::Of(Err::ChannelFailed, "dht channel open failed")));
+                  finish(RpcRoe::error(*not_served ? Failure::Of(Err::NotServed, "dht: peer does not serve the dht")
+                                                   : Failure::Of(Err::ChannelFailed, "dht channel open failed")));
                   return;
                 }
                 *session_holder = runtime_.Links().BindChannel(
@@ -290,7 +319,8 @@ void DhtClient::PublishSelfIfDue() {
   next_gate_check_ = now + std::chrono::milliseconds(kGateCheckMs);
   WarmQueryPeersIfDue(now);
   if (retry_publish_.exchange(false, std::memory_order_acq_rel)) {
-    next_self_publish_ = std::min(next_self_publish_, now + std::chrono::seconds(kPublishRetrySeconds));
+    next_self_publish_ = std::min(next_self_publish_,
+                                  now + std::chrono::seconds(publish_retry_seconds_.load(std::memory_order_acquire)));
   }
   std::vector<std::string> addrs = PublishableAddrs();
   const bool moved = !published_addrs_.empty() && addrs != published_addrs_; // a network change
@@ -339,9 +369,18 @@ void DhtClient::PublishSelfIfDue() {
   // At the k closest to our key that answered a walk to it, and at the query peers (where a
   // Client, which does not walk, asks).
   Walk(config_.local_peer_id, DhtLookup::Limits::WalkToClosest(table_.K()),
-       [this, store_req](DhtLookup::Outcome outcome) {
+       [this, store_req, ttl](WalkOutcome outcome) {
          if (outcome.answered == 0) {
-           retry_publish_.store(true, std::memory_order_release); // nobody heard us: soon, not at ttl / 2
+           // Nobody heard us: soon, not at ttl / 2 — unless every peer refused (T11): then later each time.
+           int64_t backoff = 0;
+           if (outcome.asked > 0 && outcome.refused >= outcome.asked) {
+             backoff = NextPublishBackoffSeconds(publish_backoff_seconds_.load(std::memory_order_acquire), ttl);
+           }
+           publish_backoff_seconds_.store(backoff, std::memory_order_release);
+           publish_retry_seconds_.store(backoff > 0 ? backoff : kPublishRetrySeconds, std::memory_order_release);
+           retry_publish_.store(true, std::memory_order_release);
+         } else {
+           publish_backoff_seconds_.store(0, std::memory_order_release);
          }
          std::vector<std::string> targets = std::move(outcome.closest);
          for (const std::string& peer_key : config_.query_peer_keys) {
@@ -550,15 +589,19 @@ void DhtClient::Walk(const std::string& target_peer_id, DhtLookup::Limits limits
   }
   auto last_failure = std::make_shared<std::pair<std::mutex, Failure>>();
   last_failure->second = Failure::Of(Err::NotFound, "find_peer not found");
+  auto refused = std::make_shared<std::atomic<size_t>>(0);
   limits.follow_hints = limits.follow_hints && config_.participate;
   limits.budget = std::chrono::milliseconds(kLookupBudgetMs);
   DhtLookup::Run(
       target_peer_id, std::move(seeds), limits,
-      [this, target_peer_id, last_failure](const DhtLookupCandidate& candidate, DhtLookup::AnswerCb answer) {
-        AskForPeer(candidate, target_peer_id, [last_failure, answer](CodedRoe<DhtLookupAnswer, Err> asked) {
+      [this, target_peer_id, last_failure, refused](const DhtLookupCandidate& candidate, DhtLookup::AnswerCb answer) {
+        AskForPeer(candidate, target_peer_id, [last_failure, refused, answer](CodedRoe<DhtLookupAnswer, Err> asked) {
           if (asked) {
             answer(std::move(*asked));
             return;
+          }
+          if (IsRefusal(asked.error().GetCode())) {
+            refused->fetch_add(1, std::memory_order_acq_rel);
           }
           {
             std::lock_guard lock(last_failure->first);
@@ -570,13 +613,14 @@ void DhtClient::Walk(const std::string& target_peer_id, DhtLookup::Limits limits
       [this](const std::string& peer_id) {
         return peer_id == config_.local_peer_id || !SoftReputationAllows(peer_id) || HeldDown(peer_id);
       },
-      [last_failure, done = std::move(done)](DhtLookup::Outcome outcome) {
+      [last_failure, refused, done = std::move(done)](DhtLookup::Outcome outcome) {
         WalkOutcome out;
         static_cast<DhtLookup::Outcome&>(out) = std::move(outcome);
         {
           std::lock_guard lock(last_failure->first);
           out.last_failure = last_failure->second;
         }
+        out.refused = refused->load(std::memory_order_acquire);
         done(std::move(out));
       });
 }
@@ -599,8 +643,7 @@ void DhtClient::AskForPeer(const DhtLookupCandidate& candidate, const std::strin
           return;
         }
         if (resp->getString("op").value_or("") != "find_peer_result") {
-          done(CodedRoe<DhtLookupAnswer, Err>::error(
-              Failure::Of(Err::ProtocolError, "find_peer: " + resp->getString("code").value_or("unexpected answer"))));
+          done(CodedRoe<DhtLookupAnswer, Err>::error(FailureFromErrorReply(*resp, "find_peer")));
           return;
         }
         bool saw_bad = false;
@@ -612,6 +655,13 @@ void DhtClient::AskForPeer(const DhtLookupCandidate& candidate, const std::strin
         if (const common::Array* records = resp->getArray("records")) {
           for (const common::Value& item : records->elements) {
             const common::Object* obj = common::asObject(item);
+            if (obj && PeerRoutingRecordSupportOf(*obj) != PeerRoutingRecordSupport::Supported) {
+              // A newer record, or one signed with an algorithm we do not verify: update needed, not
+              // misbehaviour — skipped, and not counted against the peer (V3).
+              std::lock_guard lock(stats_mutex_);
+              ++records_update_needed_;
+              continue;
+            }
             auto parsed = obj ? PeerRoutingRecordFromObject(*obj) : Roe<PeerRoutingRecord>(Error("not an object"));
             if (!parsed || parsed->peer_id != target_peer_id) {
               saw_bad = true;
@@ -666,7 +716,9 @@ DhtClient::Stats DhtClient::OutboundStats() const {
     stats.soft_reputation_skips = soft_reputation_skips_;
     stats.self_publishes = self_publishes_;
     stats.last_publish_targets = last_publish_targets_;
+    stats.records_update_needed = records_update_needed_;
   }
+  stats.publish_backoff_seconds = publish_backoff_seconds_.load(std::memory_order_acquire);
   std::lock_guard lock(reputation_mutex_);
   const auto now = Clock::now();
   for (const auto& [peer, rep] : soft_reputation_) {

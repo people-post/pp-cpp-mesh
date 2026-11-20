@@ -693,7 +693,7 @@ struct MediaRelayClientCoordinator::Impl {
       session->session_token = root->getString("session_token").value_or("");
       session->phase = MediaRelayBundlePhase::OutboundAttach;
       common::Object attach_req;
-      attach_req.set("v", int64_t{1});
+      attach_req.set("v", int64_t{kMediaRelayWireVersion});
       attach_req.set("op", "attach");
       attach_req.set("session_token", session->session_token);
       attach_req.set("call_id", session->call_id);
@@ -805,7 +805,7 @@ struct MediaRelayClientCoordinator::Impl {
   void BeginQuote(Session& session, const MediaRelayQuoteRequest& request) {
     session.phase = MediaRelayBundlePhase::OutboundQuote;
     common::Object req;
-    req.set("v", int64_t{1});
+    req.set("v", int64_t{kMediaRelayWireVersion});
     req.set("op", "quote");
     req.set("call_id", request.session_id);
     req.set("participants", int64_t{request.participants});
@@ -820,7 +820,7 @@ struct MediaRelayClientCoordinator::Impl {
   void BeginAttach(Session& session) {
     session.phase = MediaRelayBundlePhase::OutboundAccept;
     common::Object accept_req;
-    accept_req.set("v", int64_t{1});
+    accept_req.set("v", int64_t{kMediaRelayWireVersion});
     accept_req.set("op", "accept");
     accept_req.set("quote_id", session.quote_id);
     const std::string json = common::DumpJson(accept_req);
@@ -1082,7 +1082,7 @@ MediaRelayRoe<void> MediaRelayClientCoordinator::Subscribe(const uint32_t stream
     channel = impl_->client_.channel;
   }
   common::Object sub;
-  sub.set("v", int64_t{1});
+  sub.set("v", int64_t{kMediaRelayWireVersion});
   sub.set("op", "subscribe");
   sub.setJsonUInt("stream_id", stream_id);
   sub.setJsonUInt("channel_id", channel_id);
@@ -1111,7 +1111,7 @@ MediaRelayRoe<void> MediaRelayClientCoordinator::Unsubscribe(const uint32_t stre
     channel = impl_->client_.channel;
   }
   common::Object unsub;
-  unsub.set("v", int64_t{1});
+  unsub.set("v", int64_t{kMediaRelayWireVersion});
   unsub.set("op", "unsubscribe");
   unsub.setJsonUInt("stream_id", stream_id);
   unsub.setJsonUInt("channel_id", channel_id);

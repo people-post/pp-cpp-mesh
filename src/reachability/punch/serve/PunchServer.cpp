@@ -5,6 +5,7 @@
 #include "amp/L3/ChannelSession.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/PeerLink.h"
+#include "mesh/l4/shared/WireVersion.h"
 #include "mesh/reachability/punch/PunchLogic.h"
 #include "common/Logger.h"
 #include "common/ValueJson.h"
@@ -353,15 +354,32 @@ struct PunchServer::Impl {
     if (stopped.load(std::memory_order_acquire) || !runtime || !session) {
       return;
     }
+    // While we introduce or burst, the opener's answer (a result) is already coming: a stray frame then changes
+    // nothing. While we wait for its next frame, every frame is answered — the opener must not wait out its
+    // deadline on one we cannot use (projects/release-compatibility T10).
+    if (*phase != "await_first" && *phase != "await_sync") {
+      return;
+    }
+    // Refuse once: the session ends with this result.
+    auto refuse = [this, &session, &phase](const PunchRefusal refusal, const std::string& error) {
+      *phase = "refused";
+      FailSession(session, "", refusal, error);
+    };
     auto root = common::TryParseObject(json_utf8);
     if (!root) {
+      refuse(PunchRefusal::BadRequest, "punch: invalid json");
+      return;
+    }
+    // The version first, before the op (V4): a newer one is named, not misread.
+    if (auto newer = NewerWireVersion(*root, "v", kPunchWireVersion)) {
+      refuse(PunchRefusal::BadVersion, "punch: unsupported version " + std::to_string(*newer));
       return;
     }
     const std::string op = PunchOp(*root).value_or("");
     if (op == "connect" && *phase == "await_first") {
       auto req = DecodePunchConnect(*root);
       if (!req) {
-        FailSession(session, "", PunchRefusal::BadRequest, "punch: invalid connect");
+        refuse(PunchRefusal::BadRequest, "punch: invalid connect");
         return;
       }
       *phase = "introducing";
@@ -372,7 +390,7 @@ struct PunchServer::Impl {
     if (op == "offer" && *phase == "await_first") {
       auto offer = DecodePunchOffer(*root);
       if (!offer) {
-        FailSession(session, "", PunchRefusal::BadRequest, "punch: invalid offer");
+        refuse(PunchRefusal::BadRequest, "punch: invalid offer");
         return;
       }
       if (!AllowsDirect(disclosure.load(std::memory_order_acquire), offer->initiator_peer_id)) {
@@ -380,6 +398,7 @@ struct PunchServer::Impl {
         AmpPunchLog().info << "punch target declined epoch=" << offer->epoch_id
                            << " (initiator outside the direct-connections audience)";
         CountServed("target_declined");
+        *phase = "refused";
         FailSession(session, offer->epoch_id, PunchRefusal::Declined, "punch: target declines this initiator");
         return;
       }
@@ -391,6 +410,7 @@ struct PunchServer::Impl {
       reply.addrs = local_addrs ? SanitizePunchAddrs(*local_addrs) : std::vector<std::string>{};
       reply.nonce = offer->epoch_id;
       if (!session->EnqueueOutbound(JsonToBody(EncodePunchCandidates(reply)))) {
+        *phase = "refused";
         FailSession(session, offer->epoch_id, PunchRefusal::SendFailed, "punch: failed to send candidates");
         return;
       }
@@ -399,13 +419,15 @@ struct PunchServer::Impl {
     if (op == "sync" && *phase == "await_sync") {
       auto sync = DecodePunchSync(*root);
       if (!sync) {
-        FailSession(session, "", PunchRefusal::BadRequest, "punch: invalid sync");
+        refuse(PunchRefusal::BadRequest, "punch: invalid sync");
         return;
       }
       *phase = "bursting";
       RunBurstAndReply(session, *sync, *punch_remote_peer_id);
       return;
     }
+    // An op we do not know (a newer peer's), or one this phase does not take: say so (T10).
+    refuse(PunchRefusal::BadRequest, "punch: unexpected op '" + op + "' (" + *phase + ")");
   }
 
   void HandleInboundOnLink(pp::amp::LinkHandle handle, const std::string& remote_peer_id_in, uint32_t channel_id) {

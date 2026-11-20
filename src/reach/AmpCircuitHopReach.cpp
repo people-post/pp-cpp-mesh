@@ -104,6 +104,7 @@ CircuitReachFailure AmpCircuitHopReach::WrapTunnelFailure(const CircuitClientCoo
       break;
     case CircuitTunnelErr::RelayBusy:
     case CircuitTunnelErr::RelayRefused:
+    case CircuitTunnelErr::VersionMismatch:
       code = Err::RelayRefused;
       break;
     case CircuitTunnelErr::Ok:
@@ -632,8 +633,8 @@ void AmpCircuitHopReach::OnBridgeMissed(const WalkPtr& walk, const WalkBridge& b
   const std::string relay_ma = links_.PreferredMultiaddr(bridge.relay).value_or("");
   AmpReachLog().info << "EnsureViaCircuit tunnel miss relay=" << bridge.relay << " preferred_ma=" << relay_ma
                      << " err=" << walk->last_fail.message;
-  if (!result && tunnel_code == CircuitTunnelErr::RelayRefused) {
-    // Not ready, or not for us: the next reach tries it after the others (#379).
+  if (!result && (tunnel_code == CircuitTunnelErr::RelayRefused || tunnel_code == CircuitTunnelErr::VersionMismatch)) {
+    // Not ready, not for us, or it needs an update: the next reach tries it after the others (#379).
     refusals_.Note(bridge.relay,
                    std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count());
   }

@@ -63,7 +63,10 @@ public:
 
   /** One punch's failure, as the walk's (its chain in `message`). */
   static Failure WrapPunchFailure(const PunchFailure& punch);
-  /** The punch failed in a way another introducer may not: it cannot get to the target. */
+  /**
+   * The punch failed in a way another introducer may not: it cannot get to the target, or it does not read our punch
+   * version (`VersionMismatch` — an introducer that needs an update).
+   */
   static bool AnotherIntroducerMayHelp(PunchErr code);
 
   using SignalingPunchFn =

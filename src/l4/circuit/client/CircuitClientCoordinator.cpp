@@ -61,6 +61,9 @@ CircuitClientCoordinator::Failure CircuitClientCoordinator::FromRefusal(const Ci
     case CircuitRefusal::Busy:
       code = Err::RelayBusy;
       break;
+    case CircuitRefusal::BadVersion:
+      code = Err::VersionMismatch;
+      break;
     case CircuitRefusal::Refused:
     case CircuitRefusal::NotReady:
     case CircuitRefusal::BadRequest:
@@ -390,7 +393,7 @@ struct CircuitClientCoordinator::Impl {
 
   std::string RequestJson(const Tunnel& tunnel) const {
     common::Object request;
-    request.set("v", int64_t{1});
+    request.set("v", int64_t{kCircuitWireVersion});
     request.set("op", tunnel.is_reserve ? "reserve" : "bridge");
     request.set("timeout_ms",
                 int64_t{std::max<int64_t>(

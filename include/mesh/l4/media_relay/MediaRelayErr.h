@@ -7,6 +7,9 @@
 
 namespace pp::mesh {
 
+/** The `v` media-relay control carries; a control message with a higher one is refused `bad_version`. */
+inline constexpr int kMediaRelayWireVersion = 1;
+
 /** Why a media-relay quote, attach or send failed (docs/ERRORS.md). */
 enum class MediaRelayErr : int32_t {
   Ok = 0,
@@ -34,6 +37,8 @@ enum class MediaRelayErr : int32_t {
   UnknownQuote,
   /** The caller's own gate declined the quote (e.g. its price). */
   QuoteDeclined,
+  /** The hop does not read our media-relay version (`bad_version`): it needs an update. */
+  VersionMismatch,
   Generic,
 };
 using MediaRelayFailure = CodedFailure<MediaRelayErr>;
@@ -50,6 +55,8 @@ enum class MediaRelayRefusal : int32_t {
   AuthFailed,
   UnknownQuote,
   BadRequest,
+  /** The message's `v` is newer than the hop reads (the reply names `supported_versions`). */
+  BadVersion,
   Generic,
 };
 
@@ -67,6 +74,8 @@ inline const char* MediaRelayRefusalWire(const MediaRelayRefusal refusal) {
       return "unknown_quote";
     case MediaRelayRefusal::BadRequest:
       return "bad_request";
+    case MediaRelayRefusal::BadVersion:
+      return "bad_version";
     case MediaRelayRefusal::Ok:
     case MediaRelayRefusal::Generic:
       break;
@@ -85,6 +94,9 @@ inline MediaRelayErr MediaRelayErrFromCode(const std::string_view code) {
   }
   if (code == MediaRelayRefusalWire(MediaRelayRefusal::UnknownQuote)) {
     return MediaRelayErr::UnknownQuote;
+  }
+  if (code == MediaRelayRefusalWire(MediaRelayRefusal::BadVersion)) {
+    return MediaRelayErr::VersionMismatch;
   }
   if (code == MediaRelayRefusalWire(MediaRelayRefusal::Refused) ||
       code == MediaRelayRefusalWire(MediaRelayRefusal::NotReady) ||
