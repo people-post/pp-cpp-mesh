@@ -1,16 +1,20 @@
-// Release compatibility (pp-browser projects/release-compatibility V3, T11, U7) for /pp-mesh/dht/1.0.0 and its
-// PeerRoutingRecord: a v9.0.0 request (`version`:1) and record are served exactly as before; a version mismatch is a
-// refusal that names the versions served, which the client reads as VersionMismatch; a record this build cannot read
-// is skipped as "update needed" and never counted against the peer that served it; a publish every peer refused
-// backs off instead of retrying every 10 s.
+// Release compatibility (pp-browser projects/release-compatibility V3, T11, U7; SIGNED_FORMATS § 2.10) for
+// /pp-mesh/dht/1.0.0 and its PeerRoutingRecord: a v9.0.0 request (`version`:1) is served exactly as before; a version
+// mismatch is a refusal that names the versions served, which the client reads as VersionMismatch. The record is v2
+// since the release-1 cutover, its floor: a v1 record (older) and a newer one, an unknown algorithm or an unknown
+// critical extension (update needed) are skipped and never counted against the peer that served them, and a STORE
+// of one is refused `bad_version`; a publish every peer refused backs off instead of retrying every 10 s.
 
 #include "mesh/dht/AmpDhtProtocol.h"
 #include "mesh/dht/DhtRecordCodec.h"
 
 #include "amp/L3/ChannelPolicy.h"
 #include "amp/L3/ChannelSession.h"
+#include "amp/link/PeerId.h"
+#include "common/ExtArea.h"
 #include "common/SettledWait.h"
 #include "common/ValueJson.h"
+#include "crypto/MlDsa.h"
 #include "crypto/SodiumUtil.h"
 #include "mesh/l4/shared/WireVersion.h"
 #include "mesh/testing/mesh_test_harness.h"
@@ -20,6 +24,7 @@
 
 #include <ctime>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <thread>
@@ -35,22 +40,40 @@ common::Object Parse(const std::string& json) {
 }
 
 PeerRoutingRecord SignedRecord(const std::string& peer_id, const std::string& multiaddr,
-                               const pp::amp::MshIdentity& identity) {
+                               const pp::amp::MshIdentity& identity, const ExtArea& ext = {}) {
   PeerRoutingRecord record;
   record.peer_id = peer_id;
   record.seq = 1;
   record.ttl_seconds = 3600;
   record.issued_at = static_cast<int64_t>(std::time(nullptr));
   record.multiaddrs = {multiaddr};
+  record.ext = ext;
   auto signed_record = SignPeerRoutingRecord(record, identity.ml_dsa_secret_key);
   EXPECT_TRUE(static_cast<bool>(signed_record));
-  signed_record->public_key_b64 = pp::Base64Encode(identity.ml_dsa_public_key);
+  signed_record->public_key_b64 = PeerRoutingPublicKeyB64(identity.ml_dsa_public_key).valueOr("");
   return *signed_record;
+}
+
+ExtArea CriticalArea() {
+  auto area = ExtArea::FromEntries({{0x8001, {0xaa, 0xbb}}});
+  EXPECT_TRUE(static_cast<bool>(area));
+  return area ? *area : ExtArea{};
+}
+
+/** A typed blob in base64 with its algorithm id byte replaced. */
+std::string WithAlgId(const std::string& typed_b64, const uint8_t id) {
+  auto bytes = pp::Base64Decode(typed_b64);
+  if (!bytes || bytes->empty()) {
+    ADD_FAILURE() << "not a typed blob";
+    return typed_b64;
+  }
+  (*bytes)[0] = id;
+  return pp::Base64Encode(*bytes);
 }
 
 // ---- the record (V3) ----
 
-TEST(DhtRecordVersionTest, AV9RecordIsSupportedAndOthersAreUpdateNeeded) {
+TEST(DhtRecordVersionTest, AV2RecordIsSupportedAV1IsOlderAndOthersAreUpdateNeeded) {
   auto keys = pp::MlDsa::GenerateKeyPair();
   ASSERT_TRUE(static_cast<bool>(keys));
   PeerRoutingRecord record;
@@ -61,32 +84,46 @@ TEST(DhtRecordVersionTest, AV9RecordIsSupportedAndOthersAreUpdateNeeded) {
   record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/2/p2p/12D3KooWTestPeer"};
   auto signed_record = SignPeerRoutingRecord(record, keys->secret_key);
   ASSERT_TRUE(static_cast<bool>(signed_record));
-  const common::Object v9 = PeerRoutingRecordToObject(*signed_record);
-  EXPECT_EQ(v9.getIf<int64_t>("version").value_or(0), 1) << "what v9.0.0 writes, unchanged";
-  EXPECT_EQ(PeerRoutingRecordSupportOf(v9), PeerRoutingRecordSupport::Supported);
-  auto parsed = PeerRoutingRecordFromObject(v9);
+  const common::Object v2 = PeerRoutingRecordToObject(*signed_record);
+  EXPECT_EQ(v2.getIf<int64_t>("version").value_or(0), 2);
+  EXPECT_EQ(PeerRoutingRecordSupportOf(v2), PeerRoutingRecordSupport::Supported);
+  auto parsed = PeerRoutingRecordFromObject(v2);
   ASSERT_TRUE(static_cast<bool>(parsed)) << parsed.error().message;
-  auto verified = VerifyPeerRoutingRecord(*parsed, keys->public_key);
-  ASSERT_TRUE(static_cast<bool>(verified));
-  EXPECT_TRUE(*verified);
+  EXPECT_TRUE(static_cast<bool>(VerifyPeerRoutingRecord(*parsed, keys->public_key)));
 
-  common::Object no_version = v9;
+  const auto refusal = [](const common::Object& object) {
+    auto read = PeerRoutingRecordFromObject(object);
+    EXPECT_FALSE(static_cast<bool>(read));
+    return read ? PeerRoutingRecordErr::Malformed : read.error().GetCode();
+  };
+
+  common::Object v1 = v2; // what v9 wrote: version 1, `signature_alg`, an untyped signature
+  v1.set("version", int64_t{1});
+  v1.set("signature_alg", "ml-dsa-65");
+  EXPECT_EQ(PeerRoutingRecordSupportOf(v1), PeerRoutingRecordSupport::OlderVersion);
+  EXPECT_EQ(refusal(v1), PeerRoutingRecordErr::Older);
+
+  common::Object no_version = v2;
   no_version.erase("version");
-  EXPECT_EQ(PeerRoutingRecordSupportOf(no_version), PeerRoutingRecordSupport::Supported) << "absent reads as 1";
+  EXPECT_EQ(PeerRoutingRecordSupportOf(no_version), PeerRoutingRecordSupport::OlderVersion) << "v1 always wrote 1";
+  EXPECT_EQ(refusal(no_version), PeerRoutingRecordErr::Older);
 
-  common::Object newer = v9;
-  newer.set("version", int64_t{2});
+  common::Object newer = v2;
+  newer.set("version", int64_t{3});
   EXPECT_EQ(PeerRoutingRecordSupportOf(newer), PeerRoutingRecordSupport::UnsupportedVersion);
-  EXPECT_FALSE(static_cast<bool>(PeerRoutingRecordFromObject(newer)));
+  EXPECT_EQ(refusal(newer), PeerRoutingRecordErr::NewerVersion);
 
-  common::Object odd = v9;
+  common::Object odd = v2;
   odd.set("version", "2.0");
   EXPECT_EQ(PeerRoutingRecordSupportOf(odd), PeerRoutingRecordSupport::UnsupportedVersion);
 
-  common::Object other_alg = v9;
-  other_alg.set("signature_alg", "ml-dsa-87");
-  EXPECT_EQ(PeerRoutingRecordSupportOf(other_alg), PeerRoutingRecordSupport::UnsupportedSignatureAlg);
-  EXPECT_FALSE(static_cast<bool>(PeerRoutingRecordFromObject(other_alg)));
+  common::Object other_alg = v2; // a signature of an algorithm this build does not know (a later ML-DSA, say)
+  other_alg.set("signature_b64", WithAlgId(v2.getString("signature_b64").value_or(""), 2));
+  EXPECT_EQ(PeerRoutingRecordSupportOf(other_alg), PeerRoutingRecordSupport::Supported) << "the version is fine";
+  EXPECT_EQ(refusal(other_alg), PeerRoutingRecordErr::UnknownAlgorithm);
+  EXPECT_TRUE(PeerRoutingRecordNeedsUpdate(PeerRoutingRecordErr::UnknownAlgorithm));
+  EXPECT_FALSE(PeerRoutingRecordNeedsUpdate(PeerRoutingRecordErr::Older));
+  EXPECT_FALSE(PeerRoutingRecordNeedsUpdate(PeerRoutingRecordErr::BadSignature));
 }
 
 // ---- the server (U7, V3) ----
@@ -191,23 +228,40 @@ TEST_F(DhtVersionCompatTest, AStoreOfARecordWeCannotReadIsATypedBadVersion) {
     return common::DumpJson(request);
   };
 
+  const auto refused_code = [&](const common::Object& record_obj) {
+    const common::Object refused = Parse(Ask(store(record_obj)));
+    return refused.getString("code").value_or("");
+  };
   common::Object newer = PeerRoutingRecordToObject(record);
-  newer.set("version", int64_t{2});
+  newer.set("version", int64_t{3});
   const common::Object refused = Parse(Ask(store(newer)));
   EXPECT_EQ(refused.getString("code").value_or(""), "bad_version") << common::DumpJson(refused);
-  EXPECT_EQ(SupportedVersionsText(refused, "record_versions"), "1");
+  EXPECT_EQ(SupportedVersionsText(refused, "record_versions"), "2");
   ASSERT_NE(refused.getArray("signature_algs"), nullptr);
 
+  common::Object v1 = PeerRoutingRecordToObject(record); // a v9 node's STORE: below the floor
+  v1.set("version", int64_t{1});
+  v1.set("signature_alg", "ml-dsa-65");
+  EXPECT_EQ(refused_code(v1), "bad_version") << "older: the same typed code, never bad_signature";
+
   common::Object other_alg = PeerRoutingRecordToObject(record);
-  other_alg.set("signature_alg", "ml-dsa-87");
-  EXPECT_EQ(Parse(Ask(store(other_alg))).getString("code").value_or(""), "bad_version") << "not bad_signature";
+  other_alg.set("signature_b64", WithAlgId(other_alg.getString("signature_b64").value_or(""), 2));
+  EXPECT_EQ(refused_code(other_alg), "bad_version") << "not bad_signature";
+
+  const PeerRoutingRecord critical = SignedRecord(h_->peer_id_a, h_->ma_a, h_->alice, CriticalArea());
+  EXPECT_EQ(refused_code(PeerRoutingRecordToObject(critical)), "bad_version") << "verifies, then update needed";
+
+  common::Object forged = PeerRoutingRecordToObject(record);
+  forged.set("seq", int64_t{99});
+  EXPECT_EQ(refused_code(forged), "bad_signature");
   EXPECT_FALSE(seed.LocalRecord(h_->peer_id_a).has_value());
 
-  // The record as v9.0.0 publishes it: stored.
+  // The record as this build publishes it: stored, with the sender's typed key.
   const common::Object stored = Parse(Ask(store(PeerRoutingRecordToObject(record))));
   EXPECT_EQ(stored.getString("op").value_or(""), "store_result") << common::DumpJson(stored);
   EXPECT_TRUE(stored.getIf<bool>("ok").value_or(false));
-  EXPECT_TRUE(seed.LocalRecord(h_->peer_id_a).has_value());
+  ASSERT_TRUE(seed.LocalRecord(h_->peer_id_a).has_value());
+  EXPECT_EQ(seed.LocalRecord(h_->peer_id_a)->public_key_b64, record.public_key_b64);
   seed.Stop();
 }
 
@@ -251,7 +305,8 @@ TEST_F(DhtVersionCompatTest, ARecordWeCannotReadIsSkippedAndNotCountedAgainstThe
     FakeSeed([this, edit](const common::Object& request) {
       const std::string target = request.getString("peer_id").value_or("");
       common::Object record = PeerRoutingRecordToObject(SignedRecord(h_->peer_id_a, h_->ma_a, h_->alice));
-      record.set("peer_id", target);
+      record.set("peer_id", target); // the signature no longer holds; every case here is refused before it
+      record.set("multiaddrs", common::makeArray({common::Value("/ip4/203.0.113.1/udp/443/adp/2/p2p/" + target)}));
       edit(record);
       common::Object reply;
       reply.set("op", "find_peer_result");
@@ -264,7 +319,7 @@ TEST_F(DhtVersionCompatTest, ARecordWeCannotReadIsSkippedAndNotCountedAgainstThe
     });
   };
 
-  answer_with([](common::Object& record) { record.set("version", int64_t{2}); });
+  answer_with([](common::Object& record) { record.set("version", int64_t{3}); });
   AmpDhtProtocol client(*h_->runtime_a);
   client.Configure(ClientConfig(false));
   client.Start();
@@ -276,10 +331,60 @@ TEST_F(DhtVersionCompatTest, ARecordWeCannotReadIsSkippedAndNotCountedAgainstThe
   EXPECT_EQ(client.Stats().records_update_needed, 4u);
   EXPECT_EQ(client.Stats().soft_reputation_penalized_peers, 0u) << "update needed is not misbehaviour";
 
-  answer_with([](common::Object& record) { record.set("signature_alg", "ml-dsa-87"); });
+  answer_with([](common::Object& record) {
+    record.set("signature_b64", WithAlgId(record.getString("signature_b64").value_or(""), 2));
+  });
   auto found = Find(client, "QmOtherAlg");
   ASSERT_FALSE(static_cast<bool>(found));
   EXPECT_EQ(client.Stats().records_update_needed, 5u);
+  EXPECT_EQ(client.Stats().soft_reputation_penalized_peers, 0u);
+
+  // A v1 record (a v9 node's): older, skipped, not misbehaviour either.
+  answer_with([](common::Object& record) { record.set("version", int64_t{1}); });
+  for (int i = 0; i < 4; ++i) {
+    (void)Find(client, "QmOlder" + std::to_string(i));
+  }
+  EXPECT_EQ(client.Stats().records_older, 4u);
+  EXPECT_EQ(client.Stats().soft_reputation_penalized_peers, 0u);
+
+  // One that verifies and carries an unknown critical entry: update needed, after the signature.
+  std::map<std::string, common::Object> critical_records; // by PeerId: each verifies on its own
+  for (int i = 0; i < 4; ++i) {
+    auto keys = pp::MlDsa::GenerateKeyPair();
+    ASSERT_TRUE(static_cast<bool>(keys));
+    PeerRoutingRecord record;
+    record.peer_id = pp::amp::PeerIdFromIdentityKey(keys->public_key);
+    record.seq = 1;
+    record.ttl_seconds = 3600;
+    record.issued_at = static_cast<int64_t>(std::time(nullptr));
+    record.multiaddrs = {"/ip4/203.0.113.9/udp/443/adp/2/p2p/" + record.peer_id};
+    record.ext = CriticalArea();
+    auto signed_record = SignPeerRoutingRecord(record, keys->secret_key);
+    ASSERT_TRUE(static_cast<bool>(signed_record));
+    signed_record->public_key_b64 = PeerRoutingPublicKeyB64(keys->public_key).valueOr("");
+    critical_records[record.peer_id] = PeerRoutingRecordToObject(*signed_record);
+  }
+  FakeSeed([&critical_records](const common::Object& request) {
+    const std::string target = request.getString("peer_id").value_or("");
+    common::Object reply;
+    reply.set("op", "find_peer_result");
+    reply.set("req_id", request.getString("req_id").value_or(""));
+    reply.set("version", int64_t{1});
+    reply.set("peer_id", target);
+    std::vector<common::Value> records;
+    if (auto it = critical_records.find(target); it != critical_records.end()) {
+      records.emplace_back(std::make_shared<common::Object>(it->second));
+    }
+    reply.set("records", common::makeArray(std::move(records)));
+    reply.set("closer_peers", common::makeArray({}));
+    return common::DumpJson(reply);
+  });
+  const uint64_t update_needed_before = client.Stats().records_update_needed;
+  for (const auto& [peer_id, record] : critical_records) {
+    auto critical = Find(client, peer_id);
+    EXPECT_FALSE(static_cast<bool>(critical)) << "not used";
+  }
+  EXPECT_EQ(client.Stats().records_update_needed, update_needed_before + 4);
   EXPECT_EQ(client.Stats().soft_reputation_penalized_peers, 0u);
 
   // Control: a malformed record (its multiaddr names another peer) is misbehaviour, as before.

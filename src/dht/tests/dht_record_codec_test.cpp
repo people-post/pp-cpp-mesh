@@ -2,12 +2,15 @@
 #include "mesh/dht/DhtRecordStore.h"
 
 #include "amp/link/PeerId.h"
+#include "common/ExtArea.h"
+#include "crypto/AlgId.h"
 #include "crypto/MlDsa.h"
 #include "crypto/SodiumUtil.h"
 #include "mesh/testing/mesh_test_harness.h"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <ctime>
 #include <limits>
 
@@ -29,8 +32,7 @@ TEST(DhtRecordCodecTest, SignVerifyRoundTrip) {
   ASSERT_TRUE(static_cast<bool>(signed_record));
 
   auto verified = VerifyPeerRoutingRecord(*signed_record, keys->public_key);
-  ASSERT_TRUE(static_cast<bool>(verified));
-  EXPECT_TRUE(*verified);
+  EXPECT_TRUE(static_cast<bool>(verified));
 }
 
 TEST(DhtRecordCodecTest, SignVerifyRoundTripWithCapabilities) {
@@ -49,11 +51,10 @@ TEST(DhtRecordCodecTest, SignVerifyRoundTripWithCapabilities) {
   ASSERT_TRUE(static_cast<bool>(signed_record));
 
   auto verified = VerifyPeerRoutingRecord(*signed_record, keys->public_key);
-  ASSERT_TRUE(static_cast<bool>(verified));
-  EXPECT_TRUE(*verified);
+  EXPECT_TRUE(static_cast<bool>(verified));
 
   auto parsed = PeerRoutingRecordFromObject(PeerRoutingRecordToObject(*signed_record));
-  ASSERT_TRUE(static_cast<bool>(parsed));
+  ASSERT_TRUE(static_cast<bool>(parsed)) << parsed.error().message;
   ASSERT_TRUE(parsed->capabilities.has_value());
   EXPECT_TRUE(parsed->capabilities->circuit_relay);
   EXPECT_TRUE(parsed->capabilities->media_relay);
@@ -77,19 +78,112 @@ TEST(DhtRecordCodecTest, ARecordWithItsKeyChecksOnItsOwn) {
 
   EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(*signed_record)) << "no key: not checkable";
 
-  signed_record->public_key_b64 = pp::Base64Encode(keys->public_key);
+  signed_record->public_key_b64 = PeerRoutingPublicKeyB64(keys->public_key).valueOr("");
   auto parsed = PeerRoutingRecordFromObject(PeerRoutingRecordToObject(*signed_record));
   ASSERT_TRUE(static_cast<bool>(parsed));
   EXPECT_EQ(parsed->public_key_b64, signed_record->public_key_b64);
   EXPECT_TRUE(VerifyPeerRoutingRecordStandalone(*parsed));
 
   PeerRoutingRecord wrong_key = *parsed; // a key that does not derive the PeerId
-  wrong_key.public_key_b64 = pp::Base64Encode(other->public_key);
+  wrong_key.public_key_b64 = PeerRoutingPublicKeyB64(other->public_key).valueOr("");
   EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(wrong_key));
 
   PeerRoutingRecord altered = *parsed; // the right key, the signed fields changed
   altered.multiaddrs = {"/ip4/198.51.100.9/udp/443/adp/2/p2p/" + record.peer_id};
   EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(altered));
+
+  PeerRoutingRecord raw_key = *parsed; // v1's untyped key: its first byte is not an algorithm this build knows
+  raw_key.public_key_b64 = pp::Base64Encode(keys->public_key);
+  EXPECT_FALSE(VerifyPeerRoutingRecordStandalone(raw_key));
+}
+
+// v2 keys and signatures are typed blobs (pp-cpp-crypto AlgId): id 1 (ml-dsa-65), then the raw bytes; the PeerId is
+// still derived from the raw key.
+TEST(DhtRecordCodecTest, KeyAndSignatureAreTypedBlobs) {
+  auto keys = pp::MlDsa::GenerateKeyPair();
+  ASSERT_TRUE(static_cast<bool>(keys));
+  PeerRoutingRecord record;
+  record.peer_id = pp::amp::PeerIdFromIdentityKey(keys->public_key);
+  record.seq = 1;
+  record.issued_at = 1'700'000'000;
+  record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/2/p2p/" + record.peer_id};
+  auto signed_record = SignPeerRoutingRecord(record, keys->secret_key);
+  ASSERT_TRUE(static_cast<bool>(signed_record));
+  auto signature = pp::Base64Decode(signed_record->signature_b64);
+  ASSERT_TRUE(static_cast<bool>(signature));
+  ASSERT_EQ(signature->size(), 1 + pp::kMlDsa65SignatureBytes);
+  EXPECT_EQ((*signature)[0], pp::kSignatureAlgMlDsa65);
+  auto key_b64 = PeerRoutingPublicKeyB64(keys->public_key);
+  ASSERT_TRUE(static_cast<bool>(key_b64));
+  auto key = pp::Base64Decode(*key_b64);
+  ASSERT_TRUE(static_cast<bool>(key));
+  ASSERT_EQ(key->size(), 1 + pp::kMlDsa65PublicKeyBytes);
+  EXPECT_EQ((*key)[0], pp::kSignatureAlgMlDsa65);
+  EXPECT_TRUE(std::equal(keys->public_key.begin(), keys->public_key.end(), key->begin() + 1));
+  EXPECT_FALSE(static_cast<bool>(PeerRoutingPublicKeyB64(std::vector<uint8_t>(10, 1)))) << "not an ml-dsa-65 key";
+
+  const common::Object object = PeerRoutingRecordToObject(*signed_record);
+  EXPECT_FALSE(object.contains("signature_alg")) << "the typed signature names its algorithm";
+  EXPECT_FALSE(object.contains("ext_b64")) << "writers omit an empty area";
+  EXPECT_EQ(object.getIf<int64_t>("version").value_or(0), 2);
+
+  common::Object empty_ext = object; // an empty ext_b64 is the empty area, as an absent one
+  empty_ext.set("ext_b64", "");
+  auto parsed = PeerRoutingRecordFromObject(empty_ext);
+  ASSERT_TRUE(static_cast<bool>(parsed)) << parsed.error().message;
+  EXPECT_TRUE(parsed->ext.empty());
+  EXPECT_TRUE(static_cast<bool>(VerifyPeerRoutingRecord(*parsed, keys->public_key)));
+
+  common::Object no_signature = object;
+  no_signature.set("signature_b64", "");
+  auto unsigned_record = PeerRoutingRecordFromObject(no_signature);
+  ASSERT_FALSE(static_cast<bool>(unsigned_record));
+  EXPECT_EQ(unsigned_record.error().GetCode(), PeerRoutingRecordErr::Malformed);
+}
+
+// The extension area is signed: an entry added, dropped or changed on the way breaks the signature; a critical
+// entry this build does not understand makes a verified record "update needed".
+TEST(DhtRecordCodecTest, TheExtensionAreaIsSignedAndKept) {
+  auto keys = pp::MlDsa::GenerateKeyPair();
+  ASSERT_TRUE(static_cast<bool>(keys));
+  PeerRoutingRecord record;
+  record.peer_id = pp::amp::PeerIdFromIdentityKey(keys->public_key);
+  record.seq = 1;
+  record.issued_at = 1'700'000'000;
+  record.multiaddrs = {"/ip4/203.0.113.1/udp/443/adp/2/p2p/" + record.peer_id};
+  auto area = pp::ExtArea::FromEntries({{0x0005, {9, 9}}});
+  ASSERT_TRUE(static_cast<bool>(area));
+  record.ext = *area;
+  auto signed_record = SignPeerRoutingRecord(record, keys->secret_key);
+  ASSERT_TRUE(static_cast<bool>(signed_record));
+  signed_record->public_key_b64 = PeerRoutingPublicKeyB64(keys->public_key).valueOr("");
+
+  const common::Object object = PeerRoutingRecordToObject(*signed_record);
+  ASSERT_TRUE(object.contains("ext_b64"));
+  auto read = ReadPeerRoutingRecord(object);
+  ASSERT_TRUE(static_cast<bool>(read)) << read.error().message;
+  EXPECT_EQ(read->ext, *area) << "unknown non-critical entries are kept";
+
+  common::Object dropped = object;
+  dropped.erase("ext_b64");
+  auto read_dropped = ReadPeerRoutingRecord(dropped);
+  ASSERT_FALSE(static_cast<bool>(read_dropped));
+  EXPECT_EQ(read_dropped.error().GetCode(), PeerRoutingRecordErr::BadSignature);
+
+  common::Object not_base64 = object;
+  not_base64.set("ext_b64", "***");
+  auto read_bad = ReadPeerRoutingRecord(not_base64);
+  ASSERT_FALSE(static_cast<bool>(read_bad));
+  EXPECT_EQ(read_bad.error().GetCode(), PeerRoutingRecordErr::Malformed);
+
+  auto critical = pp::ExtArea::FromEntries({{0x8005, {}}});
+  ASSERT_TRUE(static_cast<bool>(critical));
+  PeerRoutingRecord with_critical = record;
+  with_critical.ext = *critical;
+  auto signed_critical = SignPeerRoutingRecord(with_critical, keys->secret_key);
+  ASSERT_TRUE(static_cast<bool>(signed_critical));
+  EXPECT_TRUE(static_cast<bool>(VerifyPeerRoutingRecord(*signed_critical, keys->public_key)));
+  EXPECT_TRUE(PeerRoutingRecordHasUnknownCritical(*signed_critical));
 }
 
 // closer_peers are hints from a stranger: only well-formed ones that bind their PeerId pass.
@@ -185,6 +279,7 @@ TEST(DhtRecordStoreTest, RejectsNewPeerWhenFullOfLiveRecords) {
 TEST(DhtRecordCodecTest, RejectsMultiaddrPeerMismatch) {
   common::Object object;
   object.set("type", "peer_routing");
+  object.set("version", int64_t{2});
   object.set("peer_id", "12D3KooWPeerA");
   object.set("seq", int64_t{1});
   object.set("ttl_seconds", int64_t{3600});
@@ -192,10 +287,10 @@ TEST(DhtRecordCodecTest, RejectsMultiaddrPeerMismatch) {
   object.set("multiaddrs",
              common::makeArray(std::vector<common::Value>{"/ip4/1.2.3.4/udp/443/adp/2/p2p/12D3KooWPeerB"}));
   object.set("signature_b64", "AA==");
-  object.set("signature_alg", "ml-dsa-65");
 
   auto parsed = PeerRoutingRecordFromObject(object);
-  EXPECT_FALSE(static_cast<bool>(parsed));
+  ASSERT_FALSE(static_cast<bool>(parsed));
+  EXPECT_EQ(parsed.error().GetCode(), PeerRoutingRecordErr::Malformed);
 }
 
 } // namespace

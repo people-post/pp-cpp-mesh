@@ -2,7 +2,8 @@
 
 Status: design agreed 2026-10-21 (decisions D1–D5 as recommended below). Step 6 of
 docs/PEER_REACH.md § 7. Progress: § 7 (build order).
-Wire and record format: pp-browser `docs/contracts/MESH_DHT.md` (the contract); this document
+Wire and record format: pp-browser `docs/contracts/MESH_DHT.md` (the contract; the record v2 is
+§ 4.5b here until the contract follows); this document
 says how to make the mesh do what it describes, what changes in it, and what to decide first.
 
 ## 1. Where it is
@@ -116,12 +117,78 @@ publish someone heard resets it. `publish_backoff_seconds` in the status shows i
 Every request carries `version` 1 and the server checks it first, before the op and any crypto
 (strictly, as v9.0.0 did); a mismatch is `{"op":"error","code":"bad_version",
 "supported_versions":[1]}` and the client reads it as `VersionMismatch` (update needed), not a
-protocol error (U7). A `PeerRoutingRecord` carries `version` 1 (absent reads as 1) and
-`signature_alg` `ml-dsa-65`: before any parse or signature check, a record with another version
-or algorithm (`PeerRoutingRecordSupportOf`) is skipped as "update needed" — counted in
-`records_update_needed`, never against the soft reputation of the peer that served it — and a
-`store` of one is refused `bad_version` with `record_versions` and `signature_algs` (V3). The
-sign bytes and the record JSON are unchanged.
+protocol error (U7). The wire stays at 1; the record inside it is v2 (§ 4.5b).
+
+A record is read in the receiver's order of pp-browser SIGNED_FORMATS § 1.1
+(`PeerRoutingRecordFromObject`, then the signature, then `PeerRoutingRecordHasUnknownCritical`;
+`ReadPeerRoutingRecord` does all of it for a record checked on its own), each refusal a
+`PeerRoutingRecordErr`:
+
+| Step | Refusal | Answered record (client) | `store` (server) |
+|------|---------|--------------------------|------------------|
+| 1 version | `version` above 2 or not a number: `NewerVersion` | skipped, `records_update_needed` | `bad_version` |
+| 1 version | `version` below 2 or none (every v9 record): `Older` | skipped, `records_older` | `bad_version` |
+| 2 parse | type, peer_id, multiaddrs, `ext_b64`, a typed blob of id 0 or the wrong size: `Malformed` | soft reputation | `invalid_record` |
+| 3 algorithms | the signature's or key's id is not one this build knows: `UnknownAlgorithm` | skipped, `records_update_needed` | `bad_version` |
+| 4 signature | does not hold, or the key is not the subject's: `BadSignature` | soft reputation | `bad_signature` (`bad_key`: not the sender's key) |
+| 5 extensions | verifies, and carries an unknown critical entry: `UnknownCritical` | skipped, `records_update_needed` | `bad_version` |
+
+Only steps 2 and 4 count against the soft reputation of the peer that served the record: the
+others are versions, not misbehaviour (V3). A record's `bad_version` names `record_versions`
+(`[2]`) and `signature_algs` (`["ml-dsa-65"]`).
+
+### 4.5b The record (v2)
+
+Since the release-1 cutover (pp-cpp-mesh 10.0.0; pp-browser SIGNED_FORMATS § 2.10, RC020) a
+`PeerRoutingRecord` is v2, and v2 is its floor: a v1 record is not read (pre-release cutover,
+no reader for older forms).
+
+```json
+{
+  "type": "peer_routing",
+  "version": 2,
+  "peer_id": "Qm…",
+  "seq": 42,
+  "ttl_seconds": 3600,
+  "issued_at": 1767225600,
+  "multiaddrs": ["/ip4/203.0.113.10/udp/443/adp/2/p2p/Qm…"],
+  "capabilities": { "circuit_relay": true, "media_relay": false },
+  "ext_b64": "…",
+  "signature_b64": "…",
+  "public_key_b64": "…"
+}
+```
+
+- `version` is read first, before any parse or signature check.
+- `signature_b64` and `public_key_b64` are **typed blobs** (pp-cpp-crypto `AlgId`): the first
+  byte is the algorithm id (signature kind; 1 = ml-dsa-65), then the raw bytes (signature 3310,
+  key 1953 bytes). The `signature_alg` field is gone: the signature's id names the algorithm, it
+  verifies only with a key of the same id, and the PeerId (key type 4: ML-DSA-65) is derived
+  from the raw key, as before. `public_key_b64` is not signed (the PeerId binds it).
+- `ext_b64` is the signed extension area's entries (pp-cpp-common `ExtArea`), standard base64;
+  absent means empty, and writers omit it when empty. No entry type is defined for the record:
+  unknown non-critical entries are ignored and kept (a stored record is served with them, so it
+  still verifies), an unknown critical one makes the record "update needed" once it verifies.
+
+The signed bytes (`BuildPeerRoutingSignBytes`): SIGNED_FORMATS § 1.4's header, v1's fields from
+`type=peer_routing` on unchanged, and the extension area last. `Len(x)` is a u32 big-endian
+byte length, then the UTF-8 bytes; numbers are decimal text inside their field, as in v1.
+
+```text
+"pp-mesh:dht-record" 00 ‖ u8 2
+‖ Len("type=peer_routing") ‖ Len(peer_id)
+‖ Len("seq=" seq) ‖ Len("ttl_seconds=" ttl_seconds) ‖ Len("issued_at=" issued_at)
+‖ u32 n ‖ n × Len(multiaddr)
+‖ u8 caps_present [‖ u8 circuit_relay ‖ u8 media_relay]
+‖ u64 entries_length ‖ entries                       (the extension area)
+```
+
+v1 had the domain `pp-mesh:dht-record-v1` 00 and a `Len("sign_version=1")` field where v2 has
+the version byte; it had no area. Frozen vectors: `src/dht/tests/data/dht_record_vectors.json`
+(SIGNED_FORMATS § 6 "Per object": the signed bytes of a fixed input with an empty area and with
+one unknown non-critical entry, signed records that verify, and the refusals of the table above),
+checked by `dht_record_vectors_test.cpp`; `PP_WRITE_DHT_RECORD_VECTORS=<path>` writes a fresh
+file (new hedged signatures, everything else equal).
 
 ### 4.6 Refresh
 

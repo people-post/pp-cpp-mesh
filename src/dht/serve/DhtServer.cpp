@@ -8,6 +8,7 @@
 #include "mesh/dht/DhtKey.h"
 #include "mesh/dht/DhtRecordCodec.h"
 #include "common/ValueJson.h"
+#include "crypto/AlgId.h"
 #include "crypto/SodiumUtil.h"
 #include "common/Lifetime.h"
 
@@ -38,6 +39,19 @@ common::Object MakeErrorResponse(const std::string& req_id, const std::string& c
   object.set("code", code);
   object.set("message", message);
   return object;
+}
+
+/** A record's `public_key_b64` names the sender's key: the same typed blob, whatever its base64 spelling. */
+bool SameTypedKey(const std::string& record_key_b64, const std::string& own_key_b64) {
+  auto record_key = pp::Base64Decode(record_key_b64);
+  auto own_key = pp::Base64Decode(own_key_b64);
+  return record_key && own_key && *record_key == *own_key;
+}
+
+/** `signature_algs` on a record's `bad_version`: the names of the signature algorithms this build verifies. */
+common::Value SignatureAlgNames() {
+  const pp::AlgInfo* alg = pp::FindAlg(pp::AlgKind::kSignature, pp::kSignatureAlgMlDsa65);
+  return common::makeArray({common::Value(std::string(alg ? alg->name : "ml-dsa-65"))});
 }
 
 common::Value RecordsToJsonArray(const std::vector<PeerRoutingRecord>& records) {
@@ -164,43 +178,42 @@ struct DhtServer::Impl {
                 std::string reject_text;
                 bool ok = false;
                 const common::Object* record_obj = root->getObject("record");
-                const PeerRoutingRecordSupport support =
-                    record_obj ? PeerRoutingRecordSupportOf(*record_obj) : PeerRoutingRecordSupport::Supported;
-                if (record_obj && support != PeerRoutingRecordSupport::Supported) {
-                  // A record this build cannot read (V3): typed, before the parse and the signature check.
-                  reject_code = kBadVersionCode;
-                  reject_text = support == PeerRoutingRecordSupport::UnsupportedVersion
-                                    ? "unsupported dht record version"
-                                    : "unsupported signature_alg";
-                } else if (record_obj) {
-                  if (auto parsed = PeerRoutingRecordFromObject(*record_obj)) {
-                    if (parsed->peer_id != remote_peer) {
-                      reject_code = "not_self";
-                    } else if (PeerRoutingRecordExpired(*parsed, static_cast<int64_t>(std::time(nullptr)))) {
-                      reject_code = "expired";
-                    } else {
-                      auto verified = VerifyPeerRoutingRecord(*parsed, remote_pk);
-                      if (!verified) {
-                        reject_code = "bad_signature";
-                      } else if (!*verified) {
-                        reject_code = "bad_signature";
-                      } else if (!parsed->public_key_b64.empty() &&
-                                 parsed->public_key_b64 != pp::Base64Encode(remote_pk)) {
-                        reject_code = "bad_key";
-                      } else if (auto existing = store->Get(parsed->peer_id); existing && existing->seq > parsed->seq) {
-                        reject_code = "seq_regression";
-                      } else if (parsed->public_key_b64 = pp::Base64Encode(remote_pk);
-                                 !store->Put(*parsed)) { // served checkable to anyone
-                        reject_code = "store_failed";
-                      } else {
-                        ok = true;
-                      }
-                    }
+                if (!record_obj) {
+                  reject_code = "missing_record";
+                } else if (auto parsed = PeerRoutingRecordFromObject(*record_obj); !parsed) {
+                  // A record this build cannot read (V3): a typed refusal, before the signature check — a v1 record
+                  // (older, below the floor), a newer version, or an algorithm this build does not know.
+                  const PeerRoutingRecordErr err = parsed.error().GetCode();
+                  if (err == PeerRoutingRecordErr::Malformed) {
+                    reject_code = "invalid_record";
+                  } else {
+                    reject_code = kBadVersionCode;
+                  }
+                  reject_text = parsed.error().message;
+                } else if (parsed->peer_id != remote_peer) {
+                  reject_code = "not_self";
+                } else if (PeerRoutingRecordExpired(*parsed, static_cast<int64_t>(std::time(nullptr)))) {
+                  reject_code = "expired";
+                } else if (auto verified = VerifyPeerRoutingRecord(*parsed, remote_pk); !verified) {
+                  if (verified.error().GetCode() == PeerRoutingRecordErr::BadSignature) {
+                    reject_code = "bad_signature";
                   } else {
                     reject_code = "invalid_record";
                   }
+                } else if (PeerRoutingRecordHasUnknownCritical(*parsed)) {
+                  // It verifies, but says this node must understand something it does not: update needed.
+                  reject_code = kBadVersionCode;
+                  reject_text = "unknown critical extension";
+                } else if (auto own_key = PeerRoutingPublicKeyB64(remote_pk); !own_key) {
+                  reject_code = "bad_key";
+                } else if (!parsed->public_key_b64.empty() && !SameTypedKey(parsed->public_key_b64, *own_key)) {
+                  reject_code = "bad_key";
+                } else if (auto existing = store->Get(parsed->peer_id); existing && existing->seq > parsed->seq) {
+                  reject_code = "seq_regression";
+                } else if (parsed->public_key_b64 = *own_key; !store->Put(*parsed)) { // served checkable to anyone
+                  reject_code = "store_failed";
                 } else {
-                  reject_code = "missing_record";
+                  ok = true;
                 }
                 if (!ok) {
                   std::lock_guard lock(stats_mutex);
@@ -215,8 +228,7 @@ struct DhtServer::Impl {
                   response = MakeErrorResponse(req_id, reject_code, reject_text.empty() ? reject_code : reject_text);
                   if (reject_code == kBadVersionCode) {
                     SetSupportedVersions(response, {kPeerRoutingRecordVersion}, "record_versions");
-                    response.set("signature_algs",
-                                 common::makeArray({common::Value(std::string(kPeerRoutingSignatureAlg))}));
+                    response.set("signature_algs", SignatureAlgNames());
                   }
                 } else {
                   response.set("op", "store_result");

@@ -2,6 +2,8 @@
 
 #include "mesh/types/MeshConfigTypes.h"
 
+#include "common/ExtArea.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -13,13 +15,12 @@ namespace pp::mesh {
 inline constexpr const char* kDhtProtocolId = "/pp-mesh/dht/1.0.0";
 inline constexpr int kDhtWireVersion = 1;
 /**
- * The `version` a `PeerRoutingRecord` carries (today the same 1 as the wire). A record with another, or signed with
- * an algorithm this build does not verify, is "update needed": skipped, never counted as misbehaviour
- * (`PeerRoutingRecordSupportOf`).
+ * The `version` a `PeerRoutingRecord` carries, outside (JSON `version`, read first) and inside (the byte after the
+ * domain in its signed bytes): 2 since the release-1 cutover (pp-browser SIGNED_FORMATS § 2.10, RC020), the floor and
+ * the only version this build reads. A newer one is "update needed", an older one (or none) "made by an older build";
+ * neither is ever counted as misbehaviour (`PeerRoutingRecordSupportOf`). The DHT wire's own `version` stays 1.
  */
-inline constexpr int kPeerRoutingRecordVersion = 1;
-/** The only `signature_alg` this build verifies. */
-inline constexpr const char* kPeerRoutingSignatureAlg = "ml-dsa-65";
+inline constexpr int kPeerRoutingRecordVersion = 2;
 
 /** Relay caps in DHT records (n2-caps); same vocabulary as directory mesh_node. */
 struct PeerRoutingCapabilities {
@@ -34,11 +35,21 @@ struct PeerRoutingRecord {
   int64_t issued_at = 0;
   std::vector<std::string> multiaddrs;
   std::optional<PeerRoutingCapabilities> capabilities;
-  std::string signature_b64;
-  std::string signature_alg = "ml-dsa-65";
   /**
-   * The signer's ML-DSA-65 public key (base64): with it any node can check the record — the key
-   * derives `peer_id`, and the signature holds. Not part of the signed bytes (the PeerId binds it).
+   * The signed extension area (SIGNED_FORMATS § 1.2), the last field of the signed bytes; JSON `ext_b64`. Empty at
+   * release 1 (no entry type is defined for the record). Unknown non-critical entries are kept, so a stored or
+   * forwarded record still verifies; an unknown critical one makes the record "update needed" once it verifies.
+   */
+  pp::ExtArea ext;
+  /**
+   * The signature as a typed blob (base64): its first byte is the algorithm id (pp-cpp-crypto `AlgId`, signature kind;
+   * 1 = ml-dsa-65), so the algorithm needs no field of its own. It verifies only with a key of the same id.
+   */
+  std::string signature_b64;
+  /**
+   * The signer's public key as a typed blob (base64; ml-dsa-65: id 1, then the 1952-byte key): with it any node can
+   * check the record — the raw key derives `peer_id`, and the signature holds. Not part of the signed bytes (the
+   * PeerId binds it). `PeerRoutingPublicKeyB64` makes one from a raw key.
    */
   std::string public_key_b64;
 };
@@ -81,8 +92,13 @@ struct DhtOpsStats {
   size_t last_publish_targets = 0;
   uint64_t soft_reputation_skips = 0;
   size_t soft_reputation_penalized_peers = 0;
-  /** Answered records skipped as "update needed" (a newer `version`, an unknown `signature_alg`). */
+  /**
+   * Answered records skipped as "update needed": a newer `version`, a key or signature of an algorithm this build does
+   * not know, or (once it verifies) an unknown critical extension.
+   */
   uint64_t records_update_needed = 0;
+  /** Answered records skipped as made by an older build (`version` below 2, or none). Not misbehaviour either. */
+  uint64_t records_older = 0;
   /**
    * The wait before the next self publish after one every peer refused (a version it does not read, or no DHT);
    * 0 while publishes are heard.
