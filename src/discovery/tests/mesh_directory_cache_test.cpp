@@ -206,8 +206,12 @@ TEST(MeshDirectoryCacheTest, AFileOfAnotherSchemaIsIgnoredAndRewritten) {
   EXPECT_TRUE(cache.Snapshot().empty()) << "schema 1: ignored";
 
   cache.RequestRefresh();
-  std::ifstream in(path);
-  const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  std::string body;
+  {
+    // Closed before the remove below: Windows does not delete a file that is open.
+    std::ifstream in(path);
+    body.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
   auto saved = common::TryParseObject(body);
   ASSERT_TRUE(saved.has_value());
   EXPECT_EQ(saved->getIf<int64_t>("schema_version").value_or(0), 2) << "rewritten";
