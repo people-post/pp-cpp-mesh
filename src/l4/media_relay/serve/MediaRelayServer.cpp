@@ -1069,6 +1069,15 @@ bool MediaRelayServer::SubscribeLocal(const uint32_t stream_id, const uint16_t c
   return true;
 }
 
+bool MediaRelayServer::UnsubscribeLocal(const uint32_t stream_id, const uint16_t channel_id) {
+  std::lock_guard lock(impl_->mu);
+  if (!impl_->local_part_) {
+    return false;
+  }
+  impl_->local_part_->subscriptions.erase(MediaRelaySubKey(stream_id, channel_id));
+  return true;
+}
+
 bool MediaRelayServer::SendLocal(const MediaDataFrame& frame) {
   std::shared_ptr<Impl::HostSession> session;
   std::string from_peer;

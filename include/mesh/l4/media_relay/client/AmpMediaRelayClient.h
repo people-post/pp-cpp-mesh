@@ -46,6 +46,7 @@ public:
   MediaRelayRoe<MediaRelayAttachResult> AttachAsLocalHop(const std::string& session_id,
                                                          std::function<void(MediaDataFrame)> on_frame) override;
   MediaRelayRoe<void> Subscribe(uint32_t stream_id, uint16_t channel_id) override;
+  MediaRelayRoe<void> Unsubscribe(uint32_t stream_id, uint16_t channel_id) override;
   MediaRelayRoe<void> SendFrame(const MediaDataFrame& frame) override;
   void Detach() override;
   bool IsAttached() const override;

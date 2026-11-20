@@ -1096,6 +1096,31 @@ MediaRelayRoe<void> MediaRelayClientCoordinator::Subscribe(const uint32_t stream
   return {};
 }
 
+MediaRelayRoe<void> MediaRelayClientCoordinator::Unsubscribe(const uint32_t stream_id, const uint16_t channel_id) {
+  const uint64_t key = MediaRelaySubKey(stream_id, channel_id);
+  std::shared_ptr<pp::amp::ChannelSession> channel;
+  {
+    std::lock_guard lock(impl_->mu);
+    if (impl_->local_server && impl_->local_server->UnsubscribeLocal(stream_id, channel_id)) {
+      return {};
+    }
+    // Erased first: a frame of it already on its way is dropped by the reader (it checks the set).
+    if (impl_->client_.subscriptions.erase(key) == 0 || !impl_->client_.channel) {
+      return {};
+    }
+    channel = impl_->client_.channel;
+  }
+  common::Object unsub;
+  unsub.set("v", int64_t{1});
+  unsub.set("op", "unsubscribe");
+  unsub.setJsonUInt("stream_id", stream_id);
+  unsub.setJsonUInt("channel_id", channel_id);
+  // Written outside `mu`, under the io lock (see SendFrame). Lost with the channel: the relay drops the
+  // subscription with the participant anyway.
+  (void)runtime_.WithIoLock([&]() { return channel->EnqueueOutbound(JsonToBody(common::DumpJson(unsub))); });
+  return {};
+}
+
 MediaRelayRoe<void> MediaRelayClientCoordinator::SendFrame(const MediaDataFrame& frame) {
   std::shared_ptr<pp::amp::ChannelSession> channel;
   {
