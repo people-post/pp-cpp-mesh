@@ -42,8 +42,11 @@ Failure Aborted() {
 CircuitClientCoordinator::Failure CircuitClientCoordinator::WrapLinkFailure(
     const pp::amp::PeerLinkManager::Failure& link) {
   using LinkErr = pp::amp::PeerLinkManager::Err;
+  // A relay of another link version needs an update, like one that does not read our circuit version: circuit
+  // reach holds it back as a refusal, not as a relay it could not reach.
   const Err code = link.GetCode() == LinkErr::EndpointNotRegistered ? Err::RelayNoEndpoint
                    : link.GetCode() == LinkErr::ChannelOpenFailed   ? Err::ChannelFailed
+                   : link.GetCode() == LinkErr::VersionMismatch     ? Err::VersionMismatch
                                                                     : Err::RelayLinkFailed;
   return Failure::Of(code, detail::AppendFrom("circuit-relay: relay link failed", "link", link.message));
 }

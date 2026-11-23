@@ -70,6 +70,11 @@ struct MeshIoContext {
  */
 class IChatPeerLinks {
 public:
+  /**
+   * Amp's `PeerLinkManager::Err`, code for code: the same names in the same order, so the same values.
+   * MeshPorts.cpp asserts each value against Amp's and maps them by name (mesh/host/AmpLinkErr.h), so an
+   * Amp code without a counterpart here fails the build (docs/ERRORS.md).
+   */
   enum class Err : int32_t {
     Ok = 0,
     EndpointNotRegistered,
@@ -84,6 +89,11 @@ public:
     TransportFailed,
     DualDialLost,
     ChannelOpenFailed,
+    /**
+     * The peer speaks another wire or MSH version (Amp N032 / U5): it answered, and no dial reaches it until
+     * one side updates — not a network failure. `message` says which version and who must update.
+     */
+    VersionMismatch,
     Generic,
   };
 
@@ -95,7 +105,7 @@ public:
   using ProtocolHandler =
       std::function<void(pp::amp::LinkHandle handle, const std::string& remote_peer_id, uint32_t channel_id)>;
 
-  /** Stable codes mirror `PeerLinkManager::Err` — see pp-browser docs/contracts/AMP-LINK-ERRORS.md. */
+  /** Stable codes: Amp's `PeerLinkManager::Err` (above) — see pp-browser docs/contracts/AMP-LINK-ERRORS.md. */
   static bool IsAssociationNotReady(const Failure& failure) { return failure.GetCode() == Err::AssociationNotReady; }
 
   static bool IsDialInBackoff(const Failure& failure) { return failure.GetCode() == Err::DialInBackoff; }
@@ -103,6 +113,8 @@ public:
   static bool IsEndpointNotRegistered(const Failure& failure) {
     return failure.GetCode() == Err::EndpointNotRegistered;
   }
+
+  static bool IsVersionMismatch(const Failure& failure) { return failure.GetCode() == Err::VersionMismatch; }
 
   virtual ~IChatPeerLinks() = default;
 

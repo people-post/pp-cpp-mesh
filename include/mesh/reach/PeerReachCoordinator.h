@@ -154,6 +154,11 @@ public:
     CircuitFailed,
     /** The budget ran out without a link and without a more specific failure. */
     NotConnected,
+    /**
+     * The peer answered the dial in another wire or MSH version: it needs an update, or this side does
+     * (`message` says which). Not re-dialed within the attempt — the answer would be the same.
+     */
+    VersionMismatch,
     Generic,
   };
   using Failure = CodedFailure<Err>;

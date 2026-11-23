@@ -198,7 +198,8 @@ struct PunchServer::Impl {
         if (!value) {
           target_session->Close();
           // The target leg's failure, as the initiator's refusal: it declined us, or this
-          // introducer could not get to it (the initiator then asks another).
+          // introducer could not get to it (the initiator then asks another) — a target of another
+          // link version (VersionMismatch) included: an introducer of its version may.
           const PunchErr leg = value.error().GetCode();
           FailSession(initiator_session, epoch_id,
                       leg == PunchErr::Declined                                    ? PunchRefusal::Declined

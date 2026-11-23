@@ -93,7 +93,16 @@ PeerReachCoordinator::Failure PeerReachCoordinator::WrapLinkFailure(const IChatP
     case LinkErr::TransportFailed:
       code = Err::TransportFailed;
       break;
-    default:
+    case LinkErr::VersionMismatch:
+      code = Err::VersionMismatch;
+      break;
+    case LinkErr::Ok:
+    case LinkErr::AssociationNotReady:
+    case LinkErr::LinkNotFound:
+    case LinkErr::NestedCarrierIncomplete:
+    case LinkErr::DualDialLost:
+    case LinkErr::ChannelOpenFailed:
+    case LinkErr::Generic:
       code = Err::Generic;
       break;
   }
@@ -800,12 +809,14 @@ void PeerReachCoordinator::OnAssociationDone(const AttemptPtr& a, IChatPeerLinks
     // Backoff link schedules a second drop racing FinishDial (dogfood 130521).
     ClearBackoff(*a);
     // B31 / V049: re-dial within budget. assoc_done stays false so circuit / punch waits for the
-    // next attempt (otherwise a 250 ms poll pivots before the peer opens its hole).
-    if (NowMs() + kAssocRedialBackoffMs < RedialUntilMs(*a)) {
+    // next attempt (otherwise a 250 ms poll pivots before the peer opens its hole). Not after a
+    // version mismatch: the peer answered, in another version, and would answer a re-dial the same.
+    const bool redial = a->last_error.GetCode() != Err::VersionMismatch;
+    if (redial && NowMs() + kAssocRedialBackoffMs < RedialUntilMs(*a)) {
       rearm();
       return;
     }
-    a->assoc_done = true; // budget spent — allow circuit / punch
+    a->assoc_done = true; // budget spent (or a version mismatch) — allow circuit / punch
   }
   ScheduleTick(a, kPollMs);
 }

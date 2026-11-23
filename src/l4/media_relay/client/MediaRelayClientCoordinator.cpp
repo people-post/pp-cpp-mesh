@@ -71,8 +71,10 @@ Failure Refusal(const common::Object& root, const char* fallback) {
 MediaRelayClientCoordinator::Failure MediaRelayClientCoordinator::WrapLinkFailure(
     const pp::amp::PeerLinkManager::Failure& link) {
   using LinkErr = pp::amp::PeerLinkManager::Err;
+  // A hop of another link version needs an update, as one that answers `bad_version` does.
   const Err code = link.GetCode() == LinkErr::EndpointNotRegistered ? Err::HopNoEndpoint
                    : link.GetCode() == LinkErr::ChannelOpenFailed   ? Err::ChannelFailed
+                   : link.GetCode() == LinkErr::VersionMismatch     ? Err::VersionMismatch
                                                                     : Err::LinkFailed;
   return Failure::Of(code, detail::AppendFrom("media-relay: hop link failed", "link", link.message));
 }
