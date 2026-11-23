@@ -24,7 +24,7 @@ This doc plans **Amp Coordinated Punch (ACP)** — a DCUtR-*shaped* protocol own
 1. **Create direct Amp PeerLinks** when both sides are punchable but neither is inbound-Reachable alone.
 2. **Stay in-stack** — SoftMigrate / call signaling only consume dialability ([H001](DECISIONS.md#h001--separate-project-implementation-in-amp-mesh), [H007](DECISIONS.md#h007--no-app-layer-hop-candidate-exchange-as-product-path)).
 3. **Reuse existing trust planes** — introducer is a peer that already has authenticated Sessions to both ends (seed, Reachable contact, or circuit R1), not a public STUN service.
-4. **Fit Session rules** — at most one Connected PeerLink per PeerId ([A026](https://github.com/people-post/pp-browser/blob/main/projects/adp/DECISIONS.md)); parent-only destroy ([A027](https://github.com/people-post/pp-browser/blob/main/projects/adp/DECISIONS.md)).
+4. **Fit Session rules** — at most one Connected PeerLink per PeerId ([A026](https://github.com/people-post/pp-cpp-amp/blob/main/docs/DECISIONS.md#a026--one-session-per-peerid-under-dual-dial-mesh-election)); parent-only destroy ([A027](https://github.com/people-post/pp-cpp-amp/blob/main/docs/DECISIONS.md#a027--parent-only-destroy-l3l4-ownership-hierarchy)).
 5. **Prefer cheaper paths** — successful punch updates the address book and `IsPeerDialable` so circuit / SoftMigrate are used less often.
 
 ## Non-goals (v1 plan)
@@ -101,7 +101,7 @@ Exact wire frames land with implementation; semantics:
 3. **Collect candidates** — Each side sends **observed Amp UDP endpoints** to I: dial-back-observed, UPnP external, successful prior dials, ch0-advertised listen set. No app STUN.
 4. **Sync window** — I issues a short punch epoch (start time / nonce) to A and B over existing Sessions.
 5. **Simultaneous dial** — A and B burst Amp associate/dial toward each other’s candidate set for the epoch.
-6. **Elect** — First authenticated MSH / PeerLink wins ([A026](https://github.com/people-post/pp-browser/blob/main/projects/adp/DECISIONS.md)). Loser path is closed by the **parent** owner only ([A027](https://github.com/people-post/pp-browser/blob/main/projects/adp/DECISIONS.md)) — no TearDown-from-callback races.
+6. **Elect** — First authenticated MSH / PeerLink wins ([A026](https://github.com/people-post/pp-cpp-amp/blob/main/docs/DECISIONS.md#a026--one-session-per-peerid-under-dual-dial-mesh-election)). Loser path is closed by the **parent** owner only ([A027](https://github.com/people-post/pp-cpp-amp/blob/main/docs/DECISIONS.md#a027--parent-only-destroy-l3l4-ownership-hierarchy)) — no TearDown-from-callback races.
 7. **Publish** — Winner endpoints upsert into the stack address book; `IsPeerDialable(B)` becomes true for direct; optional contact mirror cache (H003).
 8. **Demote circuit** — On upgrade-from-circuit, migrate channels to the direct PeerLink, then request circuit close when safe.
 

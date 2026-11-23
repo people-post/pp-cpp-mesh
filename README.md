@@ -31,7 +31,7 @@ its history; pp-browser and its headless node `pp-node` are its first consumers.
 | `shared/`, `l4/shared/` | `pp_mesh_shared` | Protocol IDs, channel policies, frame bodies |
 | `reachability/` | `pp_mesh_reachability` | Reachability engine, dial-back, punch, LAN mDNS, UPnP |
 | `dht/` | `pp_mesh_dht` | DHT records, store, server and client |
-| `discovery/` | `pp_mesh_discovery` | Directory protocol, name directory, directory cache; the row: [docs/DIRECTORY.md](docs/DIRECTORY.md) |
+| `discovery/` | `pp_mesh_discovery` | Directory protocol, name directory, directory cache; the row: [docs/DIRECTORY.md](docs/DIRECTORY.md); the protocol: [MESH_DIRECTORY_AMP](docs/contracts/MESH_DIRECTORY_AMP.md) |
 | `l4/circuit/` | `pp_mesh_circuit` | Circuit relay (serve / client) |
 | `l4/media_relay/` | `pp_mesh_media_relay` | Media relay (serve / client) |
 | `host/` | `pp_mesh_host` | `MeshHost`: composes the services above on one Amp stack |
@@ -50,6 +50,12 @@ the harnesses (`pp_mesh_testing`) on top. `pp_mesh` links them all but `testing`
 Project notes that moved here from pp-browser keep their decision ids and live under `docs/projects/`:
 [media-hop-reachability](docs/projects/media-hop-reachability/README.md) (dialling a hop by PeerId: the
 address book, punching, circuits, R1 rendezvous; H001–H013).
+
+## Contracts
+
+Wire contracts this library alone implements, under `docs/contracts/`:
+[MESH_DIRECTORY_AMP](docs/contracts/MESH_DIRECTORY_AMP.md) (`/pp-mesh/directory/1.0.0`, the Amp twin of the relay's
+HTTP phone book; moved from pp-browser).
 
 ## Build
 
