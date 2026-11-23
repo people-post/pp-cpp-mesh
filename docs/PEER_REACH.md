@@ -366,6 +366,6 @@ Each step ships on its own (unit tests + the pp-browser labs):
 - THREADING.md (here) — lanes, and rule 1 (candidate policy is the app's).
 - pp-browser `docs/contracts/MESH_DHT.md`, `docs/contracts/MESH_DIRECTORY_AMP.md`,
   `docs/ops/CONFIGURATION.md` (Mesh DHT, Trusted relays only), `docs/architecture/MESH.md`.
-- pp-browser `projects/media-hop-reachability/DECISIONS.md` H010 (seed park gate), H011 (R1
-  rendezvous); `projects/p2p-mesh/DECISIONS.md` N015, N028; `projects/p2p-mesh/DESIGN.md`
-  (bootstrap seed, DHT, relay selection).
+- [projects/media-hop-reachability/DECISIONS.md](projects/media-hop-reachability/DECISIONS.md) (here)
+  H010 (seed park gate), H011 (R1 rendezvous); pp-browser `projects/p2p-mesh/DECISIONS.md` N015,
+  N028; `projects/p2p-mesh/DESIGN.md` (bootstrap seed, DHT, relay selection).
