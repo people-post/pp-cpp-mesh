@@ -45,6 +45,12 @@ Each folder under `src/` has its own `CMakeLists.txt` defining its library, and 
 `DEPS` are its allowed include edges; a test sits with the highest library it includes and may use
 the harnesses (`pp_mesh_testing`) on top. `pp_mesh` links them all but `testing`.
 
+## Design history
+
+Project notes that moved here from pp-browser keep their decision ids and live under `docs/projects/`:
+[media-hop-reachability](docs/projects/media-hop-reachability/README.md) (dialling a hop by PeerId: the
+address book, punching, circuits, R1 rendezvous; H001–H013).
+
 ## Build
 
 ```sh
