@@ -48,11 +48,15 @@ DirectoryClient::Failure DirectoryClient::WrapLinkFailure(const pp::amp::PeerLin
     case pp::amp::PeerLinkManager::Err::TransportFailed:
     case pp::amp::PeerLinkManager::Err::DualDialLost:
       return Failure::Of(Err::LinkFailed, detail::AppendFrom("directory: link failed", "link", child.message));
+    case pp::amp::PeerLinkManager::Err::VersionMismatch:
+      return Failure::Of(
+          Err::VersionMismatch,
+          detail::AppendFrom("directory: the peer speaks another link version, update needed", "link", child.message));
     case pp::amp::PeerLinkManager::Err::Ok:
     case pp::amp::PeerLinkManager::Err::Generic:
-    default:
-      return Failure::Of(Err::Generic, detail::AppendFrom("directory: link error", "link", child.message));
+      break;
   }
+  return Failure::Of(Err::Generic, detail::AppendFrom("directory: link error", "link", child.message));
 }
 
 DirectoryClient::DirectoryClient(pp::amp::MeshRuntime& runtime, IoPump io_pump)

@@ -241,7 +241,8 @@ Rules built on it:
   without an answer it is abandoned and the reach parks as before. Reach only: the awaiting side
   keeps its seed link untouched.
 - **Racing the circuit** (`PeerReachRequest::race_circuit`, off by default): by default a reach
-  gives its direct dial a 12 s budget (redialing within it) and only then builds the circuit — a
+  gives its direct dial a 12 s budget (redialing within it — not after a version mismatch, which a
+  redial would get again, docs/ERRORS.md) and only then builds the circuit — a
   peer the dial cannot reach costs 12 s and then the circuit (pp-browser #577: a 9 s handshake
   timeout, the pivot at 12 s, then a 9.6 s circuit). With the option the circuit starts with the
   dial (after its seed park, as always) and the first link to connect settles the reach: a direct

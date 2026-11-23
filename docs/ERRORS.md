@@ -14,7 +14,7 @@ Module codes stay in the process (never stored or sent); callers use their names
 
 ```text
 pp::amp::PeerLinkManager::Err          (pp-cpp-amp; docs/ADR_LINK_PLANE.md)
-  └─ IChatPeerLinks::Err               adapter: same values           host/MeshPorts.h
+  └─ IChatPeerLinks::Err               adapter: Amp's codes, by name  host/MeshPorts.h, host/AmpLinkErr.h
        ├─ IDialRegistry                 adapter: IChatPeerLinks codes  reach/MeshReachPorts.h
        ├─ CircuitClientCoordinator::Err owning: the circuit tunnel     l4/circuit/client
        │    └─ CircuitReachErr          owning: circuit reach (ICircuitHopReach / AmpCircuitHopReach)
@@ -25,6 +25,48 @@ pp::amp::PeerLinkManager::Err          (pp-cpp-amp; docs/ADR_LINK_PLANE.md)
        ├─ DhtClient::Err, DirectoryClient::Err, DialBackErr (below)
        └─ PeerReachCoordinator::Err     owning: reach a peer (dial, circuit, punch)
 ```
+
+## IChatPeerLinks::Err — Amp's link codes
+
+The mesh port's codes are Amp's `PeerLinkManager::Err` (pp-cpp-amp v6.1.0), name for name and value for value;
+`MeshPorts.h` keeps Amp's link headers out of feature code, so it is its own enum, not an alias.
+`ToMeshLinkErr` (`host/AmpLinkErr.h`) maps them by name, and every port result goes through it (no cast):
+
+| Value | Code | Meaning |
+|------:|------|---------|
+| 0 | `Ok` | success |
+| 1 | `EndpointNotRegistered` | no address for the dial key |
+| 2 | `DialInBackoff` | the last dial failed; its backoff is running |
+| 3 | `TooManyConcurrentDials` | too many dials in flight |
+| 4 | `MaxLinksReached` | the link table is full |
+| 5 | `AssociationNotReady` | no Connected link (a channel open, a send) |
+| 6 | `LinkNotFound` | no link for the key after the association |
+| 7 | `NestedCarrierIncomplete` | a nested link over a carrier was asked for without one |
+| 8 | `DialTimeout` | the handshake timed out |
+| 9 | `HandshakeFailed` | the MSH handshake failed |
+| 10 | `TransportFailed` | the OS could not send, or the peer closed the association |
+| 11 | `DualDialLost` | the other dial of a simultaneous open won |
+| 12 | `ChannelOpenFailed` | the channel open was refused, or the mux failed |
+| 13 | `VersionMismatch` | the peer speaks another wire or MSH version (Amp N032 / U5): it answered, and it or this side must update (`message` says which) |
+| 14 | `Generic` | unclassified |
+
+Before v10.1.0 the port lacked `VersionMismatch` and cast Amp's code across by number: Amp's
+`VersionMismatch` (13) read as the port's `Generic` (13), and Amp's `Generic` (14) as no code at all.
+
+What keeps the two in step: `MeshPorts.cpp` asserts each code's value equal to Amp's (`static_assert`, one per
+code; `Generic` last in both, so neither has a code between them that the other lacks), and `ToMeshLinkErr`
+names every Amp code in a `switch` without `default`, where a missing case is an error on every compiler — a code
+Amp adds does not build until the port has it. `MeshLinkErrTest.EveryAmpCodeCrossesAsItself` walks every Amp
+value through the map. pp-browser's `docs/contracts/AMP-LINK-ERRORS.md` lists the same table.
+
+A link `VersionMismatch` is "update needed", not a network failure, in every layer that wraps link codes: it is
+each owning layer's `VersionMismatch` — `DhtClient` (a refusal: a publish every peer refuses backs off),
+`DirectoryClient`, `DialBackErr`, `PunchErr` (the walk asks another introducer), `CircuitTunnelErr` (circuit
+reach holds the relay back like a refusal), `MediaRelayErr` and `PeerReachCoordinator::Err` (the dial is not
+redialed: the peer would answer the same). A punch introducer whose target leg fails so answers
+`target_unknown`, so the initiator asks another introducer. A nested link over a circuit that fails so is
+`NestedFailed`, like any nested miss (Amp's text says the version). `PeerReachRecord` marks the peer Down
+`VersionMismatch` from Amp's link event either way.
 
 ## Codes on the wire
 
@@ -92,7 +134,7 @@ introduces or bursts, its result is already coming and a stray frame changes not
 | `TargetUnreachable` | relay: it could not reach the target (`target_unreachable`) |
 | `RelayBusy` | relay: busy (`busy`) |
 | `RelayRefused` | relay: refused us (`refused`, `not_ready`, `bad_request`) |
-| `VersionMismatch` | relay: it does not read our circuit version (`bad_version`) |
+| `VersionMismatch` | relay: it does not read our circuit version (`bad_version`), or its link speaks another wire / MSH version |
 
 ### CircuitReachErr — reach a peer or a hop through relays (`ICircuitHopReach`)
 
@@ -123,7 +165,8 @@ no relay address, no ack in time), and on `TargetNotReserved` the relay is retri
 `NotStarted`, `EndpointNotRegistered` (no address for the introducer), `InvalidRequest`,
 `LinkFailed`, `Timeout`, `ChannelFailed`, `ProtocolError`, `PunchFailed` (it ran; no path won),
 `Declined` (the target declines us), `TargetUnknown` (the introducer cannot get to the target),
-`VersionMismatch` (the introducer does not read our punch version: `bad_version`).
+`VersionMismatch` (the introducer does not read our punch version: `bad_version`; or its link speaks another
+wire / MSH version).
 
 ### PunchIntroducerWalk::Err
 
@@ -145,7 +188,7 @@ The walk asks the next introducer when the punch failed with `TargetUnknown`,
 
 `NotStarted`, `BadRequest`, `HopNoEndpoint`, `LinkFailed`, `ChannelFailed`, `Timeout`, `Closed`,
 `Aborted`, `BadReply`, `NotAttached`; the hop's refusals `HopBusy`, `HopRefused`, `AuthFailed`,
-`UnknownQuote`, `VersionMismatch` (`bad_version`); and `QuoteDeclined` (the caller's own gate, e.g. a
+`UnknownQuote`, `VersionMismatch` (`bad_version`, or a hop link of another wire / MSH version); and `QuoteDeclined` (the caller's own gate, e.g. a
 price).
 
 ### DhtClient::Err, DirectoryClient::Err, DialBackErr
@@ -155,7 +198,7 @@ price).
 
 | Code | Meaning |
 |------|---------|
-| `VersionMismatch` | the peer answered `bad_version`: it does not read our version (its `supported_versions` are in `message`) — update needed, not misbehaviour |
+| `VersionMismatch` | the peer answered `bad_version`: it does not read our version (its `supported_versions` are in `message`), or its link speaks another wire / MSH version — update needed, not misbehaviour |
 | `NotServed` (DHT) | the peer serves no DHT: the channel open was refused, no handler |
 | `NotFound` (DHT, directory) | someone answered; nobody had it |
 | `ConcurrencyLimit` (DHT) | too many lookups in flight |
@@ -179,6 +222,7 @@ A DHT publish whose every ask failed `VersionMismatch` or `NotServed` backs off 
 | `TransportFailed` | the OS could not send (the link may be stale — dial fresh next time) |
 | `CircuitFailed` | the circuit / punch step failed (`message` has the reach chain) |
 | `NotConnected` | the budget ran out without a link and without a more specific failure |
+| `VersionMismatch` | the peer answered the dial in another wire / MSH version (not redialed; circuit / punch still run) |
 
 The code is the most telling failure of the attempt: a dial's when the direct dial failed last, the
 circuit's when that ran last.

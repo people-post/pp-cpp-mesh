@@ -49,7 +49,7 @@ public:
         on_done({});
         return;
       }
-      on_done(IChatPeerLinks::Failure::Of(IChatPeerLinks::Err::DialTimeout, "amp link: handshake-timeout"));
+      on_done(IChatPeerLinks::Failure::Of(miss_code, "amp link: dial missed"));
     });
   }
   std::optional<std::string> PreferredMultiaddr(const std::string& peer_key) const override {
@@ -77,6 +77,8 @@ public:
   std::unordered_set<std::string> hops;
   int64_t dial_ms = 300;
   bool dial_connects = false;
+  /** A miss's code: a handshake timeout, unless a test says otherwise. */
+  IChatPeerLinks::Err miss_code = IChatPeerLinks::Err::DialTimeout;
   int dials = 0;
   int dials_out = 0;
 
@@ -306,6 +308,43 @@ TEST_F(PeerReachRaceTest, AwaitIgnoresTheRace) {
   EXPECT_EQ(circuit_->circuit_then_punch, 0);
   EXPECT_EQ(circuit_->punches, 1);
   EXPECT_EQ(dial_->dials, 0);
+}
+
+// A peer of another link version answers the dial at once, in its version, and would answer a re-dial the same:
+// the reach is not re-dialed for the rest of its budget (12 s, a re-dial every 1.5 s) — it goes on to the circuit.
+TEST_F(PeerReachRaceTest, AVersionMismatchIsNotRedialed) {
+  dial_->endpoints[kPeer] = kPublicMa;
+  dial_->dial_ms = 50;
+  dial_->miss_code = IChatPeerLinks::Err::VersionMismatch;
+  circuit_->circuit_ms = 1000;
+  Outcome out = Run(Request(/*race=*/false));
+  ASSERT_TRUE(out.result && *out.result) << (out.result ? out.result->error().message : "no answer");
+  EXPECT_EQ((*out.result)->kind, PeerLinkKind::Relayed);
+  EXPECT_EQ(dial_->dials, 1) << "not re-dialed";
+  EXPECT_LT(out.at_ms, 2000) << "the circuit at once, not after the dial's budget";
+}
+
+// Without a circuit the dial's failure is the reach's: a version mismatch, which callers tell apart from a peer
+// that did not answer — not Generic.
+TEST_F(PeerReachRaceTest, AVersionMismatchIsTheReachsCodeWhenTheDialRanLast) {
+  PeerReachPorts ports{dial_.get(), nullptr, lane_};
+  ports.now_ms = [lane = lane_.get()]() { return lane->Now().count(); };
+  reach_->SetDeps(std::move(ports));
+  dial_->endpoints[kPeer] = kPublicMa;
+  dial_->dial_ms = 50;
+  dial_->miss_code = IChatPeerLinks::Err::VersionMismatch;
+  Outcome out = Run(Request(/*race=*/false));
+  ASSERT_TRUE(out.result);
+  ASSERT_FALSE(*out.result);
+  EXPECT_EQ(out.result->error().GetCode(), PeerReachCoordinator::Err::VersionMismatch) << out.result->error().message;
+  EXPECT_EQ(dial_->dials, 1) << "not re-dialed";
+}
+
+TEST(PeerReachWrapTest, ALinkVersionMismatchIsTheReachsVersionMismatch) {
+  const auto wrapped = PeerReachCoordinator::WrapLinkFailure(
+      IChatPeerLinks::Failure::Of(IChatPeerLinks::Err::VersionMismatch, "the peer speaks wire v3"));
+  EXPECT_EQ(wrapped.GetCode(), PeerReachCoordinator::Err::VersionMismatch);
+  EXPECT_NE(wrapped.message.find("the peer speaks wire v3"), std::string::npos) << wrapped.message;
 }
 
 } // namespace

@@ -5,6 +5,7 @@
 #include "amp/link/PeerLinkManager.h"
 #include "amp/link/Types.h"
 #include "common/Logger.h"
+#include "mesh/host/AmpLinkErr.h"
 #include "mesh/shared/AmpChannelOpen.h"
 
 #include <chrono>
@@ -40,21 +41,98 @@ IChatPeerLinks::LinkRoe ToLinkRoe(const pp::amp::PeerLinkManager::LinkRoe& resul
   if (result) {
     return {};
   }
-  const auto& amp_failure = result.error();
-  return IChatPeerLinks::LinkRoe::error(IChatPeerLinks::Failure::Of(
-      static_cast<IChatPeerLinks::Err>(static_cast<int32_t>(amp_failure.GetCode())), amp_failure.message));
+  return IChatPeerLinks::LinkRoe::error(ToMeshLinkFailure(result.error()));
 }
 
 IChatPeerLinks::ChannelRoe ToChannelRoe(const pp::amp::PeerLinkManager::ChannelRoe& result) {
   if (result) {
     return *result;
   }
-  const auto& amp_failure = result.error();
-  return IChatPeerLinks::ChannelRoe::error(IChatPeerLinks::Failure::Of(
-      static_cast<IChatPeerLinks::Err>(static_cast<int32_t>(amp_failure.GetCode())), amp_failure.message));
+  return IChatPeerLinks::ChannelRoe::error(ToMeshLinkFailure(result.error()));
 }
 
+// IChatPeerLinks::Err is Amp's PeerLinkManager::Err, code for code (MeshPorts.h keeps Amp's link headers out of
+// feature code, so it is its own enum): each value is Amp's, and Generic is last in both — so neither has a code
+// the other lacks between them. ToMeshLinkErr below names every Amp code, so one Amp adds fails the build there.
+#define PP_MESH_SAME_LINK_ERR(name)                                                                                 \
+  static_assert(                                                                                                    \
+      static_cast<int32_t>(IChatPeerLinks::Err::name) == static_cast<int32_t>(pp::amp::PeerLinkManager::Err::name), \
+      "IChatPeerLinks::Err::" #name " is not Amp's PeerLinkManager::Err::" #name)
+PP_MESH_SAME_LINK_ERR(Ok);
+PP_MESH_SAME_LINK_ERR(EndpointNotRegistered);
+PP_MESH_SAME_LINK_ERR(DialInBackoff);
+PP_MESH_SAME_LINK_ERR(TooManyConcurrentDials);
+PP_MESH_SAME_LINK_ERR(MaxLinksReached);
+PP_MESH_SAME_LINK_ERR(AssociationNotReady);
+PP_MESH_SAME_LINK_ERR(LinkNotFound);
+PP_MESH_SAME_LINK_ERR(NestedCarrierIncomplete);
+PP_MESH_SAME_LINK_ERR(DialTimeout);
+PP_MESH_SAME_LINK_ERR(HandshakeFailed);
+PP_MESH_SAME_LINK_ERR(TransportFailed);
+PP_MESH_SAME_LINK_ERR(DualDialLost);
+PP_MESH_SAME_LINK_ERR(ChannelOpenFailed);
+PP_MESH_SAME_LINK_ERR(VersionMismatch);
+PP_MESH_SAME_LINK_ERR(Generic);
+#undef PP_MESH_SAME_LINK_ERR
+
 } // namespace
+
+// No `default:` — and a missing case is an error, not a warning, on every compiler — so a code Amp adds cannot
+// fall through to Generic unnoticed (the way VersionMismatch once did).
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic error "-Wswitch"
+#elif defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(1 : 4062) // off by default: on, and an error
+#pragma warning(error : 4062)
+#endif
+IChatPeerLinks::Err ToMeshLinkErr(const pp::amp::PeerLinkManager::Err code) {
+  using Amp = pp::amp::PeerLinkManager::Err;
+  using Mesh = IChatPeerLinks::Err;
+  switch (code) {
+    case Amp::Ok:
+      return Mesh::Ok;
+    case Amp::EndpointNotRegistered:
+      return Mesh::EndpointNotRegistered;
+    case Amp::DialInBackoff:
+      return Mesh::DialInBackoff;
+    case Amp::TooManyConcurrentDials:
+      return Mesh::TooManyConcurrentDials;
+    case Amp::MaxLinksReached:
+      return Mesh::MaxLinksReached;
+    case Amp::AssociationNotReady:
+      return Mesh::AssociationNotReady;
+    case Amp::LinkNotFound:
+      return Mesh::LinkNotFound;
+    case Amp::NestedCarrierIncomplete:
+      return Mesh::NestedCarrierIncomplete;
+    case Amp::DialTimeout:
+      return Mesh::DialTimeout;
+    case Amp::HandshakeFailed:
+      return Mesh::HandshakeFailed;
+    case Amp::TransportFailed:
+      return Mesh::TransportFailed;
+    case Amp::DualDialLost:
+      return Mesh::DualDialLost;
+    case Amp::ChannelOpenFailed:
+      return Mesh::ChannelOpenFailed;
+    case Amp::VersionMismatch:
+      return Mesh::VersionMismatch;
+    case Amp::Generic:
+      return Mesh::Generic;
+  }
+  return Mesh::Generic; // not an Amp enumerator
+}
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#elif defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
+IChatPeerLinks::Failure ToMeshLinkFailure(const pp::amp::PeerLinkManager::Failure& failure) {
+  return IChatPeerLinks::Failure::Of(ToMeshLinkErr(failure.GetCode()), failure.message);
+}
 
 MeshPeerLinkSnapshot ToMeshPeerLinkSnapshot(const pp::amp::PeerLinkSnapshot& snap) {
   MeshPeerLinkSnapshot out;

@@ -55,11 +55,15 @@ DhtClient::Failure DhtClient::WrapLinkFailure(const pp::amp::PeerLinkManager::Fa
     case pp::amp::PeerLinkManager::Err::TransportFailed:
     case pp::amp::PeerLinkManager::Err::DualDialLost:
       return Failure::Of(Err::LinkFailed, detail::AppendFrom("dht: link failed", "link", child.message));
+    case pp::amp::PeerLinkManager::Err::VersionMismatch:
+      return Failure::Of(
+          Err::VersionMismatch,
+          detail::AppendFrom("dht: the peer speaks another link version, update needed", "link", child.message));
     case pp::amp::PeerLinkManager::Err::Ok:
     case pp::amp::PeerLinkManager::Err::Generic:
-    default:
-      return Failure::Of(Err::Generic, detail::AppendFrom("dht: link error", "link", child.message));
+      break;
   }
+  return Failure::Of(Err::Generic, detail::AppendFrom("dht: link error", "link", child.message));
 }
 
 DhtClient::Failure DhtClient::FailureFromErrorReply(const common::Object& reply, const std::string& context) {
