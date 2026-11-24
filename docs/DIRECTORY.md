@@ -52,3 +52,8 @@ signature, which is the app's; the mesh keeps the bytes.
 `schema_version` 2 since 10.0.0: the node shape did not change, but a list saved before the
 cutover names nodes on the old signed formats, so a file of any other version is ignored (a
 clean start, RC017) and rewritten at the next good refresh.
+
+Since 10.2.0 the file also says where the list came from: `"source"`, the directory's address as the app
+names it (`SetSource`). A list saved from another source is not loaded — a list one directory gave is never
+taken for another's — and is written over at the next good refresh. The key is optional: a file without it
+(saved before 10.2.0) is loaded as before, and an older reader ignores it.
