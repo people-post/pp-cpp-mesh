@@ -130,14 +130,21 @@ void MeshDirectoryCache::SetPersistPath(std::string path) {
   persist_path_ = std::move(path);
 }
 
+void MeshDirectoryCache::SetSource(std::string source) {
+  std::lock_guard lock(mutex_);
+  source_ = std::move(source);
+}
+
 void MeshDirectoryCache::LoadPersisted() {
   std::string path;
+  std::string source;
   {
     std::lock_guard lock(mutex_);
     if (persist_path_.empty() || !nodes_.empty()) {
       return;
     }
     path = persist_path_;
+    source = source_;
   }
   std::ifstream in(path);
   if (!in) {
@@ -150,6 +157,10 @@ void MeshDirectoryCache::LoadPersisted() {
   }
   const int version = static_cast<int>(root->getIf<int64_t>("schema_version").value_or(0));
   if (version != kMeshDirectoryCacheSchemaVersion) {
+    return;
+  }
+  // Another directory's list (an optional key: a file without it, saved before 10.2.0, is read as before).
+  if (const auto saved = root->getString("source"); saved && !source.empty() && *saved != source) {
     return;
   }
   const common::Array* arr = root->getArray("nodes");
@@ -207,6 +218,9 @@ void MeshDirectoryCache::PersistLocked() const {
   }
   common::Object root;
   root.set("schema_version", int64_t{kMeshDirectoryCacheSchemaVersion});
+  if (!source_.empty()) {
+    root.set("source", source_);
+  }
   std::vector<common::Value> rows;
   rows.reserve(nodes_.size());
   for (const MeshDirectoryNode& node : nodes_) {

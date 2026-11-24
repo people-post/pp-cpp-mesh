@@ -178,6 +178,58 @@ TEST(MeshDirectoryCacheTest, PersistAndLoadLastGood) {
   std::filesystem::remove(path);
 }
 
+// 10.2.0: the list is saved with its source, and a list saved from another source is not loaded; a file without a
+// source (saved before) is loaded as before.
+TEST(MeshDirectoryCacheTest, AListSavedFromAnotherSourceIsNotLoaded) {
+  const auto* info = ::testing::UnitTest::GetInstance();
+  const std::string path = (std::filesystem::temp_directory_path() /
+                            ("pp_mesh_dir_cache_source_" + std::to_string(info->random_seed()) + ".json"))
+                               .string();
+  std::filesystem::remove(path);
+  {
+    MeshDirectoryCache cache(
+        []() -> Roe<std::vector<MeshDirectoryNode>> {
+          MeshDirectoryNode node;
+          node.peer_id = "12D3KooWFromA";
+          node.multiaddrs = {"/ip4/1.1.1.1/udp/443/adp/2/p2p/12D3KooWFromA"};
+          return std::vector<MeshDirectoryNode>{node};
+        },
+        nullptr);
+    cache.SetPersistPath(path);
+    cache.SetSource("https://a.example.test/api/relay");
+    cache.RequestRefresh();
+    ASSERT_EQ(cache.Snapshot().size(), 1u);
+  }
+  {
+    std::ifstream in(path);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_NE(text.find("\"source\": \"https://a.example.test/api/relay\""), std::string::npos) << text;
+  }
+  const auto load_with = [&path](const std::string& source) {
+    MeshDirectoryCache cache([]() -> Roe<std::vector<MeshDirectoryNode>> { return Error("no net"); }, nullptr);
+    cache.SetPersistPath(path);
+    cache.SetSource(source);
+    cache.LoadPersisted();
+    return cache.Snapshot().size();
+  };
+  EXPECT_EQ(load_with("https://a.example.test/api/relay"), 1u) << "its own source";
+  EXPECT_EQ(load_with("https://b.example.test/api/relay"), 0u) << "another directory's list is not taken";
+  EXPECT_EQ(load_with(""), 1u) << "a cache told no source loads what is there";
+
+  // A file from before 10.2.0 (no source) loads under any source.
+  std::string text;
+  {
+    std::ifstream in(path);
+    text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+  auto root = common::TryParseObject(text);
+  ASSERT_TRUE(root);
+  root->erase("source");
+  ASSERT_TRUE(AtomicFileWrite::Write(path, common::DumpJson(*root, 2)));
+  EXPECT_EQ(load_with("https://b.example.test/api/relay"), 1u);
+  std::filesystem::remove(path);
+}
+
 // The file saved before the release-1 cutover (schema_version 1) is ignored, and rewritten at the next good refresh.
 TEST(MeshDirectoryCacheTest, AFileOfAnotherSchemaIsIgnoredAndRewritten) {
   const auto* info = ::testing::UnitTest::GetInstance();

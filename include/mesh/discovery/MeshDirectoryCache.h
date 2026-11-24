@@ -44,6 +44,12 @@ public:
    * Call LoadPersisted() after set so Snapshot is non-empty before first refresh.
    */
   void SetPersistPath(std::string path);
+  /**
+   * Where the list comes from (the directory's address, as the app names it; "" none). The saved list is written with
+   * it (`source`), and a saved list of another source is not loaded: a list one directory gave is never taken for
+   * another's. A file without one (saved before 10.2.0) is loaded as before. Call before LoadPersisted().
+   */
+  void SetSource(std::string source);
   void LoadPersisted();
 
   /** Thread-safe snapshot for hop policy (may be empty before first refresh / load). */
@@ -64,6 +70,7 @@ private:
   mutable std::mutex mutex_;
   std::vector<MeshDirectoryNode> nodes_;
   std::string persist_path_;
+  std::string source_;
   std::chrono::steady_clock::time_point next_refresh_at_{};
   std::chrono::seconds refresh_interval_{300};
   std::chrono::seconds failure_backoff_{60};
