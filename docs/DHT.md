@@ -184,7 +184,7 @@ byte length, then the UTF-8 bytes; numbers are decimal text inside their field, 
 ```
 
 v1 had the domain `pp-mesh:dht-record-v1` 00 and a `Len("sign_version=1")` field where v2 has
-the version byte; it had no area. Frozen vectors: `src/dht/tests/data/dht_record_vectors.json`
+the version byte; it had no area. Frozen vectors: pp-specs `vectors/dht_record_vectors.json`
 (SIGNED_FORMATS § 6 "Per object": the signed bytes of a fixed input with an empty area and with
 one unknown non-critical entry, signed records that verify, and the refusals of the table above),
 checked by `dht_record_vectors_test.cpp`; `PP_WRITE_DHT_RECORD_VECTORS=<path>` writes a fresh

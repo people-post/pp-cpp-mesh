@@ -29,6 +29,7 @@ if(PP_MESH_BUILD_TESTS)
     )
     FetchContent_MakeAvailable(googletest)
   endif()
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/PpSpecs.cmake)
 endif()
 
 add_subdirectory(src)
