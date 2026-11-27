@@ -1,5 +1,5 @@
 // Frozen DHT record vectors (pp-browser projects/release-compatibility/SIGNED_FORMATS § 6 "Per object", § 2.10; RC020),
-// in data/dht_record_vectors.json:
+// in pp-specs' vectors/dht_record_vectors.json:
 //
 //  - the signed bytes of a fixed `PeerRoutingRecord` v2 with an empty extension area, and with one unknown
 //    non-critical entry (hex): a change to the signed bytes without a version bump fails here;
