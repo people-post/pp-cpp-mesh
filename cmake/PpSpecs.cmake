@@ -17,7 +17,9 @@ else()
     set(_pp_specs_tag "${_pp_specs_pin}")
   endif()
   include(FetchContent)
-  FetchContent_Declare(pp_specs GIT_REPOSITORY https://github.com/people-post/pp-specs.git GIT_TAG ${_pp_specs_tag})
+  # Byte-for-byte data: never let git convert line ends (Windows runners clone with core.autocrlf=true).
+  FetchContent_Declare(pp_specs GIT_REPOSITORY https://github.com/people-post/pp-specs.git GIT_TAG ${_pp_specs_tag}
+                       GIT_CONFIG core.autocrlf=false)
   # No CMakeLists.txt there: MakeAvailable only fetches it.
   FetchContent_MakeAvailable(pp_specs)
   FetchContent_GetProperties(pp_specs SOURCE_DIR _pp_specs_src)
